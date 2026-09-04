@@ -1058,8 +1058,11 @@ the entity / period / unbalanced counts without touching disk. The `--fi-file` a
 **API path behaviour:** for each Y-tunnus, the engine calls `GET /v3/financials` which
 returns a `{"totalResults": N, "financials": [{"businessId": …, "financialDate": "YYYY-MM-DD"}, …]}`
 envelope. The engine extracts the `financialDate` strings, picks the latest, then fetches
-that period's XBRL via `GET /v3/financial`. A missing or erroring entity is recorded as
-`"no-financials"` or `"source-error"` in the coverage report and never silently dropped.
+that period's XBRL via `GET /v3/financial`. An entity PRH lists nothing for is recorded as
+`"no-financials"`; one whose listing or document call died is `"source-error"` (the
+coverage row names the call that failed) — never silently dropped. Every API-path
+register (NO, BE, FI, DK, SK) draws the same line: an empty answer from a reachable
+register is the issuer's own `"no-financials"`, a failed first call is a dead source.
 
 ## Honest caveats — FI
 

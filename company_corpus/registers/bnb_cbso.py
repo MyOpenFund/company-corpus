@@ -12,13 +12,16 @@ intentionally out of scope for this module.
 
 Public API
 ----------
-fetch_bnb_deposit(kbo, *, fetcher, key) -> bytes | None
-    Returns the raw bytes of the latest deposit zip/xbrl, or None on any error.
+fetch_bnb_deposit(kbo, *, fetcher, key, errors=None) -> bytes | None
+    Returns the raw bytes of the latest deposit zip/xbrl, or None on any error
+    (reported into ``errors`` when a list is given).
 """
 from __future__ import annotations
 
 import logging
 import uuid
+
+from ._errors import note_error
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +51,9 @@ def _pick_latest(deposits: list[dict]) -> dict | None:
     return max(deposits, key=_sort_key)
 
 
-def fetch_bnb_deposit(kbo: str, *, fetcher, key: str) -> bytes | None:
+def fetch_bnb_deposit(
+    kbo: str, *, fetcher, key: str, errors: "list[dict] | None" = None,
+) -> bytes | None:
     """Fetch a Belgian company's latest annual-accounts deposit (XBRL).
 
     Parameters
@@ -61,6 +66,9 @@ def fetch_bnb_deposit(kbo: str, *, fetcher, key: str) -> bytes | None:
     key:
         CBSO Authentic Data API subscription key (free self-service registration
         at https://developer.cbso.nbb.be).
+    errors:
+        Optional list; a caught exception appends one record here (see
+        :mod:`._errors`) so the caller can tell a dead API from "no deposits".
 
     Returns
     -------
@@ -78,8 +86,9 @@ def fetch_bnb_deposit(kbo: str, *, fetcher, key: str) -> bytes | None:
     refs_url = f"{BASE}/authentic/legalEntity/{kbo}/references"
     try:
         deposits = fetcher.get_json(refs_url, headers=_cbso_headers(key))
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         log.warning("CBSO references fetch failed for KBO %s", kbo, exc_info=True)
+        note_error(errors, entity_id=kbo, source="bnb", stage="fetch_bnb_deposit", exc=exc)
         return None
 
     if not deposits:
@@ -101,11 +110,12 @@ def fetch_bnb_deposit(kbo: str, *, fetcher, key: str) -> bytes | None:
             headers={**_cbso_headers(key), "Accept": "application/x.xbrl"},
         )
         return resp.content
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         log.warning(
             "CBSO accounting-data fetch failed for KBO %s ref %s",
             kbo,
             latest.get("ReferenceNumber"),
             exc_info=True,
         )
+        note_error(errors, entity_id=kbo, source="bnb", stage="fetch_bnb_deposit", exc=exc)
         return None

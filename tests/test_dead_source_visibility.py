@@ -431,3 +431,170 @@ def test_eu_financials_cli_dry_run_writes_no_trail(monkeypatch, tmp_path, _dead_
     rep = json.loads((tmp_path / "runs.jsonl").read_text().strip().split("\n")[-1])
     assert rc == 3 and rep["outcome"] == "degraded"
     assert not (tmp_path / "discovery_errors.jsonl").exists()
+
+
+# --------------------------------------------------------------------------
+# (h) register helpers: a failed FIRST call is a dead source, not an empty filer
+# --------------------------------------------------------------------------
+# The API helpers swallow exceptions into []/None by contract (batch-safe).
+# Before this section, a producer whose very first register call died could not
+# tell "dead" from "empty" and recorded no-financials with errors == 0. Each
+# helper now takes an ``errors`` out-parameter; the producers read it.
+
+def _build_no(cfg, fetcher):
+    from company_corpus.registers.financials import build_register_financials
+
+    return build_register_financials([{"orgnr": "923609016"}], fetcher=fetcher,
+                                     config=cfg, write=True)
+
+
+def _build_be(cfg, fetcher):
+    from company_corpus.registers.financials import build_be_financials
+
+    return build_be_financials([{"be_number": "0648822310"}], fetcher=fetcher,
+                               config=cfg, key="k", write=True)
+
+
+def _build_fi(cfg, fetcher):
+    from company_corpus.registers.financials import build_fi_financials
+
+    return build_fi_financials([{"business_id": "2919415-2"}], fetcher=fetcher,
+                               config=cfg, write=True)
+
+
+def _build_dk(cfg, fetcher):
+    from company_corpus.registers.financials import build_dk_financials
+
+    return build_dk_financials([{"cvr": "30830725"}], fetcher=fetcher,
+                               config=cfg, write=True)
+
+
+def _build_sk(cfg, fetcher):
+    from company_corpus.registers.financials import build_sk_financials
+
+    return build_sk_financials([9000014], fetcher=fetcher, config=cfg, write=True)
+
+
+# (builder, coverage-file suffix, run-report source code, first helper called)
+_REGISTER_CASES = {
+    "no": (_build_no, "brreg", "brreg", "fetch_brreg_accounts"),
+    "be": (_build_be, "bnb", "bnb", "fetch_bnb_deposit"),
+    "fi": (_build_fi, "prh", "prh", "list_fi_dates"),
+    "dk": (_build_dk, "erst", "erst", "search_virk_filings"),
+    "sk": (_build_sk, "registeruz", "registeruz", "fetch_entity"),
+}
+
+
+class _EmptyHealthyFetcher:
+    """A reachable register that simply lists nothing for the entity."""
+
+    def get_json(self, url, *a, **kw):
+        if "avoindata.prh.fi" in url:
+            return {"totalResults": 0, "financials": []}
+        if "registeruz.sk" in url:
+            return {}
+        return []  # brreg accounts / CBSO references
+
+    def post_json(self, url, body, *a, **kw):
+        return {"hits": {"hits": []}}
+
+    def get(self, url, *a, **kw):
+        raise AssertionError("no document should be fetched for an empty listing")
+
+
+@pytest.mark.parametrize("reg", sorted(_REGISTER_CASES))
+def test_register_first_call_failure_is_source_error(reg, tmp_path):
+    build, cov_suffix, _code, stage = _REGISTER_CASES[reg]
+    out = build(Config(data_dir=tmp_path), _RaisingFetcher())
+
+    assert out["entities"] == 1
+    assert out["no_financials"] == 0, "a dead register must not read as 'filed nothing'"
+    assert out["errors"] == 1 and out["source_errors"] == 1
+    item = out["error_items"][0]
+    assert item["entity_id"] is not None and item["source"] == _code
+    assert stage in item["error"] and "RuntimeError" in item["error"]
+    cov = _coverage(tmp_path, cov_suffix)[0]
+    assert cov["status"] == "source-error" and stage in cov["error"]
+
+
+@pytest.mark.parametrize("reg", sorted(_REGISTER_CASES))
+def test_register_empty_listing_on_healthy_source_stays_no_financials(reg, tmp_path):
+    """The false-positive guard: an empty answer from a live register is still
+    the issuer's own 'filed nothing'."""
+    build, cov_suffix, _code, _stage = _REGISTER_CASES[reg]
+    out = build(Config(data_dir=tmp_path), _EmptyHealthyFetcher())
+
+    assert out["no_financials"] == 1
+    assert out["errors"] == 0 and out["source_errors"] == 0 and not out["error_items"]
+    assert _coverage(tmp_path, cov_suffix)[0]["status"] == "no-financials"
+
+
+_REGISTER_CLI_FLAGS = {
+    "no": ["--orgnrs", "923609016"],
+    "be": ["--be-numbers", "0648822310"],
+    "fi": ["--fi-businessid", "2919415-2"],
+    "dk": ["--dk-cvr", "30830725"],
+    "sk": ["--sk-id", "9000014"],
+}
+
+
+@pytest.mark.parametrize("reg", sorted(_REGISTER_CLI_FLAGS))
+def test_register_cli_dead_first_call_is_degraded(reg, monkeypatch, tmp_path):
+    """End to end: the register's first call dies -> degraded (exit 3), a
+    non-empty error sample, and a trail row stamped with the run id."""
+    monkeypatch.setattr(cli, "Fetcher", lambda cfg: _RaisingFetcher())
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("BNB_CBSO_KEY", "dummy")
+    rc = cli.main(["--data-dir", str(tmp_path), "register-financials",
+                   *_REGISTER_CLI_FLAGS[reg], "--write"])
+    rep = json.loads((tmp_path / "runs.jsonl").read_text().strip().split("\n")[-1])
+
+    assert rc == 3 and rep["outcome"] == "degraded"
+    # The run report keys sources by authority code (source_codes.py), which
+    # is the producer tag everywhere but Belgium (bnb -> nbb).
+    code = {"bnb": "nbb"}.get(_REGISTER_CASES[reg][2], _REGISTER_CASES[reg][2])
+    src = [s for s in rep["sources"] if s["source_code"] == code][0]
+    assert src["fetch_errors"] == 1 and src["error_samples"]
+    rows = [json.loads(x) for x in
+            (tmp_path / "discovery_errors.jsonl").read_text().splitlines() if x]
+    assert rows and rows[-1]["run_id"] == rep["run_id"]
+
+
+@pytest.mark.parametrize("helper, call", [
+    ("no_brreg.fetch_brreg_accounts", lambda f, e: ("923609016",), ),
+    ("bnb_cbso.fetch_bnb_deposit", lambda f, e: ("0648822310",)),
+    ("virk_api.search_virk_filings", lambda f, e: ("30830725",)),
+    ("prh_api.list_fi_dates", lambda f, e: ("2919415-2",)),
+    ("sk_registeruz.fetch_entity", lambda f, e: (9000014,)),
+    ("sk_registeruz.fetch_zavierka", lambda f, e: (1,)),
+    ("sk_registeruz.fetch_vykaz", lambda f, e: (1,)),
+    ("sk_registeruz.fetch_sablona", lambda f, e: (699,)),
+])
+def test_register_helper_reports_into_errors_out_param(helper, call):
+    """Each helper keeps its swallow-into-[]/None contract but, when handed an
+    ``errors`` list, appends one structured record naming its own stage."""
+    import importlib
+
+    mod_name, fn_name = helper.split(".")
+    fn = getattr(importlib.import_module(f"company_corpus.registers.{mod_name}"), fn_name)
+    kw = {"key": "k"} if fn_name == "fetch_bnb_deposit" else {}
+
+    errors: list[dict] = []
+    result = fn(*call(None, None), fetcher=_RaisingFetcher(), errors=errors, **kw)
+    assert result in ([], None)
+    assert len(errors) == 1
+    rec = errors[0]
+    assert rec["stage"] == fn_name and rec["source"]
+    assert rec["entity_id"] is not None
+    assert rec["error"].startswith("RuntimeError: simulated network error")
+    # Without the out-parameter, today's contract is untouched.
+    assert fn(*call(None, None), fetcher=_RaisingFetcher(), **kw) in ([], None)
+
+
+def test_prh_iter_fi_all_reports_into_errors_out_param():
+    from company_corpus.registers.prh_api import iter_fi_all
+
+    errors: list[dict] = []
+    assert list(iter_fi_all("2024-12-31", fetcher=_RaisingFetcher(), errors=errors)) == []
+    assert len(errors) == 1 and errors[0]["stage"] == "iter_fi_all"
+    assert errors[0]["error"].startswith("RuntimeError")

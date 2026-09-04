@@ -246,6 +246,14 @@ def _record_source_error(
     log.warning("%s: source error for %s: %s", source, entity_id, msg)
 
 
+def _fetch_errors_message(errors: list[dict]) -> str:
+    """Fold the records a register helper appended to its ``errors``
+    out-parameter (see :mod:`._errors`) into one ``stage: error`` message for
+    :func:`_record_source_error`, so the coverage row and the trail say which
+    call died."""
+    return "; ".join(f"{e.get('stage')}: {e.get('error')}" for e in errors)
+
+
 def _finalise_coverage(
     out: dict, coverage: list[dict], config: Config, source: str, *, write: bool,
 ) -> dict:

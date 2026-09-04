@@ -36,6 +36,8 @@ from __future__ import annotations
 import logging
 from typing import Iterator
 
+from ._errors import note_error
+
 log = logging.getLogger(__name__)
 
 BASE = "https://www.registeruz.sk/cruz-public/api"
@@ -132,7 +134,9 @@ def parse_vykaz(vykaz: dict, sablona: dict) -> dict:
 # Keyless API client
 # ---------------------------------------------------------------------------
 
-def fetch_vykaz(id: int, *, fetcher) -> dict | None:
+def fetch_vykaz(
+    id: int, *, fetcher, errors: "list[dict] | None" = None,
+) -> dict | None:
     """Fetch a single accounting statement (uctovny-vykaz) by numeric ID.
 
     Parameters
@@ -147,15 +151,21 @@ def fetch_vykaz(id: int, *, fetcher) -> dict | None:
     -------
     dict or None
         Parsed JSON, or ``None`` on any error.  Batch-safe; never raises.
+        Here and in the three sibling fetchers below, ``errors`` (optional
+        list) receives one record per caught exception (see :mod:`._errors`)
+        so a caller can tell a dead API from an absent record.
     """
     try:
         return fetcher.get_json(f"{BASE}/uctovny-vykaz", params={"id": id})
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         log.warning("SK fetch_vykaz failed for id=%s", id, exc_info=True)
+        note_error(errors, entity_id=id, source="registeruz", stage="fetch_vykaz", exc=exc)
         return None
 
 
-def fetch_sablona(id: int, *, fetcher) -> dict | None:
+def fetch_sablona(
+    id: int, *, fetcher, errors: "list[dict] | None" = None,
+) -> dict | None:
     """Fetch a template (sablona) definition by numeric ID.
 
     Sablona IDs are few (< 20 distinct values).  Callers should cache the
@@ -175,12 +185,15 @@ def fetch_sablona(id: int, *, fetcher) -> dict | None:
     """
     try:
         return fetcher.get_json(f"{BASE}/sablona", params={"id": id})
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         log.warning("SK fetch_sablona failed for id=%s", id, exc_info=True)
+        note_error(errors, entity_id=id, source="registeruz", stage="fetch_sablona", exc=exc)
         return None
 
 
-def fetch_entity(id: int, *, fetcher) -> dict | None:
+def fetch_entity(
+    id: int, *, fetcher, errors: "list[dict] | None" = None,
+) -> dict | None:
     """Fetch an accounting-entity (uctovna-jednotka) record by numeric ID.
 
     Parameters
@@ -197,12 +210,15 @@ def fetch_entity(id: int, *, fetcher) -> dict | None:
     """
     try:
         return fetcher.get_json(f"{BASE}/uctovna-jednotka", params={"id": id})
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         log.warning("SK fetch_entity failed for id=%s", id, exc_info=True)
+        note_error(errors, entity_id=id, source="registeruz", stage="fetch_entity", exc=exc)
         return None
 
 
-def fetch_zavierka(id: int, *, fetcher) -> dict | None:
+def fetch_zavierka(
+    id: int, *, fetcher, errors: "list[dict] | None" = None,
+) -> dict | None:
     """Fetch an annual-report closure (uctovna-zavierka) record by numeric ID.
 
     Parameters
@@ -219,8 +235,9 @@ def fetch_zavierka(id: int, *, fetcher) -> dict | None:
     """
     try:
         return fetcher.get_json(f"{BASE}/uctovna-zavierka", params={"id": id})
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         log.warning("SK fetch_zavierka failed for id=%s", id, exc_info=True)
+        note_error(errors, entity_id=id, source="registeruz", stage="fetch_zavierka", exc=exc)
         return None
 
 

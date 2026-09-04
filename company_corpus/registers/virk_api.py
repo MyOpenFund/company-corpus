@@ -15,9 +15,10 @@ when present.
 
 Public API
 ----------
-search_virk_filings(cvr, *, fetcher) -> list[dict]
+search_virk_filings(cvr, *, fetcher, errors=None) -> list[dict]
     Returns the ``_source`` of every filing hit, sorted newest-first.
-    Returns ``[]`` on any error (batch-safe, never raises).
+    Returns ``[]`` on any error (batch-safe, never raises; the error is
+    reported into ``errors`` when a list is given).
 
 fetch_virk_document(url, *, fetcher) -> bytes | None
     Downloads a Virk document; gunzips if magic bytes indicate gzip.
@@ -35,6 +36,8 @@ from __future__ import annotations
 import gzip
 import logging
 
+from ._errors import note_error
+
 log = logging.getLogger(__name__)
 
 BASE = "http://distribution.virk.dk"
@@ -44,7 +47,9 @@ _PAGE_SIZE = 50
 _GZIP_MAGIC = b"\x1f\x8b"
 
 
-def search_virk_filings(cvr: str, *, fetcher) -> list[dict]:
+def search_virk_filings(
+    cvr: str, *, fetcher, errors: "list[dict] | None" = None,
+) -> list[dict]:
     """Search Virk for annual-report filings for *cvr* (8-digit string).
 
     Issues a POST to the Elasticsearch endpoint with a ``term`` query on
@@ -58,6 +63,9 @@ def search_virk_filings(cvr: str, *, fetcher) -> list[dict]:
     fetcher:
         A :class:`~company_corpus.http.Fetcher` instance (or any object
         exposing ``post_json(url, body)``).
+    errors:
+        Optional list; a caught exception appends one record here (see
+        :mod:`._errors`) so the caller can tell a dead API from "no filings".
     """
     body = {
         "query": {"term": {"cvrNummer": int(cvr)}},
@@ -68,8 +76,9 @@ def search_virk_filings(cvr: str, *, fetcher) -> list[dict]:
         response = fetcher.post_json(_SEARCH_URL, body)
         hits = response.get("hits", {}).get("hits", [])
         return [h["_source"] for h in hits if "_source" in h]
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
         log.warning("Virk search failed for CVR %s", cvr, exc_info=True)
+        note_error(errors, entity_id=cvr, source="erst", stage="search_virk_filings", exc=exc)
         return []
 
 
