@@ -189,3 +189,37 @@ def test_eu_acquire_untagged_error_item_raises(monkeypatch, tmp_path):
     _install(monkeypatch, tmp_path, out=out)
     rc = cli.main(["eu-acquire", "--leis", "L1"])
     assert rc == 1 and "no backend source" in _report(tmp_path)["fatal"]
+
+
+def test_eu_acquire_not_indexed_issuer_with_healthy_empty_oam_is_ok(monkeypatch, tmp_path):
+    """End to end through the REAL orchestrator and the REAL aggregator backend:
+    the national OAM is reachable and lists nothing, filings.xbrl.org answers
+    HTTP 404 (issuer not indexed). Nothing is wrong with any source, so the run
+    is a clean nothing-to-do (rc 0), not a false-positive exit 3."""
+    import requests
+
+    from company_corpus.eu import acquire as acq
+    from company_corpus.eu.entities import Entity
+
+    class _Resp:
+        status_code = 404
+
+    class _NotIndexedFetcher:
+        def get_json(self, url, **_):
+            raise requests.HTTPError("404 for " + url, response=_Resp())
+
+    class _HealthyEmptyOam:
+        name = "oam-de"
+        def __init__(self, *a, **k): self.errors = []
+        def discover(self, e): return []
+
+    monkeypatch.setattr(acq, "resolve_entities",
+                        lambda specs, *, fetcher: [Entity("L1", "X", "DE", resolution="lei")])
+    monkeypatch.setattr(acq, "COUNTRY_BACKENDS", {"DE": _HealthyEmptyOam})
+    monkeypatch.setattr(cli, "Fetcher", lambda cfg: _NotIndexedFetcher())
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(tmp_path))
+    rc = cli.main(["--data-dir", str(tmp_path), "eu-acquire", "--leis", "L1"])
+    rep = _report(tmp_path)
+    assert rc == 0 and rep["outcome"] == "ok"
+    by_code = {s["source_code"]: s for s in rep["sources"]}
+    assert by_code["xbrlorg"]["docs_failed"] == 0 and by_code["xbrlorg"]["fetch_errors"] == 0

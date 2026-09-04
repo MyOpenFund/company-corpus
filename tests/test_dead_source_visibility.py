@@ -218,7 +218,7 @@ def _dead_esef(monkeypatch):
 
     class _Src:
         def __init__(self, *a, **k):
-            pass
+            self.errors = []  # the backend contract: recorded (swallowed) errors
 
         def discover(self, entity):
             return [_esef_doc()]
@@ -248,6 +248,51 @@ def test_eu_financials_cli_degraded_and_logged(monkeypatch, tmp_path, _dead_esef
 
     assert rc == 3 and rep["outcome"] == "degraded"
     assert [s for s in rep["sources"] if s["source_code"] == "xbrlorg"][0]["error_samples"]
+    rows = [json.loads(x) for x in
+            (tmp_path / "discovery_errors.jsonl").read_text().splitlines() if x]
+    assert rows and rows[-1]["run_id"] == rep["run_id"]
+
+
+@pytest.fixture()
+def _dead_esef_listing(monkeypatch):
+    """filings.xbrl.org itself is unreachable: the per-entity filings LISTING
+    fails. The real backend swallows that into ``src.errors`` and returns [] —
+    which must not read as "the issuer filed nothing"."""
+    from company_corpus.eu import financials as euf
+    from company_corpus.eu.entities import Entity
+
+    monkeypatch.setattr(euf, "resolve_entities",
+                        lambda specs, *, fetcher: [Entity("LEI1", "A", "DE", resolution="lei")])
+    return _RaisingFetcher()
+
+
+def test_eu_financials_dead_listing_is_source_error(tmp_path, _dead_esef_listing):
+    """Mirror of the register 'first call failure is source-error' test for the
+    aggregator: a dead LISTING is the aggregator's failure, never no-financials."""
+    from company_corpus.eu.financials import build_eu_financials
+
+    out = build_eu_financials([{"lei": "LEI1"}], fetcher=_dead_esef_listing,
+                              config=Config(data_dir=tmp_path), write=True)
+    assert out["entities"] == 1
+    assert out["no_financials"] == 0, "a dead aggregator must not read as 'filed nothing'"
+    assert out["errors"] == 1
+    item = out["error_items"][0]
+    assert item["entity_id"] == "LEI1" and item["source"] == "esef"
+    assert "discover" in item["error"] and "simulated network error" in item["error"]
+    cov = [json.loads(x) for x in
+           (tmp_path / "reports" / "eu_financials_coverage.jsonl").read_text().splitlines() if x]
+    assert cov[0]["status"] == "source-error" and "simulated network error" in cov[0]["error"]
+
+
+def test_eu_financials_cli_dead_listing_is_degraded(monkeypatch, tmp_path, _dead_esef_listing):
+    monkeypatch.setattr(cli, "Fetcher", lambda cfg: _dead_esef_listing)
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(tmp_path))
+    rc = cli.main(["--data-dir", str(tmp_path), "eu-financials", "--leis", "LEI1", "--write"])
+    rep = json.loads((tmp_path / "runs.jsonl").read_text().strip().split("\n")[-1])
+
+    assert rc == 3 and rep["outcome"] == "degraded"
+    src = [s for s in rep["sources"] if s["source_code"] == "xbrlorg"][0]
+    assert src["docs_failed"] == 1 and src["error_samples"]
     rows = [json.loads(x) for x in
             (tmp_path / "discovery_errors.jsonl").read_text().splitlines() if x]
     assert rows and rows[-1]["run_id"] == rep["run_id"]

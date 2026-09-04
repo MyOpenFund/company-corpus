@@ -93,8 +93,9 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True,
 
     The summary carries, besides the totals, ``sources``: per backend ``name``,
     the entities it was asked about, the kept documents it contributed
-    (``Document.source``) and the errors it raised or recorded — the run report
-    is fed one row per authority from it. Every error item is tagged with the
+    (``Document.source``), the errors it raised or recorded and ``not_indexed``
+    (the entities it answered "not indexed here" for — a note, not an error) —
+    the run report is fed one row per authority from it. Every error item is tagged with the
     backend's ``source`` (a raised discovery goes under the backend that died,
     a download failure under the document's source) so the trail names the
     authority, never a generic orchestrator. ``unresolved`` counts the specs
@@ -113,7 +114,8 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True,
     sources: dict[str, dict] = {}
 
     def _src(name: str) -> dict:
-        return sources.setdefault(name, {"entities": 0, "documents": 0, "errors": 0})
+        return sources.setdefault(
+            name, {"entities": 0, "documents": 0, "errors": 0, "not_indexed": 0})
 
     def _discover(backend, e) -> list:
         name = _backend_name(backend)
@@ -131,14 +133,18 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True,
         recorded = list(getattr(backend, "errors", []))
         errors.extend(recorded)
         stats["errors"] += len(recorded)
+        # A backend's notes are observations, not failures: "not indexed here"
+        # (the aggregator's 404) is counted on its row and never degrades a run.
+        stats["not_indexed"] += sum(
+            1 for n in getattr(backend, "notes", []) if n.get("context") == "not-indexed")
         return docs
 
     unresolved = 0
     unresolved_specs: list[dict] = []
     # LEI -> the backend failure that killed its discovery. Only *raised* backend
-    # errors land here (a backend's own recorded errors include benign 404s, which
-    # are "not indexed", not a dead source), and they turn the entity's coverage
-    # row into a `source-error` instead of a look-alike `no-documents`.
+    # errors land here (a backend's own recorded errors can be partial — a
+    # truncated page next to real documents), and they turn the entity's
+    # coverage row into a `source-error` instead of a look-alike `no-documents`.
     discover_failures: dict[str, str] = {}
     for i, e in enumerate(entities):
         if not e.lei:

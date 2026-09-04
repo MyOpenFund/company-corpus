@@ -280,10 +280,42 @@ def test_acquire_reports_per_backend_counts(monkeypatch, tmp_path):
     # The input specs that resolved to no LEI, in input order (one Entity per spec).
     assert summary["unresolved_specs"] == [{"isin": "X"}]
     assert summary["sources"] == {
-        "oam-de": {"entities": 2, "documents": 1, "errors": 2},
-        "filings.xbrl.org": {"entities": 2, "documents": 2, "errors": 0},
+        "oam-de": {"entities": 2, "documents": 1, "errors": 2, "not_indexed": 0},
+        "filings.xbrl.org": {"entities": 2, "documents": 2, "errors": 0, "not_indexed": 0},
     }
     dead = [e for e in summary["errors"] if e.get("context") == "discover"]
     assert dead == [{"source": "oam-de", "context": "discover", "entity": "L2",
                      "error": "Bundesanzeiger down"}]
     assert len(summary["errors"]) == 2
+
+
+def test_acquire_counts_aggregator_not_indexed_as_a_note(monkeypatch, tmp_path):
+    """A filings.xbrl.org 404 (issuer not indexed) is a note on the backend's
+    row, not an error: `not_indexed` counts it, `errors` stays 0."""
+    cfg = Config(data_dir=tmp_path / "data", contact="t@e.com")
+    monkeypatch.setattr(acq, "resolve_entities",
+                        lambda specs, *, fetcher: [Entity("L1", "X", "DE", resolution="lei")])
+
+    class _Empty:
+        name = "oam-de"
+        def __init__(self, *a, **k): self.errors = []
+        def discover(self, e): return []
+
+    class _NotIndexed:
+        name = "filings.xbrl.org"
+        def __init__(self, *a, **k):
+            self.errors = []
+            self.notes = []
+        def discover(self, e):
+            self.notes.append({"source": self.name, "context": "not-indexed", "url": "u",
+                               "note": "HTTP 404"})
+            return []
+
+    monkeypatch.setattr(acq, "COUNTRY_BACKENDS", {"DE": _Empty})
+    monkeypatch.setattr(acq, "FilingsXbrlOrg", _NotIndexed)
+    summary = acq.acquire([{"lei": "L1"}], fetcher=object(), config=cfg,
+                          download=False, write=False)
+    assert summary["errors"] == []
+    assert summary["sources"]["filings.xbrl.org"]["not_indexed"] == 1
+    assert summary["sources"]["filings.xbrl.org"]["errors"] == 0
+    assert summary["sources"]["oam-de"]["not_indexed"] == 0

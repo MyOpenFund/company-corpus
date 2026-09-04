@@ -69,3 +69,23 @@ def test_full_page_records_truncation():
     docs = src.discover(Entity(lei="L1", name="X", country="DE"))
     assert len(docs) == _PAGE
     assert any(e["context"] == "truncated" for e in src.errors)
+
+
+def test_discover_http_404_is_not_indexed_not_an_error():
+    """The aggregator answers HTTP 404 for an issuer it does not index. That is
+    a definitive 'not here', not a dead source: recorded as a note, never as an
+    error (which would degrade an eu-acquire run whose OAM is healthy-empty)."""
+    import requests
+
+    class _Resp:
+        status_code = 404
+
+    class _NotIndexedFetcher:
+        def get_json(self, url, **_):
+            raise requests.HTTPError("404 for " + url, response=_Resp())
+
+    src = FilingsXbrlOrg(fetcher=_NotIndexedFetcher())
+    assert src.discover(Entity(lei="NOTININDEX", name="Ghost Corp", country="EU")) == []
+    assert src.errors == []
+    assert src.notes and src.notes[0]["context"] == "not-indexed"
+    assert src.notes[0]["source"] == "filings.xbrl.org" and "404" in src.notes[0]["note"]

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
+import requests
+
 from ..documents import Document
 from ..entities import Entity
 from ..oam_base import OamSource
@@ -26,12 +28,19 @@ class FilingsXbrlOrg(OamSource):
             return []
         # Recon-confirmed: filter[entity_api_id] is INVALID (400); the working query
         # is the entity's own filings collection. Many entities return [] or 404
-        # (erratic coverage) -> treat both as "no filings", never an error abort.
+        # (erratic coverage) -> both are "no filings", never an abort. A 404 is
+        # the aggregator's definitive "not indexed": a NOTE on this backend's
+        # row, not an error (an error would degrade an eu-acquire run whose
+        # national OAM is healthy and empty). Anything else is a dead source.
         url = f"{self.BASE}/api/entities/{entity.lei}/filings?page[size]={_PAGE}"
         try:
             rows = self.fetcher.get_json(url).get("data") or []
-        except Exception as exc:  # noqa: BLE001  (404 = not indexed -> no filings)
-            self._record_error("discover", url, exc)
+        except Exception as exc:  # noqa: BLE001
+            if _is_http_404(exc):
+                self._record_note("not-indexed", url,
+                                  "HTTP 404: issuer not indexed by filings.xbrl.org")
+            else:
+                self._record_error("discover", url, exc)
             return []
         # Single page (an issuer's ESEF reports are a handful — far under the cap).
         # Still never silently partial: a full page means there may be more.
@@ -53,6 +62,14 @@ class FilingsXbrlOrg(OamSource):
                 files=[dict(f, sha256=a.get("sha256") if f["kind"] == "package_url" else None) for f in files],
                 native_meta=a))
         return out
+
+
+def _is_http_404(exc: Exception) -> bool:
+    """A ``requests.HTTPError`` whose response is a 404 — the only shape the
+    live fetcher produces for "not indexed"; any other failure is a dead source."""
+    if not isinstance(exc, requests.HTTPError):
+        return False
+    return getattr(getattr(exc, "response", None), "status_code", None) == 404
 
 
 def _to_date(s: str | None) -> date | None:

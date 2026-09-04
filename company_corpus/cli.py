@@ -810,7 +810,7 @@ def _cmd_eu_acquire(args: argparse.Namespace) -> int:
     for name in sorted(sources):
         st = sources[name]
         print(f"  {name}: entities={st['entities']} documents={st['documents']} "
-              f"errors={st['errors']}")
+              f"errors={st['errors']} not-indexed={st.get('not_indexed', 0)}")
     if out.get("coverage_path"):
         print(f"  coverage: {out['coverage_path']}")
 

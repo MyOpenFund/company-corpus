@@ -46,12 +46,21 @@ def facts_for_entity(
     and, when the caller passes ``errors``, appended there as
     ``{entity_id, source, error, ts}`` so the run report and the discovery-error
     trail can tell "the aggregator failed" from "the issuer filed nothing".
+
+    The same holds one level up: the backend swallows a failed filings LISTING
+    into ``src.errors`` and returns no documents, so those recorded errors are
+    folded into ``errors`` too — a dead aggregator yields an empty ``flat`` AND
+    an error, never a look-alike "no filings". (A 404 "not indexed" is a note
+    on the backend, not an error, and stays a genuine no-filings.)
     """
     flat: dict[str, list[dict]] = {}
     if not entity.lei:
         return flat
     src = FilingsXbrlOrg(fetcher=fetcher)
-    for doc in src.discover(entity):
+    docs = src.discover(entity)
+    for e in src.errors:
+        _record_error(errors, entity.lei, f"{e['context']}: {e['url']}: {e['error']}")
+    for doc in docs:
         meta = doc.native_meta or {}
         jf = next((f for f in doc.files if f.get("kind") == "json_url" and f.get("url")), None)
         if not jf:
