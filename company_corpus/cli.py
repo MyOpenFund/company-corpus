@@ -53,8 +53,14 @@ Three deliberate choices:
   and come from the filings.xbrl.org aggregator (:mod:`company_corpus.eu.financials`),
   not from a national OAM backend. **``eu-acquire`` reports one row per backend**
   it dispatched to (``out["sources"]``, keyed by the backend ``name`` and resolved
-  to the authority's code), so a dead national OAM degrades the run under its own
-  authority while the aggregator's row stays clean — never a single blended row.
+  to the authority's code), so a dead national OAM is counted as that backend's
+  own failure on its own row while the aggregator's row stays clean — never a
+  single blended row. The run itself degrades only under the zero-useful-work
+  rule of :meth:`RunReport.finish` (no document acquired at all): a dead OAM
+  next to a productive aggregator is an ``ok`` run whose report names the dead
+  authority. A spec that resolves to no LEI reaches no backend and no row; the
+  command prints such specs (``unresolved: …``) and fails the run only when
+  *every* spec is unresolved (bad inputs, or GLEIF unreachable).
 """
 
 from __future__ import annotations
@@ -733,6 +739,14 @@ def _eu_specs(args: argparse.Namespace) -> list[dict]:
     return []
 
 
+def _spec_label(spec: dict) -> str:
+    """``{"isin": "FR…"}`` -> ``"ISIN FR…"`` (the identifier the caller typed)."""
+    for key in ("lei", "isin", "orgnr", "name", "ticker"):
+        if spec.get(key):
+            return f"{key.upper()} {spec[key]}"
+    return repr(spec)
+
+
 def _cmd_eu_financials(args: argparse.Namespace) -> int:
     """Build IFRS financials from ESEF; reported under ``xbrlorg``.
 
@@ -763,10 +777,14 @@ def _cmd_eu_acquire(args: argparse.Namespace) -> int:
     and writes everything; ``--write --no-download`` is a discovery-only run
     that still leaves the entity index, the coverage file and the error trail.
 
-    The run report gets one row per backend (see the module docstring). A run
-    whose specs all failed to resolve reached no backend at all, so nothing
-    would report and the run would pass for a green nothing-to-do: it returns
-    2 instead, which :func:`main` folds into a ``failed`` report.
+    The run report gets one row per backend (see the module docstring). A spec
+    that resolved to no LEI reaches no backend and therefore no report row, so
+    it is printed (``unresolved: ISIN …, LEI …``) — that stdout line is its only
+    trace on a dry run. A run whose specs ALL failed to resolve reached no
+    backend at all, so nothing would report and the run would pass for a green
+    nothing-to-do: it returns 2 instead, which :func:`main` folds into a
+    ``failed`` report — and the message says the cause may be GLEIF itself,
+    since an unreachable resolver looks exactly like a bad input.
     """
     cfg = _config(args)
     fetcher = Fetcher(cfg)
@@ -775,6 +793,7 @@ def _cmd_eu_acquire(args: argparse.Namespace) -> int:
                   download=download, write=args.write)
     if not args.write:
         mode = "DRY-RUN (nothing written)"
+        print("note: --no-download is implied without --write")
     elif download:
         mode = "WROTE"
     else:
@@ -784,6 +803,9 @@ def _cmd_eu_acquire(args: argparse.Namespace) -> int:
           f"({out.get('unresolved', 0)} unresolved), {verb} {out['documents']} documents, "
           f"{out['manifests']} manifests, {out['deduped_by_bytes']} byte-deduped, "
           f"{out['download_errors']} download errors, {len(out['errors'])} errors")
+    unresolved_specs = out.get("unresolved_specs") or []
+    if unresolved_specs:
+        print("  unresolved: " + ", ".join(_spec_label(s) for s in unresolved_specs))
     sources = out.get("sources") or {}
     for name in sorted(sources):
         st = sources[name]
@@ -812,7 +834,8 @@ def _cmd_eu_acquire(args: argparse.Namespace) -> int:
         _feed_report(report, name, failed=len(items), errors=items)
     if out["entities"] and not sources:
         print(f"error: eu-acquire: every spec is unresolved ({out['entities']} entities, "
-              "no LEI) — no backend was queried", file=sys.stderr)
+              "no LEI: bad identifiers, or GLEIF unreachable) — no backend was queried",
+              file=sys.stderr)
         return 2
     return 0
 

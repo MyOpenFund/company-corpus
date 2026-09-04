@@ -167,11 +167,18 @@ gated on `--write`, since downloaded files are writes). The run report
 (`docs_seen` = entities asked, `docs_new` = documents kept from that backend —
 counted in a dry run too, `docs_failed` = that backend's errors), resolved to the
 authority's code (`amf`, `banz`, `xbrlorg`, `euronext`, …) — so a dead national
-OAM degrades the run under its own authority and never hides behind the
-aggregator's row. Every error item is appended to `discovery_errors.jsonl` with
-`--write`. A run whose specs all failed to resolve reached no backend at all and
-exits as `failed` rather than as a green nothing-to-do. There is no country
-filter: the country comes from the resolved entity, not from the caller.
+OAM is counted as that backend's own failure on its own `sources` row, never
+hidden behind the aggregator's. The run itself degrades only when no document
+was acquired at all (the zero-useful-work rule): a dead OAM next to a productive
+aggregator is an `ok` run whose report names the dead authority. Every error
+item is appended to `discovery_errors.jsonl` with `--write`. A spec that resolves
+to no LEI reaches no backend and no row, so the command prints it
+(`unresolved: ISIN …, LEI …`, in input order) — on a dry run that line is its
+only trace. A run whose specs *all* failed to resolve (bad identifiers, or GLEIF
+unreachable) reached no backend at all and exits as `failed` rather than as a
+green nothing-to-do. Without `--write` the command also prints
+`note: --no-download is implied without --write`. There is no country filter:
+the country comes from the resolved entity, not from the caller.
 
 ### Library — `acquire()`
 

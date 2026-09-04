@@ -267,11 +267,16 @@ def _note_partial_fetch_errors(
     fetch_errors: list[dict], cov: dict, *, entity_id, source: str, out: dict,
 ) -> None:
     """Surface dead calls on an entity that still got a coverage status of its
-    own (``ok`` / ``no-financials`` / ``unbalanced``).
+    own.
 
     A multi-call traversal (SK: zavierka → vykaz → sablona per period) can lose
-    some periods to a dead call and still produce others. The entity keeps the
-    status its surviving periods earned, but the dead calls are counted in
+    some periods to a dead call and still produce others. The helper itself is
+    status-agnostic, but the SK caller routes "dead calls and no surviving
+    rows" to :func:`_record_source_error` (a ``source-error``, not a
+    ``no-financials`` / ``unbalanced`` look-alike) before reaching here — so in
+    practice only an ``ok`` entity (rows survived) arrives with a non-empty
+    ``fetch_errors``. The entity keeps the status its surviving periods earned,
+    but the dead calls are counted in
     ``out["errors"]`` / ``out["source_errors"]``, itemised in ``error_items``
     (the run report and the trail) and written onto the coverage row under
     ``fetch_errors`` — so a partial traversal is never silent. No-op when

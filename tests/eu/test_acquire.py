@@ -277,6 +277,8 @@ def test_acquire_reports_per_backend_counts(monkeypatch, tmp_path):
     summary = acq.acquire([{"lei": "L1"}, {"lei": "L2"}, {"isin": "X"}],
                           fetcher=object(), config=cfg, download=False, write=False)
     assert summary["entities"] == 3 and summary["unresolved"] == 1
+    # The input specs that resolved to no LEI, in input order (one Entity per spec).
+    assert summary["unresolved_specs"] == [{"isin": "X"}]
     assert summary["sources"] == {
         "oam-de": {"entities": 2, "documents": 1, "errors": 2},
         "filings.xbrl.org": {"entities": 2, "documents": 2, "errors": 0},

@@ -99,7 +99,9 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True,
     a download failure under the document's source) so the trail names the
     authority, never a generic orchestrator. ``unresolved`` counts the specs
     that resolved to no LEI (they reach no backend; the coverage file lists them
-    as ``unresolved-entity``).
+    as ``unresolved-entity``) and ``unresolved_specs`` lists them — the input
+    specs themselves, in input order — so a partially unresolved run can show
+    which inputs went nowhere even when nothing is written (dry run).
     """
     if download and not write:
         raise ValueError("download=True requires write=True (downloads are writes)")
@@ -132,14 +134,19 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True,
         return docs
 
     unresolved = 0
+    unresolved_specs: list[dict] = []
     # LEI -> the backend failure that killed its discovery. Only *raised* backend
     # errors land here (a backend's own recorded errors include benign 404s, which
     # are "not indexed", not a dead source), and they turn the entity's coverage
     # row into a `source-error` instead of a look-alike `no-documents`.
     discover_failures: dict[str, str] = {}
-    for e in entities:
+    for i, e in enumerate(entities):
         if not e.lei:
             unresolved += 1
+            # resolve_entities yields one Entity per spec, in order; the fallback
+            # only guards a resolver stub that returns a different shape.
+            unresolved_specs.append(specs[i] if i < len(specs)
+                                    else {"name": e.name, "country": e.country})
             continue
         backends = []
         cls = COUNTRY_BACKENDS.get(e.country)
@@ -214,6 +221,7 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True,
         cov_path.write_text("\n".join(json.dumps(r, default=str) for r in cov))
 
     return {"entities": len(entities), "unresolved": unresolved,
+            "unresolved_specs": unresolved_specs,
             "documents": len(kept_docs),
             "manifests": manifests, "deduped_by_bytes": deduped_by_bytes,
             "download_errors": download_errors,
