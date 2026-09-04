@@ -126,7 +126,9 @@ def build_eu_financials(specs, *, fetcher, config: Config, write: bool = True, u
     ``out["errors"]`` counts the filings whose facts could not be fetched and
     ``out["error_items"]`` carries one timestamped record each — a dead
     aggregator therefore degrades the run instead of masquerading as an issuer
-    with no financials.
+    with no financials. Errors are counted per *filing* while ``entities`` is
+    per *issuer*, so in the run report ``docs_failed`` may exceed ``docs_seen``
+    for an issuer with several dead filings.
     """
     entities = resolve_entities(specs, fetcher=fetcher)
     storage = Storage(config)
