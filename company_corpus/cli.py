@@ -607,6 +607,7 @@ def _cmd_discover(args: argparse.Namespace) -> int:
         dry_run=dry_run,
         max_rounds=args.rounds,
         config=cfg,
+        run_id=_run_id(args),
     )
     mode = "DRY-RUN (nothing written)" if dry_run else "WROTE manifests"
     s = report.stats
@@ -625,6 +626,7 @@ def _cmd_discover(args: argparse.Namespace) -> int:
             ciks, scope=scope, year_min=year_min, year_max=year_max,
             since=since, until=until,
             dry_run=False, overwrite=args.overwrite, limit=args.limit, config=cfg,
+            run_id=_run_id(args),
         )
         print(f"download — got={dl.downloaded} skipped={dl.skipped} errors={dl.errors} "
               f"bytes={dl.bytes:,}")
@@ -645,6 +647,7 @@ def _cmd_download(args: argparse.Namespace) -> int:
     dl = download_universe(
         ciks, scope=scope, year_min=year_min, year_max=year_max, since=since, until=until,
         dry_run=dry_run, overwrite=args.overwrite, limit=args.limit, config=cfg,
+        run_id=_run_id(args),
     )
     mode = "DRY-RUN (nothing written)" if dry_run else "WROTE"
     print(f"download [{mode}] — got={dl.downloaded} skipped={dl.skipped} "
@@ -669,6 +672,7 @@ def _cmd_render_pdf(args: argparse.Namespace) -> int:
         rep = render_universe(
             ciks, scope=scope, year_min=year_min, year_max=year_max, since=since, until=until,
             dry_run=dry_run, overwrite=args.overwrite, limit=args.limit, config=cfg,
+            run_id=_run_id(args),
         )
     except RuntimeError as exc:  # e.g. Chrome not installed
         print(f"render-pdf: {exc}", file=sys.stderr)
@@ -696,7 +700,7 @@ def _cmd_xbrl(args: argparse.Namespace) -> int:
     until_year = max(years) if years else None
     dry_run = not args.write
     rep = fetch_financials(ciks, since_year=since_year, until_year=until_year,
-                           dry_run=dry_run, config=cfg)
+                           dry_run=dry_run, config=cfg, run_id=_run_id(args))
     mode = "DRY-RUN (nothing written)" if dry_run else "WROTE"
     s = rep.stats
     print(f"xbrl [{mode}] — {rep.issuers} issuers, {rep.periods} period summaries (F1)")
@@ -870,7 +874,8 @@ def _cmd_ownership(args: argparse.Namespace) -> int:
     dry_run = not args.write
     rep = process_ownership(ciks, scope=scope, year_min=year_min, year_max=year_max,
                             since=since, until=until, dry_run=dry_run,
-                            overwrite=args.overwrite, limit=args.limit, config=cfg)
+                            overwrite=args.overwrite, limit=args.limit, config=cfg,
+                            run_id=_run_id(args))
     mode = "DRY-RUN (nothing written)" if dry_run else "WROTE"
     print(f"ownership [{mode}] — {rep.issuers} issuers, downloaded={rep.downloaded}")
     print(f"  insider(E1)={rep.parsed_insider} 13F(E2)={rep.parsed_13f} "

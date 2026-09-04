@@ -273,3 +273,137 @@ def test_record_errors_preserves_existing_stamps(tmp_path):
         [{"error": "boom", "ts": "2020-01-01T00:00:00+00:00", "run_id": "own"}], run_id="r1")
     row = json.loads(cfg.discovery_errors_path.read_text().splitlines()[0])
     assert row["ts"] == "2020-01-01T00:00:00+00:00" and row["run_id"] == "own"
+
+
+# --------------------------------------------------------------------------
+# (f) SEC pillar: every pipeline trail row carries the run id
+# --------------------------------------------------------------------------
+@pytest.fixture()
+def _captured_trail(monkeypatch):
+    """Capture ``Storage.record_errors`` calls (rows + run_id) instead of writing."""
+    calls: list[dict] = []
+
+    def _fake(self, errors, *, run_id=None):
+        calls.append({"rows": list(errors), "run_id": run_id})
+        return len(errors)
+
+    monkeypatch.setattr(Storage, "record_errors", _fake)
+    return calls
+
+
+def _seed_sec_record(config, **kw):
+    from company_corpus.models import FilingRecord
+    from company_corpus.taxonomy import FormType
+
+    st = Storage(config)
+    rec = FilingRecord(cik="320193", form_type=kw.pop("form_type", FormType.A1),
+                       sec_form=kw.pop("sec_form", "10-K"), accession="0000320193-24-000123",
+                       company="Apple Inc.", filing_date=date(2024, 11, 1),
+                       submission_url="https://sec/0000320193-24-000123.txt", **kw)
+    return st, rec
+
+
+def _run_discover(config, make_fetcher, run_id):
+    from company_corpus.pipeline import discover_universe
+
+    discover_universe(["999999"], dry_run=False, config=config,
+                      fetcher=make_fetcher({}), run_id=run_id)
+
+
+def _run_download(config, make_fetcher, run_id):
+    from company_corpus.pipeline import download_universe
+
+    st, rec = _seed_sec_record(config)
+    st.save_records([rec], dry_run=False)
+    download_universe(["320193"], dry_run=False, config=config,
+                      fetcher=make_fetcher({}), storage=st, run_id=run_id)
+
+
+def _run_render(config, make_fetcher, run_id):
+    from company_corpus.pipeline import render_universe
+
+    st, rec = _seed_sec_record(config)
+    dest = st.raw_dir_for(rec)
+    dest.mkdir(parents=True, exist_ok=True)
+    primary = dest / f"{rec.doc_id}.primary.htm"
+    primary.write_text("<html><body>hi</body></html>", encoding="utf-8")
+    rec.primary_path = str(primary.relative_to(config.data_dir))
+    st.save_records([rec], dry_run=False)
+
+    def _boom(src, dst):
+        raise RuntimeError("chrome failed")
+
+    render_universe(["320193"], renderer=_boom, dry_run=False, config=config,
+                    storage=st, run_id=run_id)
+
+
+def _run_xbrl(config, make_fetcher, run_id):
+    from company_corpus.pipeline import fetch_financials
+
+    fetch_financials(["320193"], dry_run=False, config=config,
+                     fetcher=make_fetcher({}), run_id=run_id)
+
+
+def _run_ownership(config, make_fetcher, run_id):
+    from company_corpus.pipeline import process_ownership
+    from company_corpus.taxonomy import FormType
+
+    st, rec = _seed_sec_record(config, form_type=FormType.E1, sec_form="4")
+    st.save_records([rec], dry_run=False)
+    process_ownership(["320193"], dry_run=False, config=config,
+                      fetcher=make_fetcher({}), storage=st, run_id=run_id)
+
+
+@pytest.mark.parametrize("runner", [
+    _run_discover, _run_download, _run_render, _run_xbrl, _run_ownership,
+], ids=["discover", "download", "render", "xbrl", "ownership"])
+def test_sec_pipeline_trail_rows_carry_run_id(runner, config, make_fetcher, _captured_trail):
+    """A dead SEC fetch leaves a trail row stamped with the run that hit it."""
+    runner(config, make_fetcher, "run-sec-1")
+    assert _captured_trail, "the failure must reach the error trail"
+    assert all(c["run_id"] == "run-sec-1" and c["rows"] for c in _captured_trail)
+
+
+def _ns(**kw):
+    import types
+
+    return types.SimpleNamespace(**kw)
+
+
+def _zero_stats():
+    return _ns(seen=0, added=0, updated=0, unchanged=0)
+
+
+_SEC_CLI_CASES = {
+    "discover": ("discover_universe",
+                 lambda: _ns(issuers=1, rounds=1, stats=_zero_stats(), errors=[])),
+    "download": ("download_universe",
+                 lambda: _ns(downloaded=0, skipped=0, empty=0, errors=0, bytes=0,
+                             error_items=[])),
+    "render-pdf": ("render_universe",
+                   lambda: _ns(rendered=0, would_render=0, skipped=0, no_primary=0,
+                               errors=0, error_items=[])),
+    "xbrl": ("fetch_financials",
+             lambda: _ns(issuers=1, periods=0, stats=_zero_stats(), errors=[])),
+    "ownership": ("process_ownership",
+                  lambda: _ns(issuers=1, downloaded=0, parsed_insider=0, parsed_13f=0,
+                              passthrough=0, errors=0, error_items=[])),
+}
+
+
+@pytest.mark.parametrize("cmd", sorted(_SEC_CLI_CASES))
+def test_sec_cli_threads_run_id_into_pipeline(cmd, monkeypatch, tmp_path):
+    """Each SEC command hands the run report's id to its pipeline entry point."""
+    func_name, make_report = _SEC_CLI_CASES[cmd]
+    seen: dict = {}
+
+    def _fake(*a, **kw):
+        seen.update(kw)
+        return make_report()
+
+    monkeypatch.setattr(cli, func_name, _fake)
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(tmp_path))
+    cli.main(["--data-dir", str(tmp_path), cmd, "--ciks", "320193", "--write"])
+    rep = json.loads((tmp_path / "runs.jsonl").read_text().strip().split("\n")[-1])
+    assert "run_id" in seen, f"{func_name} was not given run_id="
+    assert seen["run_id"] == rep["run_id"]
