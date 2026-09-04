@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import logging
 import os
 import sys
 from collections import Counter
@@ -46,6 +47,7 @@ from .registers.financials import (
 )
 from .openfigi import coverage_hint, map_identifiers
 from .rag import iter_items
+from .runreport import RunReport as DoctrineReport
 from .sources.cik_lookup import fetch_cik_lookup, parse_cik_lookup
 from .sources.edgar_fts import EdgarFTS
 from .sources.edgar_index import EdgarFullIndex
@@ -77,13 +79,19 @@ REPORTING_CMDS = {
 }
 
 
-def _runs_path() -> Path:
-    """Where the run-report lands: COMPANY_DATA_DIR override (tests), else
-    Config's own data_dir. Config itself doesn't honor an env var for
-    data_dir today, so COMPANY_DATA_DIR is this CLI's own override, not a
-    pre-existing Config mechanism."""
+def _runs_path(args: argparse.Namespace | None = None) -> Path:
+    """Where the run-report lands: COMPANY_DATA_DIR override (tests) wins;
+    else ``--data-dir`` when given on ``args``; else Config's own data_dir.
+    Config itself doesn't honor an env var for data_dir today, so
+    COMPANY_DATA_DIR is this CLI's own override, not a pre-existing Config
+    mechanism."""
     base = os.environ.get("COMPANY_DATA_DIR")
-    data_dir = Path(base) if base else Config().data_dir
+    if base:
+        data_dir = Path(base)
+    elif args is not None and getattr(args, "data_dir", None):
+        data_dir = Path(args.data_dir)
+    else:
+        data_dir = Config().data_dir
     return data_dir / "runs.jsonl"
 
 
@@ -988,4 +996,25 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+
+    if args.cmd not in REPORTING_CMDS:
+        return args.func(args)
+
+    if not logging.getLogger().handlers:
+        logging.basicConfig(
+            level=logging.INFO, stream=sys.stderr,
+            format="%(levelname)s %(name)s: %(message)s",
+        )
+
+    report = DoctrineReport("company-corpus", args.cmd)
+    args.report = report
+    try:
+        args.func(args)
+    except Exception as exc:
+        rc = report.finish(fatal=f"{type(exc).__name__}: {exc}")
+        report.write(str(_runs_path(args)))
+        print(f"error: {exc}", file=sys.stderr)
+        return rc
+    rc = report.finish()
+    report.write(str(_runs_path(args)))
+    return rc
