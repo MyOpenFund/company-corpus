@@ -3,6 +3,54 @@
 Mirrors cb_corpus CLI ergonomics: subcommands, a dry-run-by-default posture, and
 an explicit ``--write`` flag for side effects. Phase 0 added inspection
 commands; Phase 1 adds the issuer universe and EDGAR discovery.
+
+Silent-failure doctrine — what each work command reports
+--------------------------------------------------------
+Every command in :data:`REPORTING_CMDS` folds its own counters into the run
+report (``data/runs.jsonl``) through :func:`_feed_report`, so a run that did no
+useful work can never exit 0. ``docs_new`` is the command's *unit of useful
+work*, ``docs_seen`` what it examined, ``docs_failed`` its error count; every
+error message is also recorded as a fetch error (capped samples), and a backend
+that reports a truncated result sets ``truncated`` — which degrades the run even
+when documents were written, because a partial listing must never look complete.
+
+===================== ========== ============================ ======================= ==================
+command               source     docs_seen                    docs_new (useful work)  docs_failed
+===================== ========== ============================ ======================= ==================
+discover              sec        manifest records seen        records added           discovery errors
+  (with --download)   sec        + files examined             + files downloaded      + download errors
+discover-index        sec        manifest records seen        records added           index errors
+download              sec        downloaded+skipped+empty+err files downloaded        download errors
+render-pdf            sec        rendered+would+skipped+
+                                 no_primary+errors            rendered + would_render render errors
+xbrl                  sec        issuers processed            period summaries        companyfacts errors
+ownership             sec        issuers processed            insider+13F+passthrough ownership errors
+enrich-openfigi       sec        identifiers submitted        identifiers mapped      (none: see below)
+eu-financials         xbrlorg    entities resolved            period summaries        ``out["errors"]``
+register-financials   per        entities resolved            period summaries        ``out["errors"]``
+                      register
+===================== ========== ============================ ======================= ==================
+
+Three deliberate choices:
+
+* **Dry runs count what WOULD be written.** ``render-pdf`` folds ``would_render``
+  into ``docs_new``, and ``xbrl`` / ``eu-financials`` / ``register-financials``
+  count the period summaries they computed, so a dry run that found candidates
+  and hit no errors is ``ok`` while a dry run with errors and zero candidates is
+  ``degraded`` — never a green "nothing to do". ``download`` is the exception:
+  its producer has no would-download counter, so a dry-run download reports
+  ``docs_new=0``.
+* **``enrich-openfigi`` is recorded under ``sec``.** OpenFIGI is a mapping
+  service, not a document authority, so it gets no code of its own (``one code
+  per real-world regulatory authority``, see :mod:`company_corpus.source_codes`);
+  the command exists to triage identifier CSVs into the SEC-anchored universe, so
+  its counters land there. A no-match is *not* an error — OpenFIGI legitimately
+  has no record for many private placements — so ``docs_failed`` stays 0 and a
+  fully unmatched file is a clean "nothing new", not a failure.
+* **``eu-financials`` reports ``xbrlorg``.** Its rows are tagged ``source="esef"``
+  and come from the filings.xbrl.org aggregator (:mod:`company_corpus.eu.financials`),
+  not from a national OAM backend; when an OAM-backed acquisition command lands it
+  must report its own backend's code instead.
 """
 
 from __future__ import annotations
@@ -48,6 +96,7 @@ from .registers.financials import (
 from .openfigi import coverage_hint, map_identifiers
 from .rag import iter_items
 from .runreport import RunReport as DoctrineReport
+from .source_codes import source_code_for
 from .sources.cik_lookup import fetch_cik_lookup, parse_cik_lookup
 from .sources.edgar_fts import EdgarFTS
 from .sources.edgar_index import EdgarFullIndex
@@ -96,6 +145,81 @@ def _runs_path(args: argparse.Namespace | None = None) -> Path:
     else:
         data_dir = Config().data_dir
     return data_dir / "runs.jsonl"
+
+
+def _error_messages(items) -> list[str]:
+    """Flatten a producer's error payloads (dicts or strings) to messages."""
+    msgs: list[str] = []
+    for item in items or ():
+        if isinstance(item, dict):
+            context = item.get("context") or item.get("url") or item.get("source") or ""
+            text = item.get("error") or json.dumps(item, default=str, ensure_ascii=False)
+            msgs.append(f"{context}: {text}" if context else str(text))
+        else:
+            msgs.append(str(item))
+    return msgs
+
+
+def _feed_report(
+    report,
+    code: str,
+    *,
+    seen: int = 0,
+    new: int = 0,
+    failed: int = 0,
+    errors=(),
+    truncated: bool = False,
+) -> None:
+    """Fold one command's counters into the run report under ``code``.
+
+    ``report`` is ``None`` when a ``_cmd_*`` is called directly (older tests and
+    library callers bypass :func:`main`, which is what attaches the report) — a
+    no-op then, so feeding never becomes a precondition for running a command.
+
+    ``code`` is any producer/backend tag; it is resolved through
+    :func:`company_corpus.source_codes.source_code_for`, which raises rather than
+    guess, so a new backend cannot quietly report under an invented authority.
+    Each error message is recorded as a fetch error *and* counted in
+    ``failed``: for these commands an error means both "a document was not
+    produced" and "an upstream call failed". ``truncated`` marks the source as a
+    partial listing (degrades the run on its own); a truncation with no error
+    payload still records one synthetic message so the report says why.
+    """
+    if report is None:
+        return
+    stats = report.source(source_code_for(code))
+    stats.docs_seen += seen
+    stats.docs_new += new
+    stats.docs_failed += failed
+    msgs = _error_messages(errors)
+    if truncated and not msgs:
+        msgs = [f"{code}: backend reported a truncated result"]
+    for msg in msgs:
+        stats.record_fetch_error(msg, truncated=truncated)
+
+
+def _feed_from_out(report, code: str, out: dict) -> None:
+    """Feed the report from a producer ``out`` dict (EU + register builders).
+
+    Their shared shape is ``entities`` / ``with_financials`` / ``no_financials`` /
+    ``periods`` / ``errors`` (an int today; a list is accepted too). A missing
+    entity or a filing without financials is coverage, not an error — it is
+    recorded in the coverage file and only ever counted in ``docs_seen``.
+    ``truncated`` / ``error_items`` are read when a backend grows them.
+    """
+    errors = out.get("errors") or 0
+    if isinstance(errors, (list, tuple)):
+        failed, items = len(errors), errors
+    else:
+        failed, items = int(errors), out.get("error_items") or ()
+    _feed_report(
+        report, code,
+        seen=int(out.get("entities") or 0),
+        new=int(out.get("periods") or 0),
+        failed=failed,
+        errors=items,
+        truncated=bool(out.get("truncated")),
+    )
 
 
 def _parse_years(spec: str | None) -> list[int]:
@@ -196,6 +320,14 @@ def _cmd_config(args: argparse.Namespace) -> int:
 
 
 def _cmd_enrich_openfigi(args: argparse.Namespace) -> int:
+    """Enrich an identifier CSV via OpenFIGI (name/type/exchange + triage).
+
+    Reported under the ``sec`` source: OpenFIGI is a mapping service, not a
+    document authority, so it has no code of its own, and this command's job is
+    to triage identifier files into the SEC-anchored universe. A no-match is not
+    an error (OpenFIGI has no record for many private placements), so it counts
+    only in ``docs_seen``.
+    """
     path = Path(args.from_file)
     with path.open(encoding="utf-8", newline="") as fh:
         reader = csv.DictReader(fh)
@@ -220,6 +352,7 @@ def _cmd_enrich_openfigi(args: argparse.Namespace) -> int:
         h = coverage_hint(r.security_type) if r else "no_match"
         hint_tally[h] = hint_tally.get(h, 0) + 1
     print(f"OpenFIGI: {hits}/{len(ids)} matched; triage {hint_tally}", file=sys.stderr)
+    _feed_report(getattr(args, "report", None), "sec", seen=len(ids), new=hits)
 
     if args.out:
         out = Path(args.out)
@@ -457,6 +590,8 @@ def _cmd_discover(args: argparse.Namespace) -> int:
     print(f"  seen={s.seen} added={s.added} updated={s.updated} unchanged={s.unchanged}")
     if report.errors:
         print(f"  discovery errors: {len(report.errors)} (see discovery_errors.jsonl)")
+    _feed_report(getattr(args, "report", None), "sec", seen=s.seen, new=s.added,
+                 failed=len(report.errors), errors=report.errors)
 
     if args.download:
         # Use the same period filter as the standalone `download` command: bounds
@@ -469,6 +604,11 @@ def _cmd_discover(args: argparse.Namespace) -> int:
         )
         print(f"download — got={dl.downloaded} skipped={dl.skipped} errors={dl.errors} "
               f"bytes={dl.bytes:,}")
+        # The download leg folds into the same `sec` source: both legs of a
+        # `discover --download` run are work on SEC documents.
+        _feed_report(getattr(args, "report", None), "sec",
+                     seen=dl.downloaded + dl.skipped + dl.empty + dl.errors,
+                     new=dl.downloaded, failed=dl.errors, errors=dl.error_items)
     return 0
 
 
@@ -487,6 +627,11 @@ def _cmd_download(args: argparse.Namespace) -> int:
           f"empty={dl.empty} errors={dl.errors} bytes={dl.bytes:,}")
     if dl.error_items:
         print(f"  errors logged: {len(dl.error_items)} (see discovery_errors.jsonl)")
+    # No would-download counter exists, so a dry run legitimately reports
+    # docs_new=0 (documented in the module docstring).
+    _feed_report(getattr(args, "report", None), "sec",
+                 seen=dl.downloaded + dl.skipped + dl.empty + dl.errors,
+                 new=dl.downloaded, failed=dl.errors, errors=dl.error_items)
     return 0
 
 
@@ -509,6 +654,13 @@ def _cmd_render_pdf(args: argparse.Namespace) -> int:
           f"skipped={rep.skipped} no-primary={rep.no_primary} errors={rep.errors}")
     if rep.error_items:
         print(f"  errors logged: {len(rep.error_items)} (see discovery_errors.jsonl)")
+    # rendered and would_render are mutually exclusive per record: summing them
+    # makes a dry run count what it WOULD render as the useful work.
+    _feed_report(getattr(args, "report", None), "sec",
+                 seen=rep.rendered + rep.would_render + rep.skipped
+                 + rep.no_primary + rep.errors,
+                 new=rep.rendered + rep.would_render,
+                 failed=rep.errors, errors=rep.error_items)
     return 0
 
 
@@ -527,6 +679,10 @@ def _cmd_xbrl(args: argparse.Namespace) -> int:
     print(f"  seen={s.seen} added={s.added} updated={s.updated} unchanged={s.unchanged}")
     if rep.errors:
         print(f"  errors: {len(rep.errors)} (see discovery_errors.jsonl)")
+    # The unit of work is the period summary (computed in dry-run too), not the
+    # manifest record: `rep.stats.added` is 0 on a re-run that still produced them.
+    _feed_report(getattr(args, "report", None), "sec", seen=rep.issuers,
+                 new=rep.periods, failed=len(rep.errors), errors=rep.errors)
     return 0
 
 
@@ -539,6 +695,12 @@ def _eu_specs(args: argparse.Namespace) -> list[dict]:
 
 
 def _cmd_eu_financials(args: argparse.Namespace) -> int:
+    """Build IFRS financials from ESEF; reported under ``xbrlorg``.
+
+    The rows this command writes carry ``source="esef"`` and come from the
+    filings.xbrl.org aggregator, not from a national OAM backend — so the
+    aggregator is the authority on the hook for them.
+    """
     cfg = _config(args)
     fetcher = Fetcher(cfg)
     rep = build_eu_financials(_eu_specs(args), fetcher=fetcher, config=cfg, write=args.write,
@@ -548,6 +710,7 @@ def _cmd_eu_financials(args: argparse.Namespace) -> int:
           f"{rep['with_financials']} with financials, {rep['periods']} period summaries")
     if rep.get("coverage_path"):
         print(f"  coverage: {rep['coverage_path']}")
+    _feed_from_out(getattr(args, "report", None), "esef", rep)
     return 0
 
 
@@ -586,11 +749,16 @@ def _cmd_register_financials(args: argparse.Namespace) -> int:
 
     # Register-source dispatch, checked in order: the FIRST flag present wins
     # (identical precedence to the former if/elif chain).  Each entry maps an
-    # args attribute to a zero-arg builder returning the `rep` dict; the shared
-    # result line is printed via _print_reg_result.  Builders instantiate
-    # Fetcher lazily so only the selected path opens a session.  The Norway/LEI
-    # path below is the default fallback (its result line omits the unbalanced
-    # count, so it is printed inline rather than via _print_reg_result).
+    # args attribute to the producer's own `source` tag (resolved to the
+    # authority's code for the run report) and a zero-arg builder returning the
+    # `rep` dict; the shared result line is printed via _print_reg_result.
+    # Denmark is the one entry carrying a canonical code rather than a producer
+    # tag: its rows are tagged `erst-fsa` or `erst-ifrs` by *document format*,
+    # while the authority (Erhvervsstyrelsen) is the same either way.
+    # Builders instantiate Fetcher lazily so only the selected path opens a
+    # session.  The Norway/LEI path below is the default fallback (its result
+    # line omits the unbalanced count, so it is printed inline rather than via
+    # _print_reg_result).
     def _build_be_numbers() -> dict:
         be_key = os.environ.get("BNB_CBSO_KEY") or ""
         if not be_key:
@@ -604,53 +772,55 @@ def _cmd_register_financials(args: argparse.Namespace) -> int:
 
     dispatch = [
         # Estonia keyless path: elements CSV + metadata CSV (local files or bytes)
-        ("ee_file", lambda: build_ee_financials_from_files(
+        ("ee_file", "rik", lambda: build_ee_financials_from_files(
             *args.ee_file, config=cfg, write=args.write,
             limit=getattr(args, "limit", None))),
         # Estonia online path: keyless bulk download for a given year
-        ("ee_year", lambda: build_ee_financials(
+        ("ee_year", "rik", lambda: build_ee_financials(
             args.ee_year, fetcher=Fetcher(cfg), config=cfg, write=args.write,
             limit=getattr(args, "limit", None),
             elem_url=getattr(args, "ee_elem_url", None),
             meta_url=getattr(args, "ee_meta_url", None))),
         # Finland keyless path: one or more local PRH XBRL .xml files
-        ("fi_file", lambda: build_fi_financials_from_files(
+        ("fi_file", "prh", lambda: build_fi_financials_from_files(
             args.fi_file, config=cfg, write=args.write)),
         # Finland API path: Y-tunnus resolved via PRH XBRL API (keyless)
-        ("fi_businessid", lambda: build_fi_financials(
+        ("fi_businessid", "prh", lambda: build_fi_financials(
             [{"business_id": bid} for bid in args.fi_businessid],
             fetcher=Fetcher(cfg), config=cfg, write=args.write)),
         # Belgium keyless path: one or more local .xbrl / .zip files
-        ("be_file", lambda: build_be_financials_from_files(
+        ("be_file", "bnb", lambda: build_be_financials_from_files(
             args.be_file, config=cfg, write=args.write)),
         # Belgium API path: KBO numbers resolved via the CBSO API (needs key)
-        ("be_numbers", _build_be_numbers),
+        ("be_numbers", "bnb", _build_be_numbers),
         # UK Companies House bulk path
-        ("ch_bulk", lambda: build_ch_financials(
+        ("ch_bulk", "companies_house", lambda: build_ch_financials(
             args.ch_bulk, config=cfg, write=args.write,
             limit=getattr(args, "limit", None))),
         # Luxembourg keyless path: one or more local eCDF XML files
-        ("lu_file", lambda: build_lu_financials_from_files(
+        ("lu_file", "lbr", lambda: build_lu_financials_from_files(
             args.lu_file, config=cfg, write=args.write,
             rcs_filter=set(args.rcs) if getattr(args, "rcs", None) else None)),
         # Denmark keyless path: one or more local Virk XBRL .xml files
-        ("dk_file", lambda: build_dk_financials_from_files(
+        ("dk_file", "erst", lambda: build_dk_financials_from_files(
             args.dk_file, config=cfg, write=args.write)),
         # Denmark API path: CVR numbers resolved via Virk Regnskaber (keyless)
-        ("dk_cvr", lambda: build_dk_financials(
+        ("dk_cvr", "erst", lambda: build_dk_financials(
             [{"cvr": c} for c in args.dk_cvr],
             fetcher=Fetcher(cfg), config=cfg, write=args.write)),
         # Slovakia keyless path: one vykaz JSON + one sablona JSON (local files)
-        ("sk_file", lambda: build_sk_financials_from_files(
+        ("sk_file", "registeruz", lambda: build_sk_financials_from_files(
             *args.sk_file, config=cfg, write=args.write)),
         # Slovakia API traverse path: entity IDs → registeruz.sk (keyless)
-        ("sk_id", lambda: build_sk_financials(
+        ("sk_id", "registeruz", lambda: build_sk_financials(
             args.sk_id, fetcher=Fetcher(cfg), config=cfg, write=args.write,
             limit=getattr(args, "limit", None))),
     ]
-    for attr, builder in dispatch:
+    for attr, source_tag, builder in dispatch:
         if getattr(args, attr, None):
-            _print_reg_result(builder(), args)
+            out = builder()
+            _print_reg_result(out, args)
+            _feed_from_out(getattr(args, "report", None), source_tag, out)
             return 0
 
     # --- Norway / LEI path ---
@@ -661,6 +831,7 @@ def _cmd_register_financials(args: argparse.Namespace) -> int:
           f"{rep['with_financials']} with financials, {rep['periods']} period summaries")
     if rep.get("coverage_path"):
         print(f"  coverage: {rep['coverage_path']}")
+    _feed_from_out(getattr(args, "report", None), "brreg", rep)
     return 0
 
 
@@ -679,6 +850,9 @@ def _cmd_ownership(args: argparse.Namespace) -> int:
           f"narrative(E3)={rep.passthrough} errors={rep.errors}")
     if rep.error_items:
         print(f"  errors logged: {len(rep.error_items)} (see discovery_errors.jsonl)")
+    _feed_report(getattr(args, "report", None), "sec", seen=rep.issuers,
+                 new=rep.parsed_insider + rep.parsed_13f + rep.passthrough,
+                 failed=rep.errors, errors=rep.error_items)
     return 0
 
 
@@ -778,6 +952,8 @@ def _cmd_discover_index(args: argparse.Namespace) -> int:
     print(f"  seen={stats.seen} added={stats.added} updated={stats.updated} unchanged={stats.unchanged}")
     if src.errors:
         print(f"  index errors: {len(src.errors)} (see discovery_errors.jsonl)")
+    _feed_report(getattr(args, "report", None), "sec", seen=stats.seen,
+                 new=stats.added, failed=len(src.errors), errors=src.errors)
     return 0
 
 
