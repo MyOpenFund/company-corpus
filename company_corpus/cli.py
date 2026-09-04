@@ -67,6 +67,26 @@ from .universe import (
 )
 
 
+# Work commands that build a run-report, feed it through the pipeline, and
+# ALWAYS write it (even on crash) before returning the doctrine exit code.
+# Non-work commands (list-* / inspection / migrations, ...) are unaffected.
+REPORTING_CMDS = {
+    "discover", "discover-index", "download", "render-pdf", "xbrl",
+    "ownership", "enrich-openfigi", "eu-financials", "register-financials",
+    "eu-acquire",
+}
+
+
+def _runs_path() -> Path:
+    """Where the run-report lands: COMPANY_DATA_DIR override (tests), else
+    Config's own data_dir. Config itself doesn't honor an env var for
+    data_dir today, so COMPANY_DATA_DIR is this CLI's own override, not a
+    pre-existing Config mechanism."""
+    base = os.environ.get("COMPANY_DATA_DIR")
+    data_dir = Path(base) if base else Config().data_dir
+    return data_dir / "runs.jsonl"
+
+
 def _parse_years(spec: str | None) -> list[int]:
     """Expand ``"2006-2025"`` / ``"2024"`` / ``"2006-2025,2026"`` to a year list."""
     if not spec:
