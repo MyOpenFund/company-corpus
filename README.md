@@ -65,10 +65,10 @@ real contact, so set it before crawling.
 python -m company_corpus build-universe --tickers AAPL,MSFT --name demo --write
 python -m company_corpus discover --universe demo --download --since 2015-01-01 --write
 
-# EU: acquire one issuer's regulated filings by ISIN (resolves the LEI via GLEIF)
-python -c "from company_corpus.http import Fetcher; from company_corpus.config import Config; \
-from company_corpus.eu.acquire import acquire; cfg=Config(contact='you@example.com'); \
-print(acquire([{'isin':'FR0010193052'}], fetcher=Fetcher(cfg), config=cfg, download=True))"
+# EU: acquire one issuer's regulated filings by ISIN (resolves the LEI via GLEIF);
+# dry-run by default (discovery only, nothing written), --write downloads
+python -m company_corpus eu-acquire --isins FR0010193052
+python -m company_corpus eu-acquire --isins FR0010193052 --write
 
 # Register financials: Norwegian statutory accounts (Brreg, no key required)
 python -m company_corpus register-financials --orgnrs 923609016 --write
@@ -82,7 +82,7 @@ python -m company_corpus register-financials --ch-bulk accounts_monthly_2024_01.
 |---|---|
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Layer map, data model, corpus lifecycle, issuer-resolution waterfall, design invariants |
 | [`docs/SEC_PILLAR.md`](docs/SEC_PILLAR.md) | 🇺🇸 SEC guide: taxonomy, storage layout & naming, the full CLI, identity (rename/merger), ownership & XBRL financials |
-| [`docs/EU_PILLAR.md`](docs/EU_PILLAR.md) | 🇪🇺 EU guide: the "European EDGAR" — `OamSource` architecture, identity resolution (LEI/ISIN/OpenFIGI/name), listing dispatch, cross-backend dedup, how to run `acquire` |
+| [`docs/EU_PILLAR.md`](docs/EU_PILLAR.md) | 🇪🇺 EU guide: the "European EDGAR" — `OamSource` architecture, identity resolution (LEI/ISIN/OpenFIGI/name), listing dispatch, cross-backend dedup, the `eu-acquire` command / `acquire()` |
 | [`docs/EU_BACKENDS.md`](docs/EU_BACKENDS.md) | Per-country backend reference (source API, identity key, doc types, pagination caps) |
 | [`docs/FINANCIALS.md`](docs/FINANCIALS.md) | The shared financials engine (reported + derived metrics, ~60 curated concepts) |
 | [`docs/EU_FINANCIALS.md`](docs/EU_FINANCIALS.md) | Structured EU ESEF/IFRS financials — json_url stdlib (Tier A) + Arelle (Tier B) |

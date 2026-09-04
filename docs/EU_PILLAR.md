@@ -144,7 +144,38 @@ the national OAM and filings.xbrl.org). Two layers collapse them:
 
 ## Running it
 
-`acquire(specs, *, fetcher, config, download=True)` is the entry point:
+### CLI — `eu-acquire`
+
+```bash
+python -m company_corpus eu-acquire --isins FR0010193052            # dry-run: discovery only
+python -m company_corpus eu-acquire --leis 969500EWVT9M8RJTKM50 --write
+python -m company_corpus eu-acquire --leis ... --write --no-download # discovery-only, with reports
+```
+
+`--leis` / `--isins` (one required, comma-separated; ISINs resolve to LEIs via
+GLEIF). The command is dry-run by default, like every other work command:
+
+| flags | what `acquire` gets | on disk |
+|---|---|---|
+| (none) / `--no-download` | `download=False, write=False` | nothing — prints what *would* be acquired |
+| `--write` | `download=True, write=True` | files, manifests, entity index, coverage file, error trail |
+| `--write --no-download` | `download=False, write=True` | entity index, coverage file, error trail (no files) |
+
+`--no-download` alone is accepted and equals the default (downloading is already
+gated on `--write`, since downloaded files are writes). The run report
+(`data/runs.jsonl`) gets **one row per backend** the command dispatched to
+(`docs_seen` = entities asked, `docs_new` = documents kept from that backend —
+counted in a dry run too, `docs_failed` = that backend's errors), resolved to the
+authority's code (`amf`, `banz`, `xbrlorg`, `euronext`, …) — so a dead national
+OAM degrades the run under its own authority and never hides behind the
+aggregator's row. Every error item is appended to `discovery_errors.jsonl` with
+`--write`. A run whose specs all failed to resolve reached no backend at all and
+exits as `failed` rather than as a green nothing-to-do. There is no country
+filter: the country comes from the resolved entity, not from the caller.
+
+### Library — `acquire()`
+
+`acquire(specs, *, fetcher, config, download=True, write=True)` is the entry point:
 
 ```python
 from company_corpus.http import Fetcher
@@ -154,14 +185,22 @@ from company_corpus.eu.acquire import acquire
 cfg = Config(data_dir="data", contact="you@example.com")
 summary = acquire([{"isin": "FR0010193052"}],          # Catana Group SA
                   fetcher=Fetcher(cfg), config=cfg, download=True)
-# {'entities': 1, 'documents': 257, 'manifests': 257, 'deduped_by_bytes': 3,
-#  'download_errors': 0, 'coverage_path': 'data/reports/eu_coverage.jsonl', 'errors': [...]}
+# {'entities': 1, 'unresolved': 0, 'documents': 257, 'manifests': 257, 'deduped_by_bytes': 3,
+#  'download_errors': 0, 'coverage_path': 'data/reports/eu_coverage.jsonl', 'errors': [...],
+#  'error_items': [...], 'sources': {'oam-fr': {'entities': 1, 'documents': 240, 'errors': 0},
+#  'filings.xbrl.org': {...}, 'euronext': {...}}}
 ```
 
 Specs accept `{"lei": …}`, `{"isin": …}`, or `{"name": …, "country": …}`. With
 `download=False` you get discovery-only (no files written) — useful to size a run
-first. The coverage report (`data/reports/eu_coverage.jsonl`) lists every entity
-with its doc count, doc types, and any gap.
+first; with `write=False` nothing at all is written (no entity index, no coverage
+file; `coverage_path` is `None`), and `download=True` with `write=False` raises.
+The coverage report (`data/reports/eu_coverage.jsonl`) lists every entity with its
+doc count, doc types, and any gap. The summary also carries `unresolved` (specs
+that resolved to no LEI) and `sources` — per backend `name`, the entities it was
+asked about, the kept documents it contributed and its errors — and every entry
+of `errors` is tagged with the backend's `source` (a raised discovery under the
+backend that died, a download failure under the document's source).
 
 ### Storage layout
 

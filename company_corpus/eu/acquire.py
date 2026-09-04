@@ -74,11 +74,64 @@ def _has_oslo_notice(per_backend) -> bool:
     )
 
 
-def acquire(specs, *, fetcher, config: Config, download: bool = True) -> dict:
+def _backend_name(backend) -> str:
+    """The backend's ``name`` tag (the key the run report resolves to an
+    authority code); a nameless test double reports under its class name."""
+    return getattr(backend, "name", None) or type(backend).__name__
+
+
+def acquire(specs, *, fetcher, config: Config, download: bool = True,
+            write: bool = True) -> dict:
+    """Resolve ``specs``, discover every document per backend, download when
+    asked, and reconcile coverage.
+
+    ``download=False`` is discovery only (no file, no manifest). ``write=False``
+    is a dry run: on top of not downloading, neither the entity index nor the
+    coverage file is written and ``coverage_path`` is ``None`` — the CLI's
+    default posture. ``download=True`` with ``write=False`` is contradictory
+    (downloaded files ARE writes) and raises.
+
+    The summary carries, besides the totals, ``sources``: per backend ``name``,
+    the entities it was asked about, the kept documents it contributed
+    (``Document.source``) and the errors it raised or recorded — the run report
+    is fed one row per authority from it. Every error item is tagged with the
+    backend's ``source`` (a raised discovery goes under the backend that died,
+    a download failure under the document's source) so the trail names the
+    authority, never a generic orchestrator. ``unresolved`` counts the specs
+    that resolved to no LEI (they reach no backend; the coverage file lists them
+    as ``unresolved-entity``).
+    """
+    if download and not write:
+        raise ValueError("download=True requires write=True (downloads are writes)")
     entities = resolve_entities(specs, fetcher=fetcher)
-    _write_entity_index(entities, config)
+    if write:
+        _write_entity_index(entities, config)
 
     all_docs, errors = [], []
+    sources: dict[str, dict] = {}
+
+    def _src(name: str) -> dict:
+        return sources.setdefault(name, {"entities": 0, "documents": 0, "errors": 0})
+
+    def _discover(backend, e) -> list:
+        name = _backend_name(backend)
+        stats = _src(name)
+        stats["entities"] += 1
+        try:
+            docs = backend.discover(e)
+        except Exception as exc:  # noqa: BLE001
+            docs = []
+            errors.append({"source": name, "context": "discover",
+                           "entity": e.lei, "error": str(exc)})
+            stats["errors"] += 1
+            discover_failures[e.lei] = str(exc)
+            log.warning("%s discovery failed for %s: %s", type(backend).__name__, e.lei, exc)
+        recorded = list(getattr(backend, "errors", []))
+        errors.extend(recorded)
+        stats["errors"] += len(recorded)
+        return docs
+
+    unresolved = 0
     # LEI -> the backend failure that killed its discovery. Only *raised* backend
     # errors land here (a backend's own recorded errors include benign 404s, which
     # are "not indexed", not a dead source), and they turn the entity's coverage
@@ -86,6 +139,7 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True) -> dict:
     discover_failures: dict[str, str] = {}
     for e in entities:
         if not e.lei:
+            unresolved += 1
             continue
         backends = []
         cls = COUNTRY_BACKENDS.get(e.country)
@@ -104,35 +158,14 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True) -> dict:
             # verify the issuer name per notice (rejects market-wide noise).
             backends.append(EuronextSource(fetcher=fetcher, config=config,
                                            force_mic=_LISTING_MIC))
-        per_backend = []
-        for b in backends:
-            try:
-                per_backend.append(b.discover(e))
-            except Exception as exc:  # noqa: BLE001
-                per_backend.append([])
-                errors.append({"source": "acquire", "context": "discover",
-                               "entity": e.lei, "error": str(exc)})
-                discover_failures[e.lei] = str(exc)
-                log.warning("%s discovery failed for %s: %s",
-                            type(b).__name__, e.lei, exc)
-            errors.extend(getattr(b, "errors", []))
+        per_backend = [_discover(b, e) for b in backends]
         # Corroborated rich Oslo coverage: when the Euronext probe returned an
         # Oslo (OSL_) notice for a non-Norwegian issuer, it is confirmed listed on
         # Oslo Børs — so a name match to Oslo NewsWeb is backed by a second,
         # independent Oslo signal and is safe from a coincidental same-name bind
         # (NewsWeb has no ISIN to key on, so name alone would otherwise be a guess).
         if e.country != "NO" and _has_oslo_notice(per_backend):
-            no_b = NewsWebNO(fetcher=fetcher, config=config)
-            try:
-                per_backend.append(no_b.discover(e))
-            except Exception as exc:  # noqa: BLE001
-                per_backend.append([])
-                errors.append({"source": "acquire", "context": "discover",
-                               "entity": e.lei, "error": str(exc)})
-                discover_failures[e.lei] = str(exc)
-                log.warning("%s discovery failed for %s: %s",
-                            type(no_b).__name__, e.lei, exc)
-            errors.extend(no_b.errors)
+            per_backend.append(_discover(NewsWebNO(fetcher=fetcher, config=config), e))
         all_docs.extend(merge_documents(per_backend))
 
     manifests = 0
@@ -166,22 +199,29 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True) -> dict:
             for f in man.get("files", []):
                 if "error" in f:
                     download_errors += 1
-                    errors.append({"source": "acquire", "context": "download",
+                    _src(d.source)["errors"] += 1
+                    errors.append({"source": d.source, "context": "download",
                                    "doc_id": d.doc_id, "file": f.get("name"),
                                    "error": f["error"]})
+    for d in kept_docs:
+        _src(d.source)["documents"] += 1
 
     cov = reconcile(entities, kept_docs, discover_failures)
-    cov_path = config.data_dir / "reports" / "eu_coverage.jsonl"
-    cov_path.parent.mkdir(parents=True, exist_ok=True)
-    cov_path.write_text("\n".join(json.dumps(r, default=str) for r in cov))
+    cov_path = None
+    if write:
+        cov_path = config.data_dir / "reports" / "eu_coverage.jsonl"
+        cov_path.parent.mkdir(parents=True, exist_ok=True)
+        cov_path.write_text("\n".join(json.dumps(r, default=str) for r in cov))
 
-    return {"entities": len(entities), "documents": len(kept_docs),
+    return {"entities": len(entities), "unresolved": unresolved,
+            "documents": len(kept_docs),
             "manifests": manifests, "deduped_by_bytes": deduped_by_bytes,
             "download_errors": download_errors,
-            "coverage_path": str(cov_path), "errors": errors,
+            "coverage_path": str(cov_path) if cov_path else None, "errors": errors,
             # Same list under the shared key the run-report feeder reads on every
             # pillar (`_feed_from_out`), so acquire needs no special-casing there.
-            "error_items": errors}
+            "error_items": errors,
+            "sources": sources}
 
 
 def _discard_download(manifest: dict, config: Config) -> None:

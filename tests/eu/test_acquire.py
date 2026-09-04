@@ -1,3 +1,4 @@
+import pytest
 from datetime import date
 from company_corpus.config import Config
 from company_corpus.eu import acquire as acq
@@ -207,3 +208,80 @@ def test_acquire_surfaces_download_errors(monkeypatch, tmp_path):
 
     assert summary["download_errors"] >= 1
     assert any(e.get("context") == "download" for e in summary["errors"])
+
+
+def _noop_backend(name=None):
+    class _B:
+        def __init__(self, *a, **k): self.errors = []
+        def discover(self, e): return []
+    if name:
+        _B.name = name
+    return _B
+
+
+def test_acquire_write_false_writes_nothing(monkeypatch, tmp_path):
+    """The CLI's dry run: discovery only, no entity index, no coverage file."""
+    cfg = Config(data_dir=tmp_path / "data", contact="t@e.com")
+    ent = Entity("L1", "SAP SE", "DE", resolution="lei")
+    monkeypatch.setattr(acq, "resolve_entities", lambda specs, *, fetcher: [ent])
+    monkeypatch.setattr(acq, "COUNTRY_BACKENDS", {"DE": _noop_backend()})
+    monkeypatch.setattr(acq, "FilingsXbrlOrg", _noop_backend())
+
+    summary = acq.acquire([{"lei": "L1"}], fetcher=object(), config=cfg,
+                          download=False, write=False)
+    assert summary["coverage_path"] is None
+    assert not (cfg.data_dir / "reports" / "eu_coverage.jsonl").exists()
+    assert not (cfg.data_dir / "universe" / "eu_entities.jsonl").exists()
+
+
+def test_acquire_download_requires_write(monkeypatch, tmp_path):
+    cfg = Config(data_dir=tmp_path / "data", contact="t@e.com")
+    monkeypatch.setattr(acq, "resolve_entities", lambda specs, *, fetcher: [])
+    with pytest.raises(ValueError):
+        acq.acquire([{"lei": "L1"}], fetcher=object(), config=cfg, download=True, write=False)
+
+
+def test_acquire_reports_per_backend_counts(monkeypatch, tmp_path):
+    """`sources` says, per backend name, how many entities it was asked about,
+    how many kept documents it contributed and how many errors it raised or
+    recorded — the run report's per-authority rows come from here. A discover
+    failure is tagged with the backend's name, never a generic 'acquire'."""
+    cfg = Config(data_dir=tmp_path / "data", contact="t@e.com")
+    ents = [Entity("L1", "SAP SE", "DE", resolution="lei"),
+            Entity("L2", "Siemens", "DE", resolution="lei"),
+            Entity(None, "ghost", "", resolution="unresolved")]
+    monkeypatch.setattr(acq, "resolve_entities", lambda specs, *, fetcher: ents)
+
+    class _National:
+        name = "oam-de"
+        def __init__(self, *a, **k): self.errors = []
+        def discover(self, e):
+            if e.lei == "L2":
+                raise RuntimeError("Bundesanzeiger down")
+            self.errors.append({"source": self.name, "context": "list", "url": "u",
+                                "error": "404"})
+            return [Document("de-1", "L1", "DE", "annual_report", date(2023, 12, 31),
+                             None, "x", "de", "oam-de", [{"name": "r", "sha256": "h"}], {})]
+
+    class _Filings:
+        name = "filings.xbrl.org"
+        def __init__(self, *a, **k): self.errors = []
+        def discover(self, e):
+            return [Document(f"f-{e.lei}", e.lei, "DE", "annual_report", date(2022, 12, 31),
+                             None, "x", "en", "filings.xbrl.org",
+                             [{"name": "q", "sha256": "k"}], {})]
+
+    monkeypatch.setattr(acq, "COUNTRY_BACKENDS", {"DE": _National})
+    monkeypatch.setattr(acq, "FilingsXbrlOrg", _Filings)
+
+    summary = acq.acquire([{"lei": "L1"}, {"lei": "L2"}, {"isin": "X"}],
+                          fetcher=object(), config=cfg, download=False, write=False)
+    assert summary["entities"] == 3 and summary["unresolved"] == 1
+    assert summary["sources"] == {
+        "oam-de": {"entities": 2, "documents": 1, "errors": 2},
+        "filings.xbrl.org": {"entities": 2, "documents": 2, "errors": 0},
+    }
+    dead = [e for e in summary["errors"] if e.get("context") == "discover"]
+    assert dead == [{"source": "oam-de", "context": "discover", "entity": "L2",
+                     "error": "Bundesanzeiger down"}]
+    assert len(summary["errors"]) == 2

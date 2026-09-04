@@ -27,6 +27,8 @@ xbrl                  sec        issuers processed            period summaries  
 ownership             sec        issuers processed            insider+13F+passthrough ownership errors
 enrich-openfigi       sec        identifiers submitted        identifiers mapped      (none: see below)
 eu-financials         xbrlorg    entities resolved            period summaries        ``out["errors"]``
+eu-acquire            per        entities dispatched to       documents kept from     that backend's
+                      backend    that backend                 that backend            errors
 register-financials   per        entities resolved            period summaries        ``out["errors"]``
                       register
 ===================== ========== ============================ ======================= ==================
@@ -49,8 +51,10 @@ Three deliberate choices:
   fully unmatched file is a clean "nothing new", not a failure.
 * **``eu-financials`` reports ``xbrlorg``.** Its rows are tagged ``source="esef"``
   and come from the filings.xbrl.org aggregator (:mod:`company_corpus.eu.financials`),
-  not from a national OAM backend; when an OAM-backed acquisition command lands it
-  must report its own backend's code instead.
+  not from a national OAM backend. **``eu-acquire`` reports one row per backend**
+  it dispatched to (``out["sources"]``, keyed by the backend ``name`` and resolved
+  to the authority's code), so a dead national OAM degrades the run under its own
+  authority while the aggregator's row stays clean — never a single blended row.
 """
 
 from __future__ import annotations
@@ -77,6 +81,7 @@ from .pipeline import (
     process_ownership,
     render_universe,
 )
+from .eu.acquire import acquire
 from .eu.financials import build_eu_financials
 from .registers.financials import (
     build_be_financials,
@@ -749,6 +754,69 @@ def _cmd_eu_financials(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_eu_acquire(args: argparse.Namespace) -> int:
+    """Discover (and with ``--write``, download) an EU issuer's regulated filings.
+
+    Dry run by default: discovery only, nothing on disk (no entity index, no
+    coverage file, no manifest, no trail) — the run report still counts the
+    documents that WOULD be acquired and any dead backend. ``--write`` downloads
+    and writes everything; ``--write --no-download`` is a discovery-only run
+    that still leaves the entity index, the coverage file and the error trail.
+
+    The run report gets one row per backend (see the module docstring). A run
+    whose specs all failed to resolve reached no backend at all, so nothing
+    would report and the run would pass for a green nothing-to-do: it returns
+    2 instead, which :func:`main` folds into a ``failed`` report.
+    """
+    cfg = _config(args)
+    fetcher = Fetcher(cfg)
+    download = bool(args.write and not args.no_download)
+    out = acquire(_eu_specs(args), fetcher=fetcher, config=cfg,
+                  download=download, write=args.write)
+    if not args.write:
+        mode = "DRY-RUN (nothing written)"
+    elif download:
+        mode = "WROTE"
+    else:
+        mode = "WROTE (discovery only, no download)"
+    verb = "acquired" if download else "would acquire"
+    print(f"eu-acquire [{mode}] — {out['entities']} entities "
+          f"({out.get('unresolved', 0)} unresolved), {verb} {out['documents']} documents, "
+          f"{out['manifests']} manifests, {out['deduped_by_bytes']} byte-deduped, "
+          f"{out['download_errors']} download errors, {len(out['errors'])} errors")
+    sources = out.get("sources") or {}
+    for name in sorted(sources):
+        st = sources[name]
+        print(f"  {name}: entities={st['entities']} documents={st['documents']} "
+              f"errors={st['errors']}")
+    if out.get("coverage_path"):
+        print(f"  coverage: {out['coverage_path']}")
+
+    # The trail first: it must survive a report-feeding failure below.
+    _record_out_errors(args, cfg, out)
+    report = getattr(args, "report", None)
+    items_by_source: dict[str, list] = {}
+    for item in out.get("error_items") or []:
+        key = item.get("source") if isinstance(item, dict) else None
+        items_by_source.setdefault(key, []).append(item)
+    for name, st in sources.items():
+        _feed_report(report, name, seen=st["entities"], new=st["documents"],
+                     failed=st["errors"], errors=items_by_source.pop(name, []))
+    # An error tagged with a backend that reported no counts (cannot happen by
+    # construction) is still fed under that backend's code — never dropped; an
+    # untagged one is a producer bug and raises rather than vanish.
+    for name, items in items_by_source.items():
+        if not name:
+            raise RuntimeError(f"eu-acquire: {len(items)} error item(s) carry no backend "
+                               f"source: {items[0]!r}")
+        _feed_report(report, name, failed=len(items), errors=items)
+    if out["entities"] and not sources:
+        print(f"error: eu-acquire: every spec is unresolved ({out['entities']} entities, "
+              "no LEI) — no backend was queried", file=sys.stderr)
+        return 2
+    return 0
+
+
 def _register_specs(args: argparse.Namespace) -> list[dict]:
     if getattr(args, "orgnrs", None):
         return [{"orgnr": x.strip()} for x in args.orgnrs.split(",") if x.strip()]
@@ -1141,6 +1209,19 @@ def build_parser() -> argparse.ArgumentParser:
     euf.add_argument("--arelle", action="store_true",
                      help="also parse local ESEF .zip packages with Arelle (Tier B; needs the eu-financials extra)")
     euf.set_defaults(func=_cmd_eu_financials)
+
+    eua = sub.add_parser("eu-acquire",
+                         help="discover (and with --write, download) an EU issuer's regulated "
+                              "filings from its national OAM + filings.xbrl.org (+ Euronext)")
+    euasrc = eua.add_mutually_exclusive_group(required=True)
+    euasrc.add_argument("--leis", help="comma-separated LEIs")
+    euasrc.add_argument("--isins", help="comma-separated ISINs (resolved to LEIs via GLEIF)")
+    eua.add_argument("--write", action="store_true",
+                     help="download files and write manifests, the entity index, the coverage "
+                          "file and the error trail (else dry-run: discovery only, nothing written)")
+    eua.add_argument("--no-download", action="store_true", dest="no_download",
+                     help="with --write: discovery only (entity index + coverage + trail, no files)")
+    eua.set_defaults(func=_cmd_eu_acquire)
 
     rf = sub.add_parser("register-financials",
                         help="build financials from national business registers (statutory/private)")
