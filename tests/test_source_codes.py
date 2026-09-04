@@ -66,3 +66,10 @@ def test_unknown_name_raises_key_error():
 def test_every_code_resolves_to_itself():
     for code in SOURCE_CODES:
         assert source_code_for(code) == code
+
+
+def test_fca_covers_gb_and_ie():
+    # The FCA National Storage Mechanism is also the de-facto OAM for Irish
+    # issuers (COUNTRY_BACKENDS maps "IE" to the same NsmGB backend class as
+    # "GB"), so its country field must reflect both, not just "GB".
+    assert SOURCE_CODES["fca"].country == "GB/IE"

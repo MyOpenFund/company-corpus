@@ -44,6 +44,9 @@ class SourceCode:
 
     code: str
     authority: str
+    # The authority's territorial reach, not the issuer's jurisdiction: an ISO
+    # country code, or several `/`-joined (e.g. "NL/BE/FR/PT/NO" for Euronext
+    # market notices) when one authority covers more than one country.
     country: str
     pillar: str  # "sec" | "oam" | "register"
     id_scheme: str
@@ -75,7 +78,9 @@ _OAM = [
     _sc("cnmv", "CNMV", "ES", "oam", "lei", ("oam-es",)),
     _sc("afm", "AFM", "NL", "oam", "lei", ("oam-nl",)),
     _sc("fsma", "FSMA STORI", "BE", "oam", "lei", ("oam-be",)),
-    _sc("fca", "FCA National Storage Mechanism", "GB", "oam", "lei", ("oam-gb",)),
+    # GB/IE: the FCA NSM also serves Irish issuers -- eu/acquire.py's
+    # COUNTRY_BACKENDS maps "IE" to the same NsmGB backend class.
+    _sc("fca", "FCA National Storage Mechanism", "GB/IE", "oam", "lei", ("oam-gb",)),
     _sc("fi-se", "Finansinspektionen (Finanscentralen)", "SE", "oam", "lei", ("oam-se",)),
     _sc("dfsa", "Danish FSA / Finanstilsynet OAM", "DK", "oam", "lei", ("oam-dk",)),
     _sc("oam-fi", "Nasdaq Helsinki (oam.fi)", "FI", "oam", "lei", ("oam-fi",)),
