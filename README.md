@@ -127,7 +127,7 @@ a green "nothing to do":
 
 | command | source | docs_new (useful work) |
 |---|---|---|
-| `discover` (`--download`) | sec | records added (+ files downloaded) |
+| `discover` (`--download`) | sec | records added (+ files downloaded); both legs fold into the one `sec` row, so exit 3 needs both legs empty and either leg failing |
 | `discover-index` | sec | records added |
 | `download` | sec | files downloaded |
 | `render-pdf` | sec | rendered + would_render |

@@ -192,10 +192,12 @@ from company_corpus.eu.acquire import acquire
 cfg = Config(data_dir="data", contact="you@example.com")
 summary = acquire([{"isin": "FR0010193052"}],          # Catana Group SA
                   fetcher=Fetcher(cfg), config=cfg, download=True)
-# {'entities': 1, 'unresolved': 0, 'documents': 257, 'manifests': 257, 'deduped_by_bytes': 3,
-#  'download_errors': 0, 'coverage_path': 'data/reports/eu_coverage.jsonl', 'errors': [...],
-#  'error_items': [...], 'sources': {'oam-fr': {'entities': 1, 'documents': 240, 'errors': 0},
-#  'filings.xbrl.org': {...}, 'euronext': {...}}}
+# {'entities': 1, 'unresolved': 0, 'unresolved_specs': [], 'documents': 257, 'manifests': 257,
+#  'deduped_by_bytes': 3, 'download_errors': 0, 'documents_failed': 0,
+#  'coverage_path': 'data/reports/eu_coverage.jsonl', 'errors': [...], 'error_items': [...],
+#  'sources': {'oam-fr': {'entities': 1, 'documents': 240, 'errors': 0, 'not_indexed': 0,
+#                         'truncated': False},
+#              'xbrlorg': {...}, 'euronext': {...}}}
 ```
 
 Specs accept `{"lei": …}`, `{"isin": …}`, or `{"name": …, "country": …}`. With
