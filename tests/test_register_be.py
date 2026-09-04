@@ -632,7 +632,7 @@ def test_cli_be_numbers_dry_run(tmp_path, monkeypatch):
 
     calls: list[str] = []
 
-    def _stub_fetch(be_number, *, fetcher, key):
+    def _stub_fetch(be_number, *, fetcher, key, errors=None):
         calls.append(be_number)
         return None  # simulates "no deposit found" — batch-safe, no network
 

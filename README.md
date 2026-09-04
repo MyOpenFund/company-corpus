@@ -65,10 +65,10 @@ real contact, so set it before crawling.
 python -m company_corpus build-universe --tickers AAPL,MSFT --name demo --write
 python -m company_corpus discover --universe demo --download --since 2015-01-01 --write
 
-# EU: acquire one issuer's regulated filings by ISIN (resolves the LEI via GLEIF)
-python -c "from company_corpus.http import Fetcher; from company_corpus.config import Config; \
-from company_corpus.eu.acquire import acquire; cfg=Config(contact='you@example.com'); \
-print(acquire([{'isin':'FR0010193052'}], fetcher=Fetcher(cfg), config=cfg, download=True))"
+# EU: acquire one issuer's regulated filings by ISIN (resolves the LEI via GLEIF);
+# dry-run by default (discovery only, nothing written), --write downloads
+python -m company_corpus eu-acquire --isins FR0010193052
+python -m company_corpus eu-acquire --isins FR0010193052 --write
 
 # Register financials: Norwegian statutory accounts (Brreg, no key required)
 python -m company_corpus register-financials --orgnrs 923609016 --write
@@ -76,13 +76,111 @@ python -m company_corpus register-financials --orgnrs 923609016 --write
 python -m company_corpus register-financials --ch-bulk accounts_monthly_2024_01.zip --limit 100
 ```
 
+## Operations
+
+**Doctrine, in one sentence:** every work command folds its own counters into a
+structured run-report before exiting, so a run that did no useful work can
+never exit `0`.
+
+### Exit codes
+
+- `0` — clean: real work got done, or nothing was found and zero errors occurred.
+- `1` — fatal: an uncaught exception, or a command that itself returned non-zero.
+- `3` — degraded: any source reported a `truncated` (partial) result, OR zero
+  new documents were produced while errors occurred (save errors and/or fetch
+  errors). Recovered transient errors alongside real new documents do **not**
+  degrade a run.
+
+### `data/runs.jsonl`
+
+Every work command — `discover`, `discover-index`, `download`, `render-pdf`,
+`xbrl`, `ownership`, `enrich-openfigi`, `eu-financials`, `eu-acquire`,
+`register-financials` — appends one JSON line (atomic `O_APPEND` write) before
+returning:
+
+```json
+{"run_id": "...", "tool": "company-corpus", "command": "discover",
+ "started_at": "...", "finished_at": "...", "outcome": "ok", "exit_code": 0,
+ "totals": {"docs_seen": 120, "docs_new": 4, "docs_failed": 0},
+ "sources": [{"source_code": "sec", "docs_seen": 120, "docs_new": 4,
+              "docs_failed": 0, "fetch_errors": 0, "truncated": false,
+              "error_samples": []}]}
+```
+
+A `failed` run also carries a `fatal` field (the exception, capped at 500
+chars). The MyOpenFund vault ingests this file **unchanged** — the schema is
+deliberately flat and stable, so it feeds a `runs` table with no transform step.
+
+`COMPANY_DATA_DIR` is a test/ops override of the **run-report path only**
+(`runs.jsonl`): it wins over everything else for that one file, and nothing
+else honours it — the corpus and the error trail below stay under the data
+dir. To relocate the corpus *and* the trail, use `--data-dir` (which also
+places the report, absent the override); the default is `Config`'s `./data`.
+
+### Unit of useful work, per command
+
+`docs_new` is what a command reports as its actual output; `docs_seen` is what
+it examined; `docs_failed` is its error count. A dry run still counts what it
+*would* write (except `download`, whose producer has no would-download
+counter), so a dry run that found candidates and hit no errors is `ok`, never
+a green "nothing to do":
+
+| command | source | docs_new (useful work) |
+|---|---|---|
+| `discover` (`--download`) | sec | records added (+ files downloaded); both legs fold into the one `sec` row, so exit 3 needs both legs empty and either leg failing |
+| `discover-index` | sec | records added |
+| `download` | sec | files downloaded |
+| `render-pdf` | sec | rendered + would_render |
+| `xbrl` | sec | period summaries |
+| `ownership` | sec | insider + 13F + passthrough filings (+ would-download on a dry run) |
+| `enrich-openfigi` | sec | identifiers mapped (no-match ≠ error) |
+| `eu-financials` | xbrlorg | period summaries |
+| `eu-acquire` | one row per backend dispatched to | documents kept from that backend |
+| `register-financials` | one row per register | period summaries |
+
+Full detail (every column, plus the three deliberate policy choices behind
+this table) is documented in the `cli.py` module docstring.
+
+### Logging
+
+Work commands configure the root logger once (INFO, to stderr) so their own
+progress is visible; register and EU/OAM fetch failures — a dead source, or a
+partial multi-call traversal that still produced some periods — are logged as
+WARNINGs, in addition to being folded into the run report and the trail below.
+
+### The discovery-error trail
+
+Every pillar that hits a dead source (SEC discovery, an EU/OAM backend, or a
+national register) appends to `data/discovery_errors.jsonl`, one JSON line per
+error, stamped by `Storage.record_errors` with `ts` (ISO-8601 UTC) and the
+`run_id` of the run that hit it — so a trail entry ties back to its run report.
+Written **only with `--write`** for the EU and register commands (a dry run
+still reports the errors in `runs.jsonl`, but leaves no trail file — "DRY-RUN
+(nothing written)" means exactly that). In a register's own coverage file,
+`source-error` is a distinct status from `no-financials` / `unbalanced`: "the
+register could not be read" is a fact about the source, never confused with
+"the issuer filed nothing."
+
+### `SOURCE_CODES`: one code per authority
+
+The corpus pulls filings through three pillars — SEC EDGAR, the EU/OAM network
+(13 national mechanisms + the filings.xbrl.org aggregator), and 8 national
+company registers — and
+[`company_corpus/source_codes.py`](company_corpus/source_codes.py) is the
+canonical registry mapping every one of those **23 codes** to its real-world
+regulatory authority, never to a module, class, or file-format variant (e.g.
+`erst-fsa` and `erst-ifrs` are both the Danish `erst` authority; the finer
+"how it reached us" detail lives in the row's `provenance` field, not in a
+second near-duplicate code). `source_code_for()` resolves any producer/backend
+tag to its canonical code and raises rather than guess.
+
 ## Documentation
 
 | Doc | What's inside |
 |---|---|
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Layer map, data model, corpus lifecycle, issuer-resolution waterfall, design invariants |
 | [`docs/SEC_PILLAR.md`](docs/SEC_PILLAR.md) | 🇺🇸 SEC guide: taxonomy, storage layout & naming, the full CLI, identity (rename/merger), ownership & XBRL financials |
-| [`docs/EU_PILLAR.md`](docs/EU_PILLAR.md) | 🇪🇺 EU guide: the "European EDGAR" — `OamSource` architecture, identity resolution (LEI/ISIN/OpenFIGI/name), listing dispatch, cross-backend dedup, how to run `acquire` |
+| [`docs/EU_PILLAR.md`](docs/EU_PILLAR.md) | 🇪🇺 EU guide: the "European EDGAR" — `OamSource` architecture, identity resolution (LEI/ISIN/OpenFIGI/name), listing dispatch, cross-backend dedup, the `eu-acquire` command / `acquire()` |
 | [`docs/EU_BACKENDS.md`](docs/EU_BACKENDS.md) | Per-country backend reference (source API, identity key, doc types, pagination caps) |
 | [`docs/FINANCIALS.md`](docs/FINANCIALS.md) | The shared financials engine (reported + derived metrics, ~60 curated concepts) |
 | [`docs/EU_FINANCIALS.md`](docs/EU_FINANCIALS.md) | Structured EU ESEF/IFRS financials — json_url stdlib (Tier A) + Arelle (Tier B) |
@@ -108,7 +206,15 @@ python -m company_corpus register-financials --ch-bulk accounts_monthly_2024_01.
 
 The HTTP client sends a declared, contact-carrying `User-Agent` and throttles per
 host to stay at/under each regulator's published rate limit (e.g. the SEC's 10
-requests/second).
+requests/second). It retries only transient failures — connection errors,
+timeouts, HTTP 429 and 5xx — with backoff (honouring `Retry-After`); any other
+4xx is taken as the server's answer and costs exactly one request, so a missing
+document never turns into four requests and seconds of backoff against the host.
+Text bodies are decoded by their declared charset; when none is declared it
+tries strict UTF-8 first and otherwise keeps the header default — `requests`
+would otherwise default undeclared `text/*` to ISO-8859-1 and turn UTF-8 pages
+into mojibake. There is no charset sniffing, which would mis-read genuine
+latin-1 pages as something else.
 
 **Belgium (FSMA STORI)** is the one exception, and it is opt-in
 (`pip install '.[be]'`) and off by default. The FSMA JSON API sits behind an F5

@@ -10,12 +10,15 @@ NO-FALSE-DATA gate ordering.
 from __future__ import annotations
 
 import json
+import logging
 import re
-from datetime import date
+from datetime import date, datetime, timezone
 
 from ..config import Config
 from ..financials import PeriodSummary, make_row_base, rows_from_base, stamp_leverage_basis
 from ..storage import Storage, _atomic_write_text
+
+log = logging.getLogger(__name__)
 
 # ISO-17442 LEI: exactly 20 upper-case alphanumerics. Used on the DK path to
 # populate the `lei` column when the entity_id is itself a LEI (ESEF filers).
@@ -207,11 +210,93 @@ def _make_out() -> dict:
     ``unbalanced`` is always present (some producers historically omitted it; it
     should always have been there — a balance-gate rejection is a distinct outcome
     from ``no_financials``).
+
+    ``source_errors`` counts the subset of ``errors`` that are DEAD SOURCES (the
+    register could not be reached / returned an explicit failure) rather than bad
+    data, and ``error_items`` carries one timestamped record per error so the CLI
+    can feed the run report and append to the discovery-error trail.
     """
     return {
         "entities": 0, "with_financials": 0, "no_financials": 0,
-        "unbalanced": 0, "errors": 0, "periods": 0, "paths": [],
+        "unbalanced": 0, "errors": 0, "source_errors": 0, "periods": 0,
+        "paths": [], "error_items": [],
     }
+
+
+def _record_source_error(
+    exc, cov_base: dict, *, entity_id, source: str, out: dict, coverage: list[dict],
+) -> None:
+    """Record a dead source: coverage row + counters + a timestamped error item.
+
+    The coverage status is ``source-error`` — deliberately NOT ``no-financials``:
+    "we could not read the register" and "the issuer filed nothing" are different
+    facts, and only the second one is a property of the issuer. ``exc`` may be an
+    exception or any message; it is stringified into the row's ``error`` field.
+    """
+    msg = str(exc)
+    coverage.append({**cov_base, "status": "source-error", "error": msg})
+    out["errors"] += 1
+    out["source_errors"] = out.get("source_errors", 0) + 1
+    out.setdefault("error_items", []).append({
+        "entity_id": entity_id,
+        "source": source,
+        "error": msg,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
+    log.warning("%s: source error for %s: %s", source, entity_id, msg)
+
+
+# How many dead calls one folded message spells out; the rest is a count.
+_FETCH_ERRORS_MESSAGE_CAP = 5
+
+
+def _fetch_errors_message(errors: list[dict]) -> str:
+    """Fold the records a register helper appended to its ``errors``
+    out-parameter (see :mod:`._errors`) into one ``stage: error`` message for
+    :func:`_record_source_error`, so the coverage row and the trail say which
+    call died. Capped at :data:`_FETCH_ERRORS_MESSAGE_CAP` messages with a
+    ``… (+k more)`` suffix — a multi-year traversal can die on every call, and
+    the run report keeps 300-character samples."""
+    shown = errors[:_FETCH_ERRORS_MESSAGE_CAP]
+    msg = "; ".join(f"{e.get('stage')}: {e.get('error')}" for e in shown)
+    rest = len(errors) - len(shown)
+    return f"{msg} … (+{rest} more)" if rest > 0 else msg
+
+
+def _note_partial_fetch_errors(
+    fetch_errors: list[dict], cov: dict, *, entity_id, source: str, out: dict,
+) -> None:
+    """Surface dead calls on an entity that still got a coverage status of its
+    own.
+
+    A multi-call traversal (SK: zavierka → vykaz → sablona per period) can lose
+    some periods to a dead call and still produce others. The helper itself is
+    status-agnostic, but the SK caller routes "dead calls and no surviving
+    rows" to :func:`_record_source_error` (a ``source-error``, not a
+    ``no-financials`` / ``unbalanced`` look-alike) before reaching here — so in
+    practice only an ``ok`` entity (rows survived) arrives with a non-empty
+    ``fetch_errors``. The entity keeps the status its surviving periods earned,
+    but the dead calls are counted in
+    ``out["errors"]`` / ``out["source_errors"]``, itemised in ``error_items``
+    (the run report and the trail) and written onto the coverage row under
+    ``fetch_errors`` — so a partial traversal is never silent. No-op when
+    ``fetch_errors`` is empty. The coverage row is NOT appended here (the
+    caller's normal path does that); only ``cov`` is annotated.
+    """
+    if not fetch_errors:
+        return
+    msg = _fetch_errors_message(fetch_errors)
+    cov["fetch_errors"] = msg
+    out["errors"] += 1
+    out["source_errors"] = out.get("source_errors", 0) + 1
+    out.setdefault("error_items", []).append({
+        "entity_id": entity_id,
+        "source": source,
+        "error": msg,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
+    log.warning("%s: partial traversal for %s (%d dead call(s)): %s",
+                source, entity_id, len(fetch_errors), msg)
 
 
 def _finalise_coverage(

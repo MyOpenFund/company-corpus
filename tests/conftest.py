@@ -1,10 +1,32 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
 from company_corpus.config import Config
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolated_company_data_dir(tmp_path_factory):
+    """Point COMPANY_DATA_DIR at a session-scoped tmp dir for every test.
+
+    Guards against the sister repo's mistake: tests that wrote phantom
+    run-reports straight into the checked-out repo's own data/runs.jsonl.
+    Session-scoped, so the env var is set and restored by hand rather than
+    via pytest's (function-scoped) monkeypatch fixture.
+    """
+    data_dir = tmp_path_factory.mktemp("data")
+    previous = os.environ.get("COMPANY_DATA_DIR")
+    os.environ["COMPANY_DATA_DIR"] = str(data_dir)
+    try:
+        yield data_dir
+    finally:
+        if previous is None:
+            os.environ.pop("COMPANY_DATA_DIR", None)
+        else:
+            os.environ["COMPANY_DATA_DIR"] = previous
 
 
 class FakeFetcher:

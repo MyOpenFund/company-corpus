@@ -54,9 +54,12 @@ comparable in a single analytical table.
 Output path: `data/financials_eu/<LEI>.jsonl`
 
 A coverage report is written to `data/reports/eu_financials_coverage.jsonl` for
-every entity processed, listing its status (`ok` / `no-financials` / `unresolved`),
-the period count, and the fiscal-year range. An issuer absent from filings.xbrl.org
-appears as `no-financials` — never a silent drop.
+every entity processed, listing its status (`ok` / `no-financials` / `unresolved` /
+`source-error`), the period count, and the fiscal-year range. An issuer absent from
+filings.xbrl.org appears as `no-financials` — never a silent drop. An issuer whose
+filings could not be FETCHED is `source-error` (with the failure message), counted
+in `out["errors"]` and appended to `data/discovery_errors.jsonl`: a dead aggregator
+must never be readable as "this issuer files nothing".
 
 ## IFRS concept pack
 

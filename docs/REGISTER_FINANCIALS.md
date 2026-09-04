@@ -334,7 +334,7 @@ silently overstate it for any filer carrying intangibles; suppressed via the sha
 A coverage report is written to `data/reports/register_coverage_companies_house.jsonl`
 for every filing processed: `status="ok"` with a period count, `"no-financials"` (no
 usable iXBRL facts or empty values after gating), `"unbalanced"` (primary gate rejected
-the filing), or `"error"` (parse exception). When items were suppressed by the confidence
+the filing), or `"source-error"` (dead source or parse failure). When items were suppressed by the confidence
 gate, a `suppressed` list records each key name and the reason.
 
 ## The confidence gate — no false data
@@ -629,8 +629,8 @@ already in place means EBITDA will be automatically computable without further w
 
 A coverage report is written to `data/reports/register_coverage_bnb.jsonl` for every
 entity processed: `status="ok"` with a period count, `"no-financials"` (no usable facts
-after gating), `"unbalanced"` (primary gate rejected the filing), or `"error"` (parse
-exception). When items are suppressed by the confidence gate or the always-suppress
+after gating), `"unbalanced"` (primary gate rejected the filing), or `"source-error"` (dead source or
+parse failure). When items are suppressed by the confidence gate or the always-suppress
 list, a `suppressed` list records each key and the reason.
 
 ## The confidence gate — no false data
@@ -917,7 +917,7 @@ D&A in the pack) and no `effective_tax_rate` (income tax suppressed).
 A coverage report is written to `data/reports/register_coverage_prh.jsonl` for every
 entity processed: `status="ok"` with a period count, `"no-financials"` (no usable
 facts after gating), `"unbalanced"` (primary balance gate failed), `"unresolved"`
-(identity lookup failed), or `"error"` (parse exception). Suppressed items and their
+(identity lookup failed), or `"source-error"` (dead source or parse failure). Suppressed items and their
 reasons are always recorded in the `suppressed` list.
 
 ## The confidence gate — no false data
@@ -1058,8 +1058,11 @@ the entity / period / unbalanced counts without touching disk. The `--fi-file` a
 **API path behaviour:** for each Y-tunnus, the engine calls `GET /v3/financials` which
 returns a `{"totalResults": N, "financials": [{"businessId": …, "financialDate": "YYYY-MM-DD"}, …]}`
 envelope. The engine extracts the `financialDate` strings, picks the latest, then fetches
-that period's XBRL via `GET /v3/financial`. A missing or erroring entity is recorded as
-`"no-financials"` or `"error"` in the coverage report and never silently dropped.
+that period's XBRL via `GET /v3/financial`. An entity PRH lists nothing for is recorded as
+`"no-financials"`; one whose listing or document call died is `"source-error"` (the
+coverage row names the call that failed) — never silently dropped. Every API-path
+register (NO, BE, FI, DK, SK) draws the same line: an empty answer from a reachable
+register is the issuer's own `"no-financials"`, a failed first call is a dead source.
 
 ## Honest caveats — FI
 
@@ -1217,8 +1220,8 @@ schema). There is no cash-flow statement in the eCDF schema, so `free_cash_flow`
 
 A coverage report is written to `data/reports/register_coverage_lbr.jsonl` for every
 entity processed: `status="ok"` with a period count, `"no-financials"` (no usable values
-after gating), `"unbalanced"` (primary gate rejected the filing), or `"error"` (parse
-exception). Suppressed items and their reasons are recorded in the `suppressed` list.
+after gating), `"unbalanced"` (primary gate rejected the filing), or `"source-error"` (dead source or
+parse failure). Suppressed items and their reasons are recorded in the `suppressed` list.
 
 ## The confidence gate — no false data
 
@@ -1592,7 +1595,7 @@ Coverage is written per source: `data/reports/register_coverage_erst-ifrs.jsonl`
 — listed ESEF) and `data/reports/register_coverage_erst-fsa.jsonl` (Path B — DK-GAAP
 FSA), for every entity processed: `status="ok"` with a period count, `"no-financials"`
 (no usable facts after gating), `"unbalanced"` (primary gate rejected the filing), or
-`"error"` (parse exception). Suppressed items and their reasons are always recorded in
+`"source-error"` (dead source or parse failure). Suppressed items and their reasons are always recorded in
 the `suppressed` list.
 
 ## The confidence gate — no false data
@@ -1888,7 +1891,7 @@ and `fcf_to_debt` are not emitted (no cash-flow statement in the bulk).
 A coverage report is written to `data/reports/register_coverage_rik.jsonl` for every
 entity processed: `status="ok"` with a period count, `"no-financials"` (NGO/non-profit
 template detected — see gate), `"unbalanced"` (primary gate rejected the filing), or
-`"error"` (parse exception). Suppressed items and their reasons are always recorded in
+`"source-error"` (dead source or parse failure). Suppressed items and their reasons are always recorded in
 the `suppressed` list.
 
 ## The confidence gate — no false data
@@ -2235,8 +2238,8 @@ There is no `ebitda` (no depreciation / amortisation concept in the SK pack), no
 
 A coverage report is written to `data/reports/register_coverage_registeruz.jsonl` for
 every entity processed: `status="ok"` with a period count, `"no-financials"` (no usable
-values after gating), `"unbalanced"` (primary balance gate failed), or `"error"` (parse
-exception). When items are suppressed, a `suppressed` list records each key and the
+values after gating), `"unbalanced"` (primary balance gate failed), or `"source-error"` (dead source or
+parse failure). When items are suppressed, a `suppressed` list records each key and the
 reason.
 
 ## The confidence gate — no false data
@@ -2388,7 +2391,13 @@ The `--sk-file` and `--sk-id` flags are mutually exclusive with each other and w
 
 The `--sk-file` path is entirely local (no network). The `--sk-id` path issues GET
 requests to `registeruz.sk` for each entity, with per-entity try / except error
-isolation (a single failed entity does not abort the batch).
+isolation (a single failed entity does not abort the batch). A dead
+zavierka / vykaz / sablona call is always counted as an error (run report + trail)
+whatever coverage status the entity ends up with: when no period survives it is
+`source-error` (even if the surviving periods were balance-rejected); when some
+periods were obtained the entity stays `ok` with the dead calls on its coverage row
+(`fetch_errors`) and a WARNING — by design, a partial traversal degrades the run
+only when it yielded nothing.
 
 ## Honest caveats — SK
 

@@ -75,6 +75,7 @@ def discover_universe(
     fetcher: Fetcher | None = None,
     storage: Storage | None = None,
     entities: EntityRegistry | None = None,
+    run_id: str | None = None,
 ) -> RunReport:
     """Discover filings for every CIK and merge into manifests.
 
@@ -86,6 +87,10 @@ def discover_universe(
     CIKs are expanded through the alias/successor map so a single issuer pulls
     every CIK of its economic entity (e.g. Alphabet also crawls Google's old
     CIK), and each record is stamped with its ``entity_id``.
+
+    ``run_id`` (here and on every other entry point in this module) stamps the
+    rows appended to ``discovery_errors.jsonl`` so a trail row can be joined
+    back to the run report that recorded it.
     """
     config = config or Config()
     fetcher = fetcher or Fetcher(config)
@@ -115,7 +120,7 @@ def discover_universe(
         if round_errors:
             report.errors.extend(round_errors)
             if not dry_run:
-                storage.record_errors(round_errors)
+                storage.record_errors(round_errors, run_id=run_id)
 
         # Converged: a round changed nothing and hit no errors.
         if round_stats.added == 0 and round_stats.updated == 0 and not round_errors:
@@ -150,6 +155,7 @@ def download_universe(
     config: Config | None = None,
     fetcher: Fetcher | None = None,
     storage: Storage | None = None,
+    run_id: str | None = None,
 ) -> DownloadReport:
     """Download + decompose filings already present in the issuers' manifests.
 
@@ -194,7 +200,7 @@ def download_universe(
             storage.save_records(touched, dry_run=False)
 
     if not dry_run and report.error_items:
-        storage.record_errors(report.error_items)
+        storage.record_errors(report.error_items, run_id=run_id)
     return report
 
 
@@ -224,6 +230,7 @@ def render_universe(
     limit: int | None = None,
     config: Config | None = None,
     storage: Storage | None = None,
+    run_id: str | None = None,
 ) -> RenderReport:
     """Render downloaded primary documents to PDF (separate batch).
 
@@ -277,7 +284,7 @@ def render_universe(
             storage.save_records(touched, dry_run=False)
 
     if not dry_run and report.error_items:
-        storage.record_errors(report.error_items)
+        storage.record_errors(report.error_items, run_id=run_id)
     return report
 
 
@@ -300,6 +307,7 @@ def fetch_financials(
     config: Config | None = None,
     fetcher: Fetcher | None = None,
     storage: Storage | None = None,
+    run_id: str | None = None,
 ) -> FinancialsReport:
     """Build per-period XBRL financial summaries (family F1) into manifests.
 
@@ -348,7 +356,7 @@ def fetch_financials(
         report.stats += storage.save_records(records, dry_run=dry_run)
 
     if not dry_run and report.errors:
-        storage.record_errors(report.errors)
+        storage.record_errors(report.errors, run_id=run_id)
     return report
 
 
@@ -373,6 +381,7 @@ class OwnershipReport:
 
     issuers: int = 0
     downloaded: int = 0
+    would_download: int = 0   # dry run: filings that WOULD be downloaded
     parsed_insider: int = 0   # E1 Form 3/4/5
     parsed_13f: int = 0       # E2 13F-HR
     passthrough: int = 0      # E3 SC 13D/G (narrative, generic text)
@@ -397,6 +406,7 @@ def process_ownership(
     config: Config | None = None,
     fetcher: Fetcher | None = None,
     storage: Storage | None = None,
+    run_id: str | None = None,
 ) -> OwnershipReport:
     """Download + structure ownership filings already discovered in the manifests.
 
@@ -440,6 +450,8 @@ def process_ownership(
                 continue
             if res.status == "downloaded":
                 report.downloaded += 1
+            elif res.status == "would-download":
+                report.would_download += 1
             if dry_run or not rec.local_path:
                 continue
 
@@ -475,5 +487,5 @@ def process_ownership(
                 storage.write_ownership_table(cik, rows)
 
     if not dry_run and report.error_items:
-        storage.record_errors(report.error_items)
+        storage.record_errors(report.error_items, run_id=run_id)
     return report

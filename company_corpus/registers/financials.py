@@ -25,7 +25,10 @@ from ._common import (
     _emit_mapped,
     _finalise_coverage,
     _lei_or_none,
+    _fetch_errors_message,
     _make_out,
+    _note_partial_fetch_errors,
+    _record_source_error,
     _summary,
 )
 from .bnb_cbso import fetch_bnb_deposit as _fetch_bnb_deposit
@@ -85,21 +88,40 @@ def _dedupe_latest(entries: list[dict]) -> list[dict]:
 
 
 def build_register_financials(specs, *, fetcher, config: Config, write: bool = True) -> dict:
+    """Norway (Brreg) financials for ``specs`` (``orgnr`` direct, or ``lei`` via
+    GLEIF). ``out["unresolved"]`` / ``out["unresolved_specs"]`` count and list
+    the specs that resolved to no orgnr — an unknown LEI, or GLEIF unreachable,
+    which the resolver cannot tell apart — so the CLI can fail a run in which
+    nothing resolved instead of reporting a green "no financials"."""
     resolved = resolve_register_specs(specs, fetcher=fetcher)
     storage = Storage(config)
     coverage: list[dict] = []
     out = _make_out()
-    for r in resolved:
+    out["unresolved"] = 0
+    out["unresolved_specs"] = []
+    for i, r in enumerate(resolved):
         out["entities"] += 1
         if not r.get("orgnr"):
             coverage.append({"orgnr": None, "lei": r.get("lei"), "status": "unresolved"})
             out["no_financials"] += 1
+            out["unresolved"] += 1
+            # resolve_register_specs yields one row per spec, in order.
+            out["unresolved_specs"].append(specs[i] if i < len(specs) else dict(r))
             continue
+        cov_base = {"orgnr": r["orgnr"], "lei": r.get("lei")}
         try:  # one malformed record must not abort the whole batch (nor the coverage write)
+            fetch_errors: list[dict] = []
+            entries = fetch_brreg_accounts(r["orgnr"], fetcher=fetcher, errors=fetch_errors)
+            if not entries and fetch_errors:
+                # Brreg could not be read: a dead source, not an empty filer.
+                _record_source_error(_fetch_errors_message(fetch_errors), cov_base,
+                                     entity_id=r["orgnr"], source="brreg",
+                                     out=out, coverage=coverage)
+                continue
             rows: list[dict] = []
             n = 0
             had_unbalanced = False
-            for entry in _dedupe_latest(fetch_brreg_accounts(r["orgnr"], fetcher=fetcher)):
+            for entry in _dedupe_latest(entries):
                 mapped = map_brreg_entry(entry)
                 if not mapped:
                     continue
@@ -112,7 +134,6 @@ def build_register_financials(specs, *, fetcher, config: Config, write: bool = T
                     _base(r["orgnr"], r.get("lei"), mapped, s,
                           country="NO", source="brreg"), s))
                 n += 1
-            cov_base = {"orgnr": r["orgnr"], "lei": r.get("lei")}
             # If every period was rejected by the balance gate, classify as unbalanced.
             if not rows and had_unbalanced:
                 coverage.append({**cov_base, "status": "unbalanced"})
@@ -122,9 +143,8 @@ def build_register_financials(specs, *, fetcher, config: Config, write: bool = T
             _emit_entity_rows(r["orgnr"], rows, n, cov_base, storage, out, coverage,
                               write=write, leverage_basis=_BASIS_TOTAL_LIABILITIES)
         except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch going
-            coverage.append({"orgnr": r["orgnr"], "lei": r.get("lei"),
-                             "status": "error", "error": str(exc)})
-            out["errors"] += 1
+            _record_source_error(exc, cov_base, entity_id=r["orgnr"],
+                                 source="brreg", out=out, coverage=coverage)
             continue
     return _finalise_coverage(out, coverage, config, "brreg", write=write)
 
@@ -211,8 +231,8 @@ def build_ch_financials(
                 )
 
             except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch
-                coverage.append({**cov_base, "status": "error", "error": str(exc)})
-                out["errors"] += 1
+                _record_source_error(exc, cov_base, entity_id=ch_number,
+                                     source="companies_house", out=out, coverage=coverage)
                 continue
 
     finally:
@@ -307,8 +327,8 @@ def build_be_financials_from_files(
             )
 
         except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch going
-            coverage.append({**cov_base, "status": "error", "error": str(exc)})
-            out["errors"] += 1
+            _record_source_error(exc, cov_base, entity_id=entity_id,
+                                 source="bnb", out=out, coverage=coverage)
             continue
 
     return _finalise_coverage(out, coverage, config, "bnb", write=write)
@@ -352,9 +372,9 @@ def build_lu_financials_from_files(
         try:
             declarers = list(iter_lu_declarers(path_obj, rcs_filter=rcs_filter))
         except Exception as exc:  # noqa: BLE001 — path-level error, no entity_id
-            coverage.append({"rcs": path_obj.name, "lei": None,
-                             "status": "error", "error": str(exc)})
-            out["errors"] += 1
+            cov_base = {"rcs": path_obj.name, "lei": None}
+            _record_source_error(exc, cov_base, entity_id=path_obj.name,
+                                 source="lbr", out=out, coverage=coverage)
             continue
 
         for declarer in declarers:
@@ -374,8 +394,8 @@ def build_lu_financials_from_files(
                 )
 
             except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch going
-                coverage.append({**cov_base, "status": "error", "error": str(exc)})
-                out["errors"] += 1
+                _record_source_error(exc, cov_base, entity_id=entity_id,
+                                     source="lbr", out=out, coverage=coverage)
                 continue
 
     return _finalise_coverage(out, coverage, config, "lbr", write=write)
@@ -432,8 +452,16 @@ def build_be_financials(
             continue
 
         try:
-            deposit_bytes = _fetch_bnb_deposit(be_number, fetcher=fetcher, key=key)
+            fetch_errors: list[dict] = []
+            deposit_bytes = _fetch_bnb_deposit(be_number, fetcher=fetcher, key=key,
+                                               errors=fetch_errors)
             if deposit_bytes is None:
+                if fetch_errors:
+                    # CBSO could not be read: a dead source, not an empty filer.
+                    _record_source_error(_fetch_errors_message(fetch_errors), cov_base,
+                                         entity_id=be_number, source="bnb",
+                                         out=out, coverage=coverage)
+                    continue
                 coverage.append({**cov_base, "status": "no-financials"})
                 out["no_financials"] += 1
                 continue
@@ -451,8 +479,8 @@ def build_be_financials(
             )
 
         except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch going
-            coverage.append({**cov_base, "status": "error", "error": str(exc)})
-            out["errors"] += 1
+            _record_source_error(exc, cov_base, entity_id=be_number,
+                                 source="bnb", out=out, coverage=coverage)
             continue
 
     return _finalise_coverage(out, coverage, config, "bnb", write=write)
@@ -547,8 +575,8 @@ def build_fi_financials_from_files(
                 storage=storage, out=out, coverage=coverage, write=write,
             )
         except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch going
-            coverage.append({**cov_base, "status": "error", "error": str(exc)})
-            out["errors"] += 1
+            _record_source_error(exc, cov_base, entity_id=entity_id,
+                                 source="prh", out=out, coverage=coverage)
             continue
 
     return _finalise_coverage(out, coverage, config, "prh", write=write)
@@ -601,8 +629,15 @@ def build_fi_financials(
             continue
 
         try:
-            dates = list_fi_dates(business_id, fetcher=fetcher)
+            fetch_errors: list[dict] = []
+            dates = list_fi_dates(business_id, fetcher=fetcher, errors=fetch_errors)
             if not dates:
+                if fetch_errors:
+                    # PRH could not be read: a dead source, not an empty filer.
+                    _record_source_error(_fetch_errors_message(fetch_errors), cov_base,
+                                         entity_id=business_id, source="prh",
+                                         out=out, coverage=coverage)
+                    continue
                 coverage.append({**cov_base, "status": "no-financials"})
                 out["no_financials"] += 1
                 continue
@@ -610,8 +645,13 @@ def build_fi_financials(
             latest_date = max(dates)
             xbrl_bytes = fetch_fi_financial(business_id, latest_date, fetcher=fetcher)
             if xbrl_bytes is None:
-                coverage.append({**cov_base, "status": "no-financials"})
-                out["no_financials"] += 1
+                # PRH itself listed a filing for this date, so an empty document
+                # is a DEAD SOURCE (fetch failed / returned nothing), never the
+                # issuer's own "filed nothing" — see prh_api's WARNING log.
+                _record_source_error(
+                    f"PRH returned no document for {business_id} @ {latest_date}",
+                    cov_base, entity_id=business_id, source="prh",
+                    out=out, coverage=coverage)
                 continue
 
             _fi_pipeline(
@@ -620,8 +660,8 @@ def build_fi_financials(
             )
 
         except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch going
-            coverage.append({**cov_base, "status": "error", "error": str(exc)})
-            out["errors"] += 1
+            _record_source_error(exc, cov_base, entity_id=business_id,
+                                 source="prh", out=out, coverage=coverage)
             continue
 
     return _finalise_coverage(out, coverage, config, "prh", write=write)
@@ -887,8 +927,8 @@ def build_dk_financials_from_files(
                 )
 
         except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch going
-            coverage.append({**cov_base, "status": "error", "error": str(exc)})
-            out["errors"] += 1
+            _record_source_error(exc, cov_base, entity_id=cov_base.get("cvr"),
+                                 source="erst", out=out, coverage=coverage)
             continue
 
     return _finalise_coverage(out, coverage, config, "erst", write=write)
@@ -945,8 +985,15 @@ def build_dk_financials(
             continue
 
         try:
-            filings = search_virk_filings(cvr, fetcher=fetcher)
+            fetch_errors: list[dict] = []
+            filings = search_virk_filings(cvr, fetcher=fetcher, errors=fetch_errors)
             if not filings:
+                if fetch_errors:
+                    # Virk could not be searched: a dead source, not an empty filer.
+                    _record_source_error(_fetch_errors_message(fetch_errors), cov_base,
+                                         entity_id=cvr, source="erst",
+                                         out=out, coverage=coverage)
+                    continue
                 coverage.append({**cov_base, "status": "no-financials"})
                 out["no_financials"] += 1
                 continue
@@ -961,9 +1008,18 @@ def build_dk_financials(
                 if _best_url is not None else None
             )
 
-            if xml_bytes_dk is None or route_dk is None:
+            if route_dk is None:
                 coverage.append({**cov_base, "status": "no-financials"})
                 out["no_financials"] += 1
+                continue
+
+            if xml_bytes_dk is None:
+                # Virk listed a routable filing, so an empty document body is a
+                # DEAD SOURCE (see virk_api's WARNING log), not an empty filer.
+                _record_source_error(
+                    f"Virk returned no document for CVR {cvr} ({_best_url})",
+                    cov_base, entity_id=cvr, source="erst",
+                    out=out, coverage=coverage)
                 continue
 
             if route_dk == "fsa":
@@ -978,8 +1034,8 @@ def build_dk_financials(
                 )
 
         except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch going
-            coverage.append({**cov_base, "status": "error", "error": str(exc)})
-            out["errors"] += 1
+            _record_source_error(exc, cov_base, entity_id=cvr,
+                                 source="erst", out=out, coverage=coverage)
             continue
 
     return _finalise_coverage(out, coverage, config, "erst", write=write)
@@ -1119,8 +1175,8 @@ def build_ee_financials_from_files(
                               write=write, leverage_basis=_BASIS_TOTAL_LIABILITIES)
 
         except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch going
-            coverage.append({**cov_base, "status": "error", "error": str(exc)})
-            out["errors"] += 1
+            _record_source_error(exc, cov_base, entity_id=registrikood,
+                                 source="rik", out=out, coverage=coverage)
             continue
 
     return _finalise_coverage(out, coverage, config, "rik", write=write)
@@ -1216,8 +1272,8 @@ def build_sk_financials_from_files(
         )
 
     except Exception as exc:  # noqa: BLE001 — record + skip
-        coverage.append({**cov_base, "status": "error", "error": str(exc)})
-        out["errors"] += 1
+        _record_source_error(exc, cov_base, entity_id=entity_id,
+                             source="registeruz", out=out, coverage=coverage)
 
     return _finalise_coverage(out, coverage, config, "registeruz", write=write)
 
@@ -1267,9 +1323,17 @@ def build_sk_financials(
         out["entities"] += 1
         cov_base: dict = {"entity_id": entity_id, "ico": None, "lei": None}
 
+        ico = None
         try:
-            entity = _sk_fetch_entity(entity_id, fetcher=fetcher)
+            fetch_errors: list[dict] = []
+            entity = _sk_fetch_entity(entity_id, fetcher=fetcher, errors=fetch_errors)
             if not entity:
+                if fetch_errors:
+                    # registeruz could not be read: a dead source, not a missing entity.
+                    _record_source_error(_fetch_errors_message(fetch_errors), cov_base,
+                                         entity_id=entity_id, source="registeruz",
+                                         out=out, coverage=coverage)
+                    continue
                 coverage.append({**cov_base, "status": "no-financials",
                                  "note": "entity not found"})
                 out["no_financials"] += 1
@@ -1290,11 +1354,12 @@ def build_sk_financials(
             suppressed_all: list = []
 
             for zavierka_id in (entity.get("idUctovnychZavierok") or []):
-                zavierka = _sk_fetch_zavierka(zavierka_id, fetcher=fetcher)
+                zavierka = _sk_fetch_zavierka(zavierka_id, fetcher=fetcher,
+                                              errors=fetch_errors)
                 if not zavierka:
                     continue
                 for vykaz_id in (zavierka.get("idUctovnychVykazov") or []):
-                    vykaz = _sk_fetch_vykaz(vykaz_id, fetcher=fetcher)
+                    vykaz = _sk_fetch_vykaz(vykaz_id, fetcher=fetcher, errors=fetch_errors)
                     if not vykaz:
                         continue
                     id_sablony = vykaz.get("idSablony")
@@ -1303,7 +1368,8 @@ def build_sk_financials(
                     # Cache sablony — there are very few distinct ids.
                     sablona = sablona_cache.get(id_sablony)
                     if sablona is None:
-                        sablona = _sk_fetch_sablona(id_sablony, fetcher=fetcher)
+                        sablona = _sk_fetch_sablona(id_sablony, fetcher=fetcher,
+                                                    errors=fetch_errors)
                         if sablona:
                             sablona_cache[id_sablony] = sablona
                     if not sablona:
@@ -1342,6 +1408,19 @@ def build_sk_financials(
             if suppressed_all:
                 cov["suppressed"] = suppressed_all
 
+            if not rows and fetch_errors:
+                # Nothing came out and at least one zavierka/vykaz/sablona call
+                # died along the way: a dead source, not an empty filer — and
+                # not "unbalanced" either, even when the surviving periods were
+                # balance-rejected: a dead call is not a property of the issuer.
+                _record_source_error(_fetch_errors_message(fetch_errors), cov_base,
+                                     entity_id=ico, source="registeruz",
+                                     out=out, coverage=coverage)
+                continue
+            # Whatever status the entity earns below (ok / no-financials /
+            # unbalanced), a dead call on a partial traversal is still an error.
+            _note_partial_fetch_errors(fetch_errors, cov, entity_id=ico,
+                                       source="registeruz", out=out)
             # If no period produced rows and all failures were balance-gate rejections,
             # classify as "unbalanced" rather than "no-financials".
             if not rows and had_unbalanced:
@@ -1355,8 +1434,8 @@ def build_sk_financials(
                               write=write, leverage_basis=_BASIS_BORROWINGS)
 
         except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch going
-            coverage.append({**cov_base, "status": "error", "error": str(exc)})
-            out["errors"] += 1
+            _record_source_error(exc, cov_base, entity_id=ico or entity_id,
+                                 source="registeruz", out=out, coverage=coverage)
             continue
 
     return _finalise_coverage(out, coverage, config, "registeruz", write=write)

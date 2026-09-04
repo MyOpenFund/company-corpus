@@ -15,7 +15,7 @@ import os
 import warnings
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from .config import Config, normalize_cik
@@ -326,14 +326,26 @@ class Storage:
         return self._rel(path)
 
     # ---- discovery errors ----
-    def record_errors(self, errors: Iterable[dict]) -> int:
-        """Append discovery errors to the audit trail. Returns count written."""
+    def record_errors(self, errors: Iterable[dict], *, run_id: str | None = None) -> int:
+        """Append discovery errors to the audit trail. Returns count written.
+
+        Every row is stamped with ``ts`` (ISO-8601 UTC) and, when the caller
+        knows it, the ``run_id`` of the run that hit the error — so a dead source
+        in the trail can be tied back to its run report in ``runs.jsonl``. Rows
+        that already carry either key keep their own value; nothing else is
+        rewritten.
+        """
         errors = list(errors)
         if not errors:
             return 0
         path = self.config.discovery_errors_path
         path.parent.mkdir(parents=True, exist_ok=True)
+        now = datetime.now(timezone.utc).isoformat()
         with path.open("a", encoding="utf-8") as fh:
             for err in errors:
-                fh.write(json.dumps(err, ensure_ascii=False) + "\n")
+                row = dict(err)
+                row.setdefault("ts", now)
+                if run_id is not None:
+                    row.setdefault("run_id", run_id)
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
         return len(errors)

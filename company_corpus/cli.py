@@ -3,6 +3,65 @@
 Mirrors cb_corpus CLI ergonomics: subcommands, a dry-run-by-default posture, and
 an explicit ``--write`` flag for side effects. Phase 0 added inspection
 commands; Phase 1 adds the issuer universe and EDGAR discovery.
+
+Silent-failure doctrine — what each work command reports
+--------------------------------------------------------
+Every command in :data:`REPORTING_CMDS` folds its own counters into the run
+report (``data/runs.jsonl``) through :func:`_feed_report`, so a run that did no
+useful work can never exit 0. ``docs_new`` is the command's *unit of useful
+work*, ``docs_seen`` what it examined, ``docs_failed`` its error count; every
+error message is also recorded as a fetch error (capped samples), and a backend
+that reports a truncated result sets ``truncated`` — which degrades the run even
+when documents were written, because a partial listing must never look complete.
+
+===================== ========== ============================ ======================= ==================
+command               source     docs_seen                    docs_new (useful work)  docs_failed
+===================== ========== ============================ ======================= ==================
+discover              sec        manifest records seen        records added           discovery errors
+  (with --download)   sec        + files examined             + files downloaded      + download errors
+discover-index        sec        manifest records seen        records added           index errors
+download              sec        downloaded+skipped+empty+err files downloaded        download errors
+render-pdf            sec        rendered+would+skipped+
+                                 no_primary+errors            rendered + would_render render errors
+xbrl                  sec        issuers processed            period summaries        companyfacts errors
+ownership             sec        issuers processed            insider+13F+passthrough ownership errors
+                                                              + would_download (dry)
+enrich-openfigi       sec        identifiers submitted        identifiers mapped      (none: see below)
+eu-financials         xbrlorg    entities resolved            period summaries        ``out["errors"]``
+eu-acquire            per        entities dispatched to       documents kept from     that backend's
+                      backend    that backend                 that backend            errors
+register-financials   per        entities resolved            period summaries        ``out["errors"]``
+                      register
+===================== ========== ============================ ======================= ==================
+
+Three deliberate choices:
+
+* **Dry runs count what WOULD be written.** ``render-pdf`` folds ``would_render``
+  into ``docs_new``, ``ownership`` folds ``would_download``, and ``xbrl`` /
+  ``eu-financials`` / ``register-financials`` count the period summaries they
+  computed, so a dry run that found candidates and hit no errors is ``ok`` while
+  a dry run with errors and zero candidates is ``degraded`` — never a green
+  "nothing to do". ``download`` is the one exception: its producer has no
+  would-download counter, so a dry-run download reports ``docs_new=0``.
+* **``enrich-openfigi`` is recorded under ``sec``.** OpenFIGI is a mapping
+  service, not a document authority, so it gets no code of its own (``one code
+  per real-world regulatory authority``, see :mod:`company_corpus.source_codes`);
+  the command exists to triage identifier CSVs into the SEC-anchored universe, so
+  its counters land there. A no-match is *not* an error — OpenFIGI legitimately
+  has no record for many private placements — so ``docs_failed`` stays 0 and a
+  fully unmatched file is a clean "nothing new", not a failure.
+* **``eu-financials`` reports ``xbrlorg``.** Its rows are tagged ``source="esef"``
+  and come from the filings.xbrl.org aggregator (:mod:`company_corpus.eu.financials`),
+  not from a national OAM backend. **``eu-acquire`` reports one row per backend**
+  it dispatched to (``out["sources"]``, keyed by the backend ``name`` and resolved
+  to the authority's code), so a dead national OAM is counted as that backend's
+  own failure on its own row while the aggregator's row stays clean — never a
+  single blended row. The run itself degrades only under the zero-useful-work
+  rule of :meth:`RunReport.finish` (no document acquired at all): a dead OAM
+  next to a productive aggregator is an ``ok`` run whose report names the dead
+  authority. A spec that resolves to no LEI reaches no backend and no row; the
+  command prints such specs (``unresolved: …``) and fails the run only when
+  *every* spec is unresolved (bad inputs, or GLEIF unreachable).
 """
 
 from __future__ import annotations
@@ -10,6 +69,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import logging
 import os
 import sys
 from collections import Counter
@@ -28,6 +88,7 @@ from .pipeline import (
     process_ownership,
     render_universe,
 )
+from .eu.acquire import acquire
 from .eu.financials import build_eu_financials
 from .registers.financials import (
     build_be_financials,
@@ -46,6 +107,8 @@ from .registers.financials import (
 )
 from .openfigi import coverage_hint, map_identifiers
 from .rag import iter_items
+from .runreport import RunReport as DoctrineReport
+from .source_codes import source_code_for
 from .sources.cik_lookup import fetch_cik_lookup, parse_cik_lookup
 from .sources.edgar_fts import EdgarFTS
 from .sources.edgar_index import EdgarFullIndex
@@ -65,6 +128,140 @@ from .universe import (
     write_cusip_crosswalk,
     write_name_cache,
 )
+
+
+# Work commands that build a run-report, feed it through the pipeline, and
+# ALWAYS write it (even on crash) before returning the doctrine exit code.
+# Non-work commands (list-* / inspection / migrations, ...) are unaffected.
+# A work command's non-zero return value (e.g. a caught RuntimeError reported
+# as exit 1) is folded into the doctrine as a "failed" outcome rather than
+# being silently discarded and reported as "ok".
+REPORTING_CMDS = {
+    "discover", "discover-index", "download", "render-pdf", "xbrl",
+    "ownership", "enrich-openfigi", "eu-financials", "register-financials",
+    "eu-acquire",
+}
+
+
+def _runs_path(args: argparse.Namespace | None = None) -> Path:
+    """Where the run-report lands: COMPANY_DATA_DIR override (tests) wins;
+    else ``--data-dir`` when given on ``args``; else Config's own data_dir.
+    Config itself doesn't honor an env var for data_dir today, so
+    COMPANY_DATA_DIR is this CLI's own override, not a pre-existing Config
+    mechanism."""
+    base = os.environ.get("COMPANY_DATA_DIR")
+    if base:
+        data_dir = Path(base)
+    elif args is not None and getattr(args, "data_dir", None):
+        data_dir = Path(args.data_dir)
+    else:
+        data_dir = Config().data_dir
+    return data_dir / "runs.jsonl"
+
+
+def _error_messages(items) -> list[str]:
+    """Flatten a producer's error payloads (dicts or strings) to messages."""
+    msgs: list[str] = []
+    for item in items or ():
+        if isinstance(item, dict):
+            context = item.get("context") or item.get("url") or item.get("source") or ""
+            text = item.get("error") or json.dumps(item, default=str, ensure_ascii=False)
+            msgs.append(f"{context}: {text}" if context else str(text))
+        else:
+            msgs.append(str(item))
+    return msgs
+
+
+def _feed_report(
+    report,
+    code: str,
+    *,
+    seen: int = 0,
+    new: int = 0,
+    failed: int = 0,
+    errors=(),
+    truncated: bool = False,
+) -> None:
+    """Fold one command's counters into the run report under ``code``.
+
+    ``report`` is ``None`` when a ``_cmd_*`` is called directly (older tests and
+    library callers bypass :func:`main`, which is what attaches the report) — a
+    no-op then, so feeding never becomes a precondition for running a command.
+
+    ``code`` is any producer/backend tag; it is resolved through
+    :func:`company_corpus.source_codes.source_code_for`, which raises rather than
+    guess, so a new backend cannot quietly report under an invented authority.
+    Each error message is recorded as a fetch error *and* counted in
+    ``failed``: for these commands an error means both "a document was not
+    produced" and "an upstream call failed". ``truncated`` marks the source as a
+    partial listing (degrades the run on its own); a truncation with no error
+    payload still records one synthetic message so the report says why.
+    """
+    if report is None:
+        return
+    stats = report.source(source_code_for(code))
+    stats.docs_seen += seen
+    stats.docs_new += new
+    stats.docs_failed += failed
+    msgs = _error_messages(errors)
+    if truncated and not msgs:
+        msgs = [f"{code}: backend reported a truncated result"]
+    for msg in msgs:
+        stats.record_fetch_error(msg, truncated=truncated)
+
+
+def _feed_from_out(report, code: str, out: dict) -> None:
+    """Feed the report from a producer ``out`` dict (EU + register builders).
+
+    Their shared shape is ``entities`` / ``with_financials`` / ``no_financials`` /
+    ``periods`` / ``errors`` (an int, with the messages in ``error_items``; a list
+    of items is accepted too, as ``eu.acquire`` returns). A missing entity or a
+    filing without financials is coverage, not an error — it is recorded in the
+    coverage file and only ever counted in ``docs_seen``. A DEAD SOURCE is not:
+    it arrives as an ``error_items`` entry (``status: "source-error"`` in the
+    coverage file) and becomes a fetch error here, so an issuer whose register
+    could not be read never passes for one that filed nothing.
+    ``truncated`` is read when a backend grows it.
+    """
+    errors = out.get("errors") or 0
+    if isinstance(errors, (list, tuple)):
+        failed, items = len(errors), errors
+    else:
+        failed, items = int(errors), out.get("error_items") or ()
+    _feed_report(
+        report, code,
+        seen=int(out.get("entities") or 0),
+        new=int(out.get("periods") or 0),
+        failed=failed,
+        errors=items,
+        truncated=bool(out.get("truncated")),
+    )
+
+
+def _run_id(args: argparse.Namespace) -> str | None:
+    """The current run's id, or None when no report is attached (direct calls)."""
+    return getattr(getattr(args, "report", None), "run_id", None)
+
+
+def _record_out_errors(args: argparse.Namespace, config, out: dict) -> None:
+    """Append a producer's ``error_items`` to the discovery-error trail.
+
+    Every pillar writes to the same ``discovery_errors.jsonl``, stamped by
+    :meth:`Storage.record_errors` with a timestamp and this run's id — so a dead
+    EU or register source leaves the same auditable trace the SEC pillar leaves,
+    instead of living only in the run report's capped samples. A no-op when the
+    producer reported nothing, and on a dry run (no ``--write``): the run report
+    still carries the errors, but "DRY-RUN (nothing written)" means nothing —
+    the SEC pillar gates its trail on the same flag. Every caller defines
+    ``--write``, so a namespace without it is a programming error and raises
+    rather than silently reading as a dry run.
+    """
+    if not args.write:
+        return
+    items = out.get("error_items") or []
+    if not items:
+        return
+    Storage(config).record_errors(items, run_id=_run_id(args))
 
 
 def _parse_years(spec: str | None) -> list[int]:
@@ -165,6 +362,14 @@ def _cmd_config(args: argparse.Namespace) -> int:
 
 
 def _cmd_enrich_openfigi(args: argparse.Namespace) -> int:
+    """Enrich an identifier CSV via OpenFIGI (name/type/exchange + triage).
+
+    Reported under the ``sec`` source: OpenFIGI is a mapping service, not a
+    document authority, so it has no code of its own, and this command's job is
+    to triage identifier files into the SEC-anchored universe. A no-match is not
+    an error (OpenFIGI has no record for many private placements), so it counts
+    only in ``docs_seen``.
+    """
     path = Path(args.from_file)
     with path.open(encoding="utf-8", newline="") as fh:
         reader = csv.DictReader(fh)
@@ -189,6 +394,7 @@ def _cmd_enrich_openfigi(args: argparse.Namespace) -> int:
         h = coverage_hint(r.security_type) if r else "no_match"
         hint_tally[h] = hint_tally.get(h, 0) + 1
     print(f"OpenFIGI: {hits}/{len(ids)} matched; triage {hint_tally}", file=sys.stderr)
+    _feed_report(getattr(args, "report", None), "sec", seen=len(ids), new=hits)
 
     if args.out:
         out = Path(args.out)
@@ -419,6 +625,7 @@ def _cmd_discover(args: argparse.Namespace) -> int:
         dry_run=dry_run,
         max_rounds=args.rounds,
         config=cfg,
+        run_id=_run_id(args),
     )
     mode = "DRY-RUN (nothing written)" if dry_run else "WROTE manifests"
     s = report.stats
@@ -426,6 +633,8 @@ def _cmd_discover(args: argparse.Namespace) -> int:
     print(f"  seen={s.seen} added={s.added} updated={s.updated} unchanged={s.unchanged}")
     if report.errors:
         print(f"  discovery errors: {len(report.errors)} (see discovery_errors.jsonl)")
+    _feed_report(getattr(args, "report", None), "sec", seen=s.seen, new=s.added,
+                 failed=len(report.errors), errors=report.errors)
 
     if args.download:
         # Use the same period filter as the standalone `download` command: bounds
@@ -435,9 +644,15 @@ def _cmd_discover(args: argparse.Namespace) -> int:
             ciks, scope=scope, year_min=year_min, year_max=year_max,
             since=since, until=until,
             dry_run=False, overwrite=args.overwrite, limit=args.limit, config=cfg,
+            run_id=_run_id(args),
         )
         print(f"download — got={dl.downloaded} skipped={dl.skipped} errors={dl.errors} "
               f"bytes={dl.bytes:,}")
+        # The download leg folds into the same `sec` source: both legs of a
+        # `discover --download` run are work on SEC documents.
+        _feed_report(getattr(args, "report", None), "sec",
+                     seen=dl.downloaded + dl.skipped + dl.empty + dl.errors,
+                     new=dl.downloaded, failed=dl.errors, errors=dl.error_items)
     return 0
 
 
@@ -450,12 +665,18 @@ def _cmd_download(args: argparse.Namespace) -> int:
     dl = download_universe(
         ciks, scope=scope, year_min=year_min, year_max=year_max, since=since, until=until,
         dry_run=dry_run, overwrite=args.overwrite, limit=args.limit, config=cfg,
+        run_id=_run_id(args),
     )
     mode = "DRY-RUN (nothing written)" if dry_run else "WROTE"
     print(f"download [{mode}] — got={dl.downloaded} skipped={dl.skipped} "
           f"empty={dl.empty} errors={dl.errors} bytes={dl.bytes:,}")
     if dl.error_items:
         print(f"  errors logged: {len(dl.error_items)} (see discovery_errors.jsonl)")
+    # No would-download counter exists, so a dry run legitimately reports
+    # docs_new=0 (documented in the module docstring).
+    _feed_report(getattr(args, "report", None), "sec",
+                 seen=dl.downloaded + dl.skipped + dl.empty + dl.errors,
+                 new=dl.downloaded, failed=dl.errors, errors=dl.error_items)
     return 0
 
 
@@ -469,6 +690,7 @@ def _cmd_render_pdf(args: argparse.Namespace) -> int:
         rep = render_universe(
             ciks, scope=scope, year_min=year_min, year_max=year_max, since=since, until=until,
             dry_run=dry_run, overwrite=args.overwrite, limit=args.limit, config=cfg,
+            run_id=_run_id(args),
         )
     except RuntimeError as exc:  # e.g. Chrome not installed
         print(f"render-pdf: {exc}", file=sys.stderr)
@@ -478,6 +700,13 @@ def _cmd_render_pdf(args: argparse.Namespace) -> int:
           f"skipped={rep.skipped} no-primary={rep.no_primary} errors={rep.errors}")
     if rep.error_items:
         print(f"  errors logged: {len(rep.error_items)} (see discovery_errors.jsonl)")
+    # rendered and would_render are mutually exclusive per record: summing them
+    # makes a dry run count what it WOULD render as the useful work.
+    _feed_report(getattr(args, "report", None), "sec",
+                 seen=rep.rendered + rep.would_render + rep.skipped
+                 + rep.no_primary + rep.errors,
+                 new=rep.rendered + rep.would_render,
+                 failed=rep.errors, errors=rep.error_items)
     return 0
 
 
@@ -489,13 +718,17 @@ def _cmd_xbrl(args: argparse.Namespace) -> int:
     until_year = max(years) if years else None
     dry_run = not args.write
     rep = fetch_financials(ciks, since_year=since_year, until_year=until_year,
-                           dry_run=dry_run, config=cfg)
+                           dry_run=dry_run, config=cfg, run_id=_run_id(args))
     mode = "DRY-RUN (nothing written)" if dry_run else "WROTE"
     s = rep.stats
     print(f"xbrl [{mode}] — {rep.issuers} issuers, {rep.periods} period summaries (F1)")
     print(f"  seen={s.seen} added={s.added} updated={s.updated} unchanged={s.unchanged}")
     if rep.errors:
         print(f"  errors: {len(rep.errors)} (see discovery_errors.jsonl)")
+    # The unit of work is the period summary (computed in dry-run too), not the
+    # manifest record: `rep.stats.added` is 0 on a re-run that still produced them.
+    _feed_report(getattr(args, "report", None), "sec", seen=rep.issuers,
+                 new=rep.periods, failed=len(rep.errors), errors=rep.errors)
     return 0
 
 
@@ -507,7 +740,46 @@ def _eu_specs(args: argparse.Namespace) -> list[dict]:
     return []
 
 
+def _spec_label(spec: dict) -> str:
+    """``{"isin": "FR…"}`` -> ``"ISIN FR…"`` (the identifier the caller typed)."""
+    for key in ("lei", "isin", "orgnr", "name", "ticker"):
+        if spec.get(key):
+            return f"{key.upper()} {spec[key]}"
+    return repr(spec)
+
+
+def _unresolved_verdict(cmd: str, out: dict) -> int:
+    """Print the specs that resolved to no identity; fail when NONE resolved.
+
+    An unresolved spec reaches no source and no report row, so its only trace
+    is the ``unresolved: …`` stdout line. When every spec is unresolved nothing
+    was queried at all and the run would pass for a green nothing-to-do — it
+    returns 2 instead (folded into a ``failed`` report by :func:`main`), and the
+    message names GLEIF as a possible cause, since an unreachable resolver
+    looks exactly like a bad identifier. Returns 0 otherwise.
+    """
+    unresolved_specs = out.get("unresolved_specs") or []
+    if unresolved_specs:
+        print("  unresolved: " + ", ".join(_spec_label(s) for s in unresolved_specs))
+    entities = int(out.get("entities") or 0)
+    unresolved = int(out.get("unresolved") or 0)
+    if entities and unresolved >= entities:
+        print(f"error: {cmd}: every spec is unresolved ({entities} entities, no identity: "
+              "bad identifiers, or GLEIF unreachable) — no source was queried",
+              file=sys.stderr)
+        return 2
+    return 0
+
+
 def _cmd_eu_financials(args: argparse.Namespace) -> int:
+    """Build IFRS financials from ESEF; reported under ``xbrlorg``.
+
+    The rows this command writes carry ``source="esef"`` and come from the
+    filings.xbrl.org aggregator, not from a national OAM backend — so the
+    aggregator is the authority on the hook for them. Specs that resolved to
+    no LEI are printed, and a run in which none resolved fails (see
+    :func:`_unresolved_verdict`): dead GLEIF must not read as "no financials".
+    """
     cfg = _config(args)
     fetcher = Fetcher(cfg)
     rep = build_eu_financials(_eu_specs(args), fetcher=fetcher, config=cfg, write=args.write,
@@ -517,7 +789,76 @@ def _cmd_eu_financials(args: argparse.Namespace) -> int:
           f"{rep['with_financials']} with financials, {rep['periods']} period summaries")
     if rep.get("coverage_path"):
         print(f"  coverage: {rep['coverage_path']}")
-    return 0
+    _feed_from_out(getattr(args, "report", None), "esef", rep)
+    _record_out_errors(args, cfg, rep)
+    return _unresolved_verdict("eu-financials", rep)
+
+
+def _cmd_eu_acquire(args: argparse.Namespace) -> int:
+    """Discover (and with ``--write``, download) an EU issuer's regulated filings.
+
+    Dry run by default: discovery only, nothing on disk (no entity index, no
+    coverage file, no manifest, no trail) — the run report still counts the
+    documents that WOULD be acquired and any dead backend. ``--write`` downloads
+    and writes everything; ``--write --no-download`` is a discovery-only run
+    that still leaves the entity index, the coverage file and the error trail.
+
+    The run report gets one row per backend (see the module docstring). A spec
+    that resolved to no LEI reaches no backend and therefore no report row, so
+    it is printed (``unresolved: ISIN …, LEI …``) — that stdout line is its only
+    trace on a dry run. A run whose specs ALL failed to resolve reached no
+    backend at all, so nothing would report and the run would pass for a green
+    nothing-to-do: it returns 2 instead, which :func:`main` folds into a
+    ``failed`` report — and the message says the cause may be GLEIF itself,
+    since an unreachable resolver looks exactly like a bad input.
+    """
+    cfg = _config(args)
+    fetcher = Fetcher(cfg)
+    download = bool(args.write and not args.no_download)
+    out = acquire(_eu_specs(args), fetcher=fetcher, config=cfg,
+                  download=download, write=args.write)
+    if not args.write:
+        mode = "DRY-RUN (nothing written)"
+        print("note: --no-download is implied without --write")
+    elif download:
+        mode = "WROTE"
+    else:
+        mode = "WROTE (discovery only, no download)"
+    verb = "acquired" if download else "would acquire"
+    print(f"eu-acquire [{mode}] — {out['entities']} entities "
+          f"({out.get('unresolved', 0)} unresolved), {verb} {out['documents']} documents, "
+          f"{out['manifests']} manifests, {out['deduped_by_bytes']} byte-deduped, "
+          f"{out.get('documents_failed', 0)} documents failed, "
+          f"{out['download_errors']} download errors, {len(out['errors'])} errors")
+    sources = out.get("sources") or {}
+    for name in sorted(sources):
+        st = sources[name]
+        print(f"  {name}: entities={st['entities']} documents={st['documents']} "
+              f"errors={st['errors']} not-indexed={st.get('not_indexed', 0)}"
+              f"{' TRUNCATED' if st.get('truncated') else ''}")
+    if out.get("coverage_path"):
+        print(f"  coverage: {out['coverage_path']}")
+
+    # The trail first: it must survive a report-feeding failure below.
+    _record_out_errors(args, cfg, out)
+    report = getattr(args, "report", None)
+    items_by_source: dict[str, list] = {}
+    for item in out.get("error_items") or []:
+        key = item.get("source") if isinstance(item, dict) else None
+        items_by_source.setdefault(key, []).append(item)
+    for name, st in sources.items():
+        _feed_report(report, name, seen=st["entities"], new=st["documents"],
+                     failed=st["errors"], errors=items_by_source.pop(name, []),
+                     truncated=bool(st.get("truncated", False)))
+    # An error tagged with a backend that reported no counts (cannot happen by
+    # construction) is still fed under that backend's code — never dropped; an
+    # untagged one is a producer bug and raises rather than vanish.
+    for name, items in items_by_source.items():
+        if not name:
+            raise RuntimeError(f"eu-acquire: {len(items)} error item(s) carry no backend "
+                               f"source: {items[0]!r}")
+        _feed_report(report, name, failed=len(items), errors=items)
+    return _unresolved_verdict("eu-acquire", out)
 
 
 def _register_specs(args: argparse.Namespace) -> list[dict]:
@@ -555,11 +896,16 @@ def _cmd_register_financials(args: argparse.Namespace) -> int:
 
     # Register-source dispatch, checked in order: the FIRST flag present wins
     # (identical precedence to the former if/elif chain).  Each entry maps an
-    # args attribute to a zero-arg builder returning the `rep` dict; the shared
-    # result line is printed via _print_reg_result.  Builders instantiate
-    # Fetcher lazily so only the selected path opens a session.  The Norway/LEI
-    # path below is the default fallback (its result line omits the unbalanced
-    # count, so it is printed inline rather than via _print_reg_result).
+    # args attribute to the producer's own `source` tag (resolved to the
+    # authority's code for the run report) and a zero-arg builder returning the
+    # `rep` dict; the shared result line is printed via _print_reg_result.
+    # Denmark is the one entry carrying a canonical code rather than a producer
+    # tag: its rows are tagged `erst-fsa` or `erst-ifrs` by *document format*,
+    # while the authority (Erhvervsstyrelsen) is the same either way.
+    # Builders instantiate Fetcher lazily so only the selected path opens a
+    # session.  The Norway/LEI path below is the default fallback (its result
+    # line omits the unbalanced count, so it is printed inline rather than via
+    # _print_reg_result).
     def _build_be_numbers() -> dict:
         be_key = os.environ.get("BNB_CBSO_KEY") or ""
         if not be_key:
@@ -573,56 +919,62 @@ def _cmd_register_financials(args: argparse.Namespace) -> int:
 
     dispatch = [
         # Estonia keyless path: elements CSV + metadata CSV (local files or bytes)
-        ("ee_file", lambda: build_ee_financials_from_files(
+        ("ee_file", "rik", lambda: build_ee_financials_from_files(
             *args.ee_file, config=cfg, write=args.write,
             limit=getattr(args, "limit", None))),
         # Estonia online path: keyless bulk download for a given year
-        ("ee_year", lambda: build_ee_financials(
+        ("ee_year", "rik", lambda: build_ee_financials(
             args.ee_year, fetcher=Fetcher(cfg), config=cfg, write=args.write,
             limit=getattr(args, "limit", None),
             elem_url=getattr(args, "ee_elem_url", None),
             meta_url=getattr(args, "ee_meta_url", None))),
         # Finland keyless path: one or more local PRH XBRL .xml files
-        ("fi_file", lambda: build_fi_financials_from_files(
+        ("fi_file", "prh", lambda: build_fi_financials_from_files(
             args.fi_file, config=cfg, write=args.write)),
         # Finland API path: Y-tunnus resolved via PRH XBRL API (keyless)
-        ("fi_businessid", lambda: build_fi_financials(
+        ("fi_businessid", "prh", lambda: build_fi_financials(
             [{"business_id": bid} for bid in args.fi_businessid],
             fetcher=Fetcher(cfg), config=cfg, write=args.write)),
         # Belgium keyless path: one or more local .xbrl / .zip files
-        ("be_file", lambda: build_be_financials_from_files(
+        ("be_file", "bnb", lambda: build_be_financials_from_files(
             args.be_file, config=cfg, write=args.write)),
         # Belgium API path: KBO numbers resolved via the CBSO API (needs key)
-        ("be_numbers", _build_be_numbers),
+        ("be_numbers", "bnb", _build_be_numbers),
         # UK Companies House bulk path
-        ("ch_bulk", lambda: build_ch_financials(
+        ("ch_bulk", "companies_house", lambda: build_ch_financials(
             args.ch_bulk, config=cfg, write=args.write,
             limit=getattr(args, "limit", None))),
         # Luxembourg keyless path: one or more local eCDF XML files
-        ("lu_file", lambda: build_lu_financials_from_files(
+        ("lu_file", "lbr", lambda: build_lu_financials_from_files(
             args.lu_file, config=cfg, write=args.write,
             rcs_filter=set(args.rcs) if getattr(args, "rcs", None) else None)),
         # Denmark keyless path: one or more local Virk XBRL .xml files
-        ("dk_file", lambda: build_dk_financials_from_files(
+        ("dk_file", "erst", lambda: build_dk_financials_from_files(
             args.dk_file, config=cfg, write=args.write)),
         # Denmark API path: CVR numbers resolved via Virk Regnskaber (keyless)
-        ("dk_cvr", lambda: build_dk_financials(
+        ("dk_cvr", "erst", lambda: build_dk_financials(
             [{"cvr": c} for c in args.dk_cvr],
             fetcher=Fetcher(cfg), config=cfg, write=args.write)),
         # Slovakia keyless path: one vykaz JSON + one sablona JSON (local files)
-        ("sk_file", lambda: build_sk_financials_from_files(
+        ("sk_file", "registeruz", lambda: build_sk_financials_from_files(
             *args.sk_file, config=cfg, write=args.write)),
         # Slovakia API traverse path: entity IDs → registeruz.sk (keyless)
-        ("sk_id", lambda: build_sk_financials(
+        ("sk_id", "registeruz", lambda: build_sk_financials(
             args.sk_id, fetcher=Fetcher(cfg), config=cfg, write=args.write,
             limit=getattr(args, "limit", None))),
     ]
-    for attr, builder in dispatch:
+    for attr, source_tag, builder in dispatch:
         if getattr(args, attr, None):
-            _print_reg_result(builder(), args)
+            out = builder()
+            _print_reg_result(out, args)
+            _feed_from_out(getattr(args, "report", None), source_tag, out)
+            _record_out_errors(args, cfg, out)
             return 0
 
     # --- Norway / LEI path ---
+    # A LEI spec resolves through GLEIF; dead GLEIF must not read as "no
+    # financials", so the unresolved specs are printed and a run in which
+    # none resolved fails (see _unresolved_verdict).
     rep = build_register_financials(
         _register_specs(args), fetcher=Fetcher(cfg), config=cfg, write=args.write)
     mode = "WROTE" if args.write else "DRY-RUN (nothing written)"
@@ -630,7 +982,9 @@ def _cmd_register_financials(args: argparse.Namespace) -> int:
           f"{rep['with_financials']} with financials, {rep['periods']} period summaries")
     if rep.get("coverage_path"):
         print(f"  coverage: {rep['coverage_path']}")
-    return 0
+    _feed_from_out(getattr(args, "report", None), "brreg", rep)
+    _record_out_errors(args, cfg, rep)
+    return _unresolved_verdict("register-financials", rep)
 
 
 def _cmd_ownership(args: argparse.Namespace) -> int:
@@ -641,13 +995,22 @@ def _cmd_ownership(args: argparse.Namespace) -> int:
     dry_run = not args.write
     rep = process_ownership(ciks, scope=scope, year_min=year_min, year_max=year_max,
                             since=since, until=until, dry_run=dry_run,
-                            overwrite=args.overwrite, limit=args.limit, config=cfg)
+                            overwrite=args.overwrite, limit=args.limit, config=cfg,
+                            run_id=_run_id(args))
     mode = "DRY-RUN (nothing written)" if dry_run else "WROTE"
-    print(f"ownership [{mode}] — {rep.issuers} issuers, downloaded={rep.downloaded}")
+    print(f"ownership [{mode}] — {rep.issuers} issuers, downloaded={rep.downloaded} "
+          f"would-download={rep.would_download}")
     print(f"  insider(E1)={rep.parsed_insider} 13F(E2)={rep.parsed_13f} "
           f"narrative(E3)={rep.passthrough} errors={rep.errors}")
     if rep.error_items:
         print(f"  errors logged: {len(rep.error_items)} (see discovery_errors.jsonl)")
+    # Parsed rows and would-download are mutually exclusive per record (a dry
+    # run parses nothing): summing them makes a dry run count what it WOULD
+    # download as the useful work, like render-pdf.
+    _feed_report(getattr(args, "report", None), "sec", seen=rep.issuers,
+                 new=rep.parsed_insider + rep.parsed_13f + rep.passthrough
+                 + rep.would_download,
+                 failed=rep.errors, errors=rep.error_items)
     return 0
 
 
@@ -738,7 +1101,7 @@ def _cmd_discover_index(args: argparse.Namespace) -> int:
                     rec.entity_id = eid
             stats += storage.save_records(recs, dry_run=dry_run)
     if src.errors and not dry_run:
-        storage.record_errors(src.errors)
+        storage.record_errors(src.errors, run_id=_run_id(args))
 
     mode = "DRY-RUN (nothing written)" if dry_run else "WROTE manifests"
     span = f"{years[0]}-{years[-1]}" if years else "(none)"
@@ -747,6 +1110,8 @@ def _cmd_discover_index(args: argparse.Namespace) -> int:
     print(f"  seen={stats.seen} added={stats.added} updated={stats.updated} unchanged={stats.unchanged}")
     if src.errors:
         print(f"  index errors: {len(src.errors)} (see discovery_errors.jsonl)")
+    _feed_report(getattr(args, "report", None), "sec", seen=stats.seen,
+                 new=stats.added, failed=len(src.errors), errors=src.errors)
     return 0
 
 
@@ -897,6 +1262,19 @@ def build_parser() -> argparse.ArgumentParser:
                      help="also parse local ESEF .zip packages with Arelle (Tier B; needs the eu-financials extra)")
     euf.set_defaults(func=_cmd_eu_financials)
 
+    eua = sub.add_parser("eu-acquire",
+                         help="discover (and with --write, download) an EU issuer's regulated "
+                              "filings from its national OAM + filings.xbrl.org (+ Euronext)")
+    euasrc = eua.add_mutually_exclusive_group(required=True)
+    euasrc.add_argument("--leis", help="comma-separated LEIs")
+    euasrc.add_argument("--isins", help="comma-separated ISINs (resolved to LEIs via GLEIF)")
+    eua.add_argument("--write", action="store_true",
+                     help="download files and write manifests, the entity index, the coverage "
+                          "file and the error trail (else dry-run: discovery only, nothing written)")
+    eua.add_argument("--no-download", action="store_true", dest="no_download",
+                     help="with --write: discovery only (entity index + coverage + trail, no files)")
+    eua.set_defaults(func=_cmd_eu_acquire)
+
     rf = sub.add_parser("register-financials",
                         help="build financials from national business registers (statutory/private)")
     rfsrc = rf.add_mutually_exclusive_group(required=True)
@@ -968,4 +1346,45 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+
+    if args.cmd not in REPORTING_CMDS:
+        return args.func(args)
+
+    if not logging.getLogger().handlers:
+        logging.basicConfig(
+            level=logging.INFO, stream=sys.stderr,
+            format="%(levelname)s %(name)s: %(message)s",
+        )
+
+    report = DoctrineReport("company-corpus", args.cmd)
+    args.report = report
+    try:
+        func_rc = args.func(args)
+    except Exception as exc:
+        rc = report.finish(fatal=f"{type(exc).__name__}: {exc}")
+        rc = _write_report(report, args, rc)
+        print(f"error: {exc}", file=sys.stderr)
+        return rc
+    if isinstance(func_rc, int) and func_rc != 0:
+        rc = report.finish(fatal=f"{args.cmd} returned exit code {func_rc}")
+        rc = _write_report(report, args, rc)
+        print(f"error: {args.cmd} returned exit code {func_rc}", file=sys.stderr)
+        return rc
+    rc = report.finish()
+    return _write_report(report, args, rc)
+
+
+def _write_report(report: DoctrineReport, args: argparse.Namespace, rc: int) -> int:
+    """Write the run-report, surviving an unwritable runs path.
+
+    A report that can't be persisted is itself a failed run for the doctrine:
+    print an error and fold the exit code to at least 1 rather than let the
+    OSError escape as a traceback.
+    """
+    path = str(_runs_path(args))
+    try:
+        report.write(path)
+    except OSError as exc:
+        print(f"error: could not write run report to {path}: {exc}", file=sys.stderr)
+        return max(rc, 1)
+    return rc

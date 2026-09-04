@@ -25,9 +25,15 @@ class OamSource(ABC):
         self.config = config or (getattr(fetcher, "config", None) if fetcher else None) or Config()
         self.fetcher = fetcher or Fetcher(self.config)
         self.errors: list[dict] = []
+        # Non-error observations worth surfacing (e.g. "this issuer is not
+        # indexed here"): counted on the backend's report row, never as errors.
+        self.notes: list[dict] = []
 
     def _record_error(self, context, url, error):
         self.errors.append({"source": self.name, "context": context, "url": url, "error": str(error)})
+
+    def _record_note(self, context, url, note):
+        self.notes.append({"source": self.name, "context": context, "url": url, "note": str(note)})
 
     def list_issuers(self) -> list[IssuerRef]:
         """Enumerate all known issuers for this OAM.

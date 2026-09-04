@@ -189,6 +189,7 @@ def test_process_ownership_dry_run_writes_nothing(make_fetcher, config):
     fetcher = make_fetcher({"form4sub.txt": FORM4_SUBMISSION})
     rep = process_ownership(["320193"], dry_run=True, config=config, fetcher=fetcher, storage=st)
     assert rep.parsed_insider == 0
+    assert rep.would_download == 1, "a dry run counts what it WOULD download"
     assert not (config.data_dir / "raw").exists()
     assert not config.ownership_dir.exists()
 

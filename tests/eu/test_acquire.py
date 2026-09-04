@@ -1,3 +1,5 @@
+import json
+import pytest
 from datetime import date
 from company_corpus.config import Config
 from company_corpus.eu import acquire as acq
@@ -207,3 +209,199 @@ def test_acquire_surfaces_download_errors(monkeypatch, tmp_path):
 
     assert summary["download_errors"] >= 1
     assert any(e.get("context") == "download" for e in summary["errors"])
+
+
+def _noop_backend(name=None):
+    class _B:
+        def __init__(self, *a, **k): self.errors = []
+        def discover(self, e): return []
+    if name:
+        _B.name = name
+    return _B
+
+
+def test_acquire_write_false_writes_nothing(monkeypatch, tmp_path):
+    """The CLI's dry run: discovery only, no entity index, no coverage file."""
+    cfg = Config(data_dir=tmp_path / "data", contact="t@e.com")
+    ent = Entity("L1", "SAP SE", "DE", resolution="lei")
+    monkeypatch.setattr(acq, "resolve_entities", lambda specs, *, fetcher: [ent])
+    monkeypatch.setattr(acq, "COUNTRY_BACKENDS", {"DE": _noop_backend()})
+    monkeypatch.setattr(acq, "FilingsXbrlOrg", _noop_backend())
+
+    summary = acq.acquire([{"lei": "L1"}], fetcher=object(), config=cfg,
+                          download=False, write=False)
+    assert summary["coverage_path"] is None
+    assert not (cfg.data_dir / "reports" / "eu_coverage.jsonl").exists()
+    assert not (cfg.data_dir / "universe" / "eu_entities.jsonl").exists()
+
+
+def test_acquire_download_requires_write(monkeypatch, tmp_path):
+    cfg = Config(data_dir=tmp_path / "data", contact="t@e.com")
+    monkeypatch.setattr(acq, "resolve_entities", lambda specs, *, fetcher: [])
+    with pytest.raises(ValueError):
+        acq.acquire([{"lei": "L1"}], fetcher=object(), config=cfg, download=True, write=False)
+
+
+def test_acquire_reports_per_backend_counts(monkeypatch, tmp_path):
+    """`sources` says, per backend name, how many entities it was asked about,
+    how many kept documents it contributed and how many errors it raised or
+    recorded — the run report's per-authority rows come from here. A discover
+    failure is tagged with the backend's name, never a generic 'acquire'."""
+    cfg = Config(data_dir=tmp_path / "data", contact="t@e.com")
+    ents = [Entity("L1", "SAP SE", "DE", resolution="lei"),
+            Entity("L2", "Siemens", "DE", resolution="lei"),
+            Entity(None, "ghost", "", resolution="unresolved")]
+    monkeypatch.setattr(acq, "resolve_entities", lambda specs, *, fetcher: ents)
+
+    class _National:
+        name = "oam-de"
+        def __init__(self, *a, **k): self.errors = []
+        def discover(self, e):
+            if e.lei == "L2":
+                raise RuntimeError("Bundesanzeiger down")
+            self.errors.append({"source": self.name, "context": "list", "url": "u",
+                                "error": "404"})
+            return [Document("de-1", "L1", "DE", "annual_report", date(2023, 12, 31),
+                             None, "x", "de", "oam-de", [{"name": "r", "sha256": "h"}], {})]
+
+    class _Filings:
+        name = "filings.xbrl.org"
+        def __init__(self, *a, **k): self.errors = []
+        def discover(self, e):
+            return [Document(f"f-{e.lei}", e.lei, "DE", "annual_report", date(2022, 12, 31),
+                             None, "x", "en", "filings.xbrl.org",
+                             [{"name": "q", "sha256": "k"}], {})]
+
+    monkeypatch.setattr(acq, "COUNTRY_BACKENDS", {"DE": _National})
+    monkeypatch.setattr(acq, "FilingsXbrlOrg", _Filings)
+
+    summary = acq.acquire([{"lei": "L1"}, {"lei": "L2"}, {"isin": "X"}],
+                          fetcher=object(), config=cfg, download=False, write=False)
+    assert summary["entities"] == 3 and summary["unresolved"] == 1
+    # The input specs that resolved to no LEI, in input order (one Entity per spec).
+    assert summary["unresolved_specs"] == [{"isin": "X"}]
+    assert summary["sources"] == {
+        "oam-de": {"entities": 2, "documents": 1, "errors": 2, "not_indexed": 0,
+                   "truncated": False},
+        "filings.xbrl.org": {"entities": 2, "documents": 2, "errors": 0, "not_indexed": 0,
+                             "truncated": False},
+    }
+    dead = [e for e in summary["errors"] if e.get("context") == "discover"]
+    assert dead == [{"source": "oam-de", "context": "discover", "entity": "L2",
+                     "error": "Bundesanzeiger down"}]
+    assert len(summary["errors"]) == 2
+
+
+def test_acquire_counts_aggregator_not_indexed_as_a_note(monkeypatch, tmp_path):
+    """A filings.xbrl.org 404 (issuer not indexed) is a note on the backend's
+    row, not an error: `not_indexed` counts it, `errors` stays 0."""
+    cfg = Config(data_dir=tmp_path / "data", contact="t@e.com")
+    monkeypatch.setattr(acq, "resolve_entities",
+                        lambda specs, *, fetcher: [Entity("L1", "X", "DE", resolution="lei")])
+
+    class _Empty:
+        name = "oam-de"
+        def __init__(self, *a, **k): self.errors = []
+        def discover(self, e): return []
+
+    class _NotIndexed:
+        name = "filings.xbrl.org"
+        def __init__(self, *a, **k):
+            self.errors = []
+            self.notes = []
+        def discover(self, e):
+            self.notes.append({"source": self.name, "context": "not-indexed", "url": "u",
+                               "note": "HTTP 404"})
+            return []
+
+    monkeypatch.setattr(acq, "COUNTRY_BACKENDS", {"DE": _Empty})
+    monkeypatch.setattr(acq, "FilingsXbrlOrg", _NotIndexed)
+    summary = acq.acquire([{"lei": "L1"}], fetcher=object(), config=cfg,
+                          download=False, write=False)
+    assert summary["errors"] == []
+    assert summary["sources"]["filings.xbrl.org"]["not_indexed"] == 1
+    assert summary["sources"]["filings.xbrl.org"]["errors"] == 0
+    assert summary["sources"]["oam-de"]["not_indexed"] == 0
+
+
+@pytest.mark.parametrize("context", ["truncated", "six-truncated", "eqs-truncated"])
+def test_acquire_propagates_backend_truncation(monkeypatch, tmp_path, context):
+    """A backend that records a truncation (its error `context` ends with
+    'truncated') marks its own row `truncated` — even though it returned
+    documents — so the run report can degrade a partial listing."""
+    cfg = Config(data_dir=tmp_path / "data", contact="t@e.com")
+    monkeypatch.setattr(acq, "resolve_entities",
+                        lambda specs, *, fetcher: [Entity("L1", "X", "DE", resolution="lei")])
+
+    class _Partial:
+        name = "oam-de"
+        def __init__(self, *a, **k): self.errors = []
+        def discover(self, e):
+            self.errors.append({"source": self.name, "context": context, "url": "u",
+                                "error": "hit the page cap; more may exist"})
+            return [Document("de-1", "L1", "DE", "annual_report", date(2023, 12, 31),
+                             None, "x", "de", "oam-de", [{"name": "r", "sha256": "h"}], {})]
+
+    class _Clean:
+        name = "filings.xbrl.org"
+        def __init__(self, *a, **k): self.errors = []
+        def discover(self, e):
+            self.errors.append({"source": self.name, "context": "discover", "url": "u",
+                                "error": "boom"})
+            return []
+
+    monkeypatch.setattr(acq, "COUNTRY_BACKENDS", {"DE": _Partial})
+    monkeypatch.setattr(acq, "FilingsXbrlOrg", _Clean)
+    summary = acq.acquire([{"lei": "L1"}], fetcher=object(), config=cfg,
+                          download=False, write=False)
+    assert summary["documents"] == 1
+    assert summary["sources"]["oam-de"]["truncated"] is True
+    assert summary["sources"]["filings.xbrl.org"]["truncated"] is False
+
+
+class _ForbiddenFetcher:
+    """Every download is refused (403): the listing is fine, the files are not."""
+
+    def download(self, url, dest):
+        raise RuntimeError(f"403 Forbidden for {url}")
+
+
+def _one_doc_backend(name="oam-de"):
+    class _B:
+        def __init__(self, *a, **k): self.errors = []
+        def discover(self, e):
+            return [Document("de-1", "L1", "DE", "annual_report", date(2023, 12, 31),
+                             "2024-04-01", "x", "de", "oam-de",
+                             [{"name": "r.pdf", "url": "https://x/r.pdf", "kind": "pdf"}], {})]
+    _B.name = name
+    return _B
+
+
+class _NoDocs:
+    name = "filings.xbrl.org"
+    def __init__(self, *a, **k): self.errors = []
+    def discover(self, e): return []
+
+
+def test_acquire_document_with_every_file_failed_is_not_useful_work(monkeypatch, tmp_path):
+    """A document whose every file failed to download is a failure, not an
+    acquired document: not counted in `documents` / `manifests` / the backend's
+    `documents`, no manifest left on disk, and the entity's coverage row says
+    `source-error` (the OAM listed it; the files could not be fetched)."""
+    cfg = Config(data_dir=tmp_path / "data", contact="t@e.com")
+    monkeypatch.setattr(acq, "resolve_entities",
+                        lambda specs, *, fetcher: [Entity("L1", "X", "DE", resolution="lei")])
+    monkeypatch.setattr(acq, "COUNTRY_BACKENDS", {"DE": _one_doc_backend()})
+    monkeypatch.setattr(acq, "FilingsXbrlOrg", _NoDocs)
+
+    summary = acq.acquire([{"lei": "L1"}], fetcher=_ForbiddenFetcher(), config=cfg,
+                          download=True, write=True)
+    assert summary["documents"] == 0 and summary["manifests"] == 0
+    assert summary["download_errors"] == 1 and summary["documents_failed"] == 1
+    assert summary["sources"]["oam-de"] == {
+        "entities": 1, "documents": 0, "errors": 1, "not_indexed": 0, "truncated": False}
+    assert [e["context"] for e in summary["errors"]] == ["download"]
+    assert not list((cfg.data_dir / "manifest").rglob("*.json"))
+    cov = [json.loads(x) for x in
+           (cfg.data_dir / "reports" / "eu_coverage.jsonl").read_text().splitlines() if x]
+    assert cov[0]["gap"] == "source-error" and "403" in cov[0]["error"]

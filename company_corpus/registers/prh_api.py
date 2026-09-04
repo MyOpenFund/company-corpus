@@ -23,6 +23,8 @@ from __future__ import annotations
 import logging
 from typing import Iterator
 
+from ._errors import note_error
+
 log = logging.getLogger(__name__)
 
 BASE = "https://avoindata.prh.fi/opendata-xbrl-api/v3"
@@ -66,7 +68,7 @@ def fetch_fi_financial(
         resp = fetcher.get(url, params=params)
         return resp.content
     except Exception:  # noqa: BLE001
-        log.debug(
+        log.warning(
             "PRH fetch_fi_financial failed for %s / %s",
             business_id,
             financial_date,
@@ -75,7 +77,9 @@ def fetch_fi_financial(
         return None
 
 
-def list_fi_dates(business_id: str, *, fetcher) -> list[str]:
+def list_fi_dates(
+    business_id: str, *, fetcher, errors: "list[dict] | None" = None,
+) -> list[str]:
     """List available ``financialDate`` strings for a business.
 
     Parameters
@@ -85,6 +89,9 @@ def list_fi_dates(business_id: str, *, fetcher) -> list[str]:
     fetcher:
         A :class:`company_corpus.http.Fetcher` instance exposing
         ``get_json(url, *, params)``.
+    errors:
+        Optional list; a caught exception appends one record here (see
+        :mod:`._errors`) so the caller can tell a dead API from "no filings".
 
     Returns
     -------
@@ -108,12 +115,15 @@ def list_fi_dates(business_id: str, *, fetcher) -> list[str]:
         if isinstance(data, list):
             return [it for it in data if isinstance(it, str)]
         return []
-    except Exception:  # noqa: BLE001
-        log.debug("PRH list_fi_dates failed for %s", business_id, exc_info=True)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("PRH list_fi_dates failed for %s", business_id, exc_info=True)
+        note_error(errors, entity_id=business_id, source="prh", stage="list_fi_dates", exc=exc)
         return []
 
 
-def iter_fi_all(financial_date: str, *, fetcher) -> Iterator[str]:
+def iter_fi_all(
+    financial_date: str, *, fetcher, errors: "list[dict] | None" = None,
+) -> Iterator[str]:
     """Iterate all companies that have filed for *financial_date*.
 
     Paginates via the ``page`` query parameter (100 items per page as returned
@@ -127,6 +137,9 @@ def iter_fi_all(financial_date: str, *, fetcher) -> Iterator[str]:
     fetcher:
         A :class:`company_corpus.http.Fetcher` instance exposing
         ``get_json(url, *, params)``.
+    errors:
+        Optional list; the page failure that stopped the iteration appends one
+        record here (see :mod:`._errors`).
 
     Yields
     ------
@@ -145,18 +158,20 @@ def iter_fi_all(financial_date: str, *, fetcher) -> Iterator[str]:
             resp = fetcher.get_json(
                 url, params={"financialDate": financial_date, "page": page}
             )
-        except Exception:  # noqa: BLE001
-            log.debug(
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
                 "PRH iter_fi_all failed on page %d for date %s",
                 page,
                 financial_date,
                 exc_info=True,
             )
+            note_error(errors, entity_id=financial_date, source="prh",
+                       stage="iter_fi_all", exc=exc)
             return
 
         # Real API response: {"totalResults": N, "financials": [{businessId, …}, …]}
         if not isinstance(resp, dict):
-            log.debug("PRH iter_fi_all unexpected response type %r on page %d", type(resp), page)
+            log.warning("PRH iter_fi_all unexpected response type %r on page %d", type(resp), page)
             return
 
         items = resp.get("financials") or []
