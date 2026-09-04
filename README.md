@@ -111,9 +111,11 @@ A `failed` run also carries a `fatal` field (the exception, capped at 500
 chars). The MyOpenFund vault ingests this file **unchanged** — the schema is
 deliberately flat and stable, so it feeds a `runs` table with no transform step.
 
-`COMPANY_DATA_DIR` overrides where the report (and the error trail below) land
-— a test/ops override that wins over everything else; absent that, `--data-dir`
-wins over `Config`'s own default (`./data`).
+`COMPANY_DATA_DIR` is a test/ops override of the **run-report path only**
+(`runs.jsonl`): it wins over everything else for that one file, and nothing
+else honours it — the corpus and the error trail below stay under the data
+dir. To relocate the corpus *and* the trail, use `--data-dir` (which also
+places the report, absent the override); the default is `Config`'s `./data`.
 
 ### Unit of useful work, per command
 
