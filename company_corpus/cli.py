@@ -202,10 +202,14 @@ def _feed_from_out(report, code: str, out: dict) -> None:
     """Feed the report from a producer ``out`` dict (EU + register builders).
 
     Their shared shape is ``entities`` / ``with_financials`` / ``no_financials`` /
-    ``periods`` / ``errors`` (an int today; a list is accepted too). A missing
-    entity or a filing without financials is coverage, not an error — it is
-    recorded in the coverage file and only ever counted in ``docs_seen``.
-    ``truncated`` / ``error_items`` are read when a backend grows them.
+    ``periods`` / ``errors`` (an int, with the messages in ``error_items``; a list
+    of items is accepted too, as ``eu.acquire`` returns). A missing entity or a
+    filing without financials is coverage, not an error — it is recorded in the
+    coverage file and only ever counted in ``docs_seen``. A DEAD SOURCE is not:
+    it arrives as an ``error_items`` entry (``status: "source-error"`` in the
+    coverage file) and becomes a fetch error here, so an issuer whose register
+    could not be read never passes for one that filed nothing.
+    ``truncated`` is read when a backend grows it.
     """
     errors = out.get("errors") or 0
     if isinstance(errors, (list, tuple)):
@@ -220,6 +224,26 @@ def _feed_from_out(report, code: str, out: dict) -> None:
         errors=items,
         truncated=bool(out.get("truncated")),
     )
+
+
+def _run_id(args: argparse.Namespace) -> str | None:
+    """The current run's id, or None when no report is attached (direct calls)."""
+    return getattr(getattr(args, "report", None), "run_id", None)
+
+
+def _record_out_errors(args: argparse.Namespace, config, out: dict) -> None:
+    """Append a producer's ``error_items`` to the discovery-error trail.
+
+    Every pillar writes to the same ``discovery_errors.jsonl``, stamped by
+    :meth:`Storage.record_errors` with a timestamp and this run's id — so a dead
+    EU or register source leaves the same auditable trace the SEC pillar leaves,
+    instead of living only in the run report's capped samples. A no-op when the
+    producer reported nothing.
+    """
+    items = out.get("error_items") or []
+    if not items:
+        return
+    Storage(config).record_errors(items, run_id=_run_id(args))
 
 
 def _parse_years(spec: str | None) -> list[int]:
@@ -711,6 +735,7 @@ def _cmd_eu_financials(args: argparse.Namespace) -> int:
     if rep.get("coverage_path"):
         print(f"  coverage: {rep['coverage_path']}")
     _feed_from_out(getattr(args, "report", None), "esef", rep)
+    _record_out_errors(args, cfg, rep)
     return 0
 
 
@@ -821,6 +846,7 @@ def _cmd_register_financials(args: argparse.Namespace) -> int:
             out = builder()
             _print_reg_result(out, args)
             _feed_from_out(getattr(args, "report", None), source_tag, out)
+            _record_out_errors(args, cfg, out)
             return 0
 
     # --- Norway / LEI path ---
@@ -832,6 +858,7 @@ def _cmd_register_financials(args: argparse.Namespace) -> int:
     if rep.get("coverage_path"):
         print(f"  coverage: {rep['coverage_path']}")
     _feed_from_out(getattr(args, "report", None), "brreg", rep)
+    _record_out_errors(args, cfg, rep)
     return 0
 
 
@@ -943,7 +970,7 @@ def _cmd_discover_index(args: argparse.Namespace) -> int:
                     rec.entity_id = eid
             stats += storage.save_records(recs, dry_run=dry_run)
     if src.errors and not dry_run:
-        storage.record_errors(src.errors)
+        storage.record_errors(src.errors, run_id=_run_id(args))
 
     mode = "DRY-RUN (nothing written)" if dry_run else "WROTE manifests"
     span = f"{years[0]}-{years[-1]}" if years else "(none)"

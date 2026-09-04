@@ -69,7 +69,7 @@ def search_virk_filings(cvr: str, *, fetcher) -> list[dict]:
         hits = response.get("hits", {}).get("hits", [])
         return [h["_source"] for h in hits if "_source" in h]
     except Exception:  # noqa: BLE001
-        log.debug("Virk search failed for CVR %s", cvr, exc_info=True)
+        log.warning("Virk search failed for CVR %s", cvr, exc_info=True)
         return []
 
 
@@ -98,14 +98,14 @@ def fetch_virk_document(url: str, *, fetcher) -> bytes | None:
         resp = fetcher.get(url)
         raw: bytes = resp.content
     except Exception:  # noqa: BLE001
-        log.debug("Virk document fetch failed for %s", url, exc_info=True)
+        log.warning("Virk document fetch failed for %s", url, exc_info=True)
         return None
 
     if raw[:2] == _GZIP_MAGIC:
         try:
             return gzip.decompress(raw)
         except Exception:  # noqa: BLE001
-            log.debug("Virk gzip decompress failed for %s", url, exc_info=True)
+            log.warning("Virk gzip decompress failed for %s", url, exc_info=True)
             return None
 
     return raw

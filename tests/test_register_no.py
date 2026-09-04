@@ -451,7 +451,8 @@ def test_i3_malformed_record_does_not_abort_batch(tmp_path):
     cov_path = tmp_path / "reports" / "register_coverage_brreg.jsonl"
     assert cov_path.exists()                          # coverage write still ran post-loop
     cov = {c["orgnr"]: c for c in (json.loads(x) for x in cov_path.read_text().splitlines())}
-    assert cov["100000000"]["status"] == "error" and "error" in cov["100000000"]
+    # A failure is a dead SOURCE, never a silent "this issuer filed nothing".
+    assert cov["100000000"]["status"] == "source-error" and "error" in cov["100000000"]
     assert cov["923609016"]["status"] == "ok"
     assert (tmp_path / "financials_register" / "923609016.jsonl").exists()
 

@@ -448,7 +448,7 @@ def test_build_ch_financials_error_isolation(monkeypatch, tmp_path):
     cov_path = tmp_path / "reports" / "register_coverage_companies_house.jsonl"
     cov = {c["ch_number"]: c for c in
            (json.loads(x) for x in cov_path.read_text().splitlines())}
-    assert cov["02855129"]["status"] == "error"
+    assert cov["02855129"]["status"] == "source-error"
     assert cov["SC741022"]["status"] == "ok"
 
 

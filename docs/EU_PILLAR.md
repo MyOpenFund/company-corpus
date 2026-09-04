@@ -185,7 +185,9 @@ CIK.
   backend in [`EU_BACKENDS.md`](EU_BACKENDS.md).
 - **Never silently partial.** Where a source caps a page, the backend paginates to
   its backstop and records a `truncated` error; an uncovered issuer shows up as
-  `no-documents` in the coverage report. Incompleteness is always *visible*.
+  `no-documents` in the coverage report, and an issuer whose backend actually FAILED
+  shows up as `source-error` (with the message) instead — a dead OAM is never
+  reported as an issuer that published nothing. Incompleteness is always *visible*.
 - **Out of reach (recorded, not hidden):** CMVM Portugal-direct is an opaque,
   auth-gated OutSystems portal (PT is covered via Euronext instead).
 - **Structured ESEF/IFRS extraction (Pillar B) is done** — see

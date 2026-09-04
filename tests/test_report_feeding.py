@@ -333,7 +333,7 @@ def test_register_financials_truncated_backend_is_degraded(monkeypatch, tmp_path
         cli, "build_sk_financials",
         lambda *a, **kw: {"entities": 2, "with_financials": 2, "no_financials": 0,
                           "unbalanced": 0, "periods": 2, "errors": 0, "paths": [],
-                          "truncated": True, "errors_items": []})
+                          "truncated": True, "error_items": []})
     rc = _run(monkeypatch, tmp_path, ["register-financials", "--sk-id", "42"])
     rep = _report(tmp_path)
     assert rc == 3 and rep["outcome"] == "degraded"

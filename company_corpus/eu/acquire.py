@@ -7,6 +7,7 @@ index, manifests, and the coverage report.
 from __future__ import annotations
 
 import json
+import logging
 
 from ..config import Config
 from .dispatcher import merge_documents
@@ -27,6 +28,8 @@ from .sources.oam_it import OneInfoIT
 from .sources.oam_nl import AfmNL
 from .sources.oam_se import OamSE
 from .sources.oam_no import NewsWebNO
+
+log = logging.getLogger(__name__)
 
 # Increment A+B+C backends. Entities whose country has no backend resolve but discover
 # 0 docs -> the coverage report flags them as "no-documents" (deliberate: never
@@ -76,6 +79,11 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True) -> dict:
     _write_entity_index(entities, config)
 
     all_docs, errors = [], []
+    # LEI -> the backend failure that killed its discovery. Only *raised* backend
+    # errors land here (a backend's own recorded errors include benign 404s, which
+    # are "not indexed", not a dead source), and they turn the entity's coverage
+    # row into a `source-error` instead of a look-alike `no-documents`.
+    discover_failures: dict[str, str] = {}
     for e in entities:
         if not e.lei:
             continue
@@ -104,6 +112,9 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True) -> dict:
                 per_backend.append([])
                 errors.append({"source": "acquire", "context": "discover",
                                "entity": e.lei, "error": str(exc)})
+                discover_failures[e.lei] = str(exc)
+                log.warning("%s discovery failed for %s: %s",
+                            type(b).__name__, e.lei, exc)
             errors.extend(getattr(b, "errors", []))
         # Corroborated rich Oslo coverage: when the Euronext probe returned an
         # Oslo (OSL_) notice for a non-Norwegian issuer, it is confirmed listed on
@@ -118,6 +129,9 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True) -> dict:
                 per_backend.append([])
                 errors.append({"source": "acquire", "context": "discover",
                                "entity": e.lei, "error": str(exc)})
+                discover_failures[e.lei] = str(exc)
+                log.warning("%s discovery failed for %s: %s",
+                            type(no_b).__name__, e.lei, exc)
             errors.extend(no_b.errors)
         all_docs.extend(merge_documents(per_backend))
 
@@ -156,7 +170,7 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True) -> dict:
                                    "doc_id": d.doc_id, "file": f.get("name"),
                                    "error": f["error"]})
 
-    cov = reconcile(entities, kept_docs)
+    cov = reconcile(entities, kept_docs, discover_failures)
     cov_path = config.data_dir / "reports" / "eu_coverage.jsonl"
     cov_path.parent.mkdir(parents=True, exist_ok=True)
     cov_path.write_text("\n".join(json.dumps(r, default=str) for r in cov))
@@ -164,7 +178,10 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True) -> dict:
     return {"entities": len(entities), "documents": len(kept_docs),
             "manifests": manifests, "deduped_by_bytes": deduped_by_bytes,
             "download_errors": download_errors,
-            "coverage_path": str(cov_path), "errors": errors}
+            "coverage_path": str(cov_path), "errors": errors,
+            # Same list under the shared key the run-report feeder reads on every
+            # pillar (`_feed_from_out`), so acquire needs no special-casing there.
+            "error_items": errors}
 
 
 def _discard_download(manifest: dict, config: Config) -> None:

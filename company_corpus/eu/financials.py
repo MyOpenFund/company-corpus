@@ -7,6 +7,8 @@ run the shared engine with the IFRS concept pack, writing the SEC-unified schema
 from __future__ import annotations
 
 import json
+import logging
+from datetime import datetime, timezone
 
 from ..config import Config
 from ..financials import attach_ttm_from_flat, make_row_base, rows_from_base, summaries_from_flat
@@ -16,12 +18,34 @@ from .arelle_esef import oim_from_esef_zip
 from .entities import Entity, resolve_entities
 from .sources.filings_org import FilingsXbrlOrg
 
+log = logging.getLogger(__name__)
 
-def facts_for_entity(entity: Entity, *, fetcher) -> dict[str, list[dict]]:
+
+def _record_error(errors: "list[dict] | None", lei: "str | None", message: str) -> None:
+    """Log a dead ESEF source at WARNING and, when collecting, append one
+    timestamped item in the shape every pillar's ``error_items`` uses."""
+    log.warning("esef: source error for %s: %s", lei, message)
+    if errors is None:
+        return
+    errors.append({
+        "entity_id": lei, "source": "esef", "error": message,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+def facts_for_entity(
+    entity: Entity, *, fetcher, errors: "list[dict] | None" = None,
+) -> dict[str, list[dict]]:
     """Union the OIM-JSON facts across all of the entity's filings.xbrl.org filings.
 
     Each annual report carries the current + prior-year comparative; the union yields
     a multi-year series, and the engine's latest-filed rule resolves restatements.
+
+    A filing whose facts JSON cannot be fetched is still skipped (one dead report
+    must not abort the issuer), but it is no longer silent: it is logged at WARNING
+    and, when the caller passes ``errors``, appended there as
+    ``{entity_id, source, error, ts}`` so the run report and the discovery-error
+    trail can tell "the aggregator failed" from "the issuer filed nothing".
     """
     flat: dict[str, list[dict]] = {}
     if not entity.lei:
@@ -34,9 +58,11 @@ def facts_for_entity(entity: Entity, *, fetcher) -> dict[str, list[dict]]:
             continue
         try:
             report = fetcher.get_json(jf["url"])
-        except Exception:        # noqa: BLE001 — a bad/absent report is skipped, never fatal
+        except Exception as exc:  # noqa: BLE001 — skipped, never fatal, never silent
+            _record_error(errors, entity.lei, f"{jf['url']}: {exc}")
             continue
         if not report:           # a None/empty body is skipped, never fatal
+            _record_error(errors, entity.lei, f"{jf['url']}: empty facts document")
             continue
         part = flatten_oim_json(
             report,
@@ -96,11 +122,18 @@ def build_eu_financials(specs, *, fetcher, config: Config, write: bool = True, u
 
     Coverage (with/without financials) is written to reports/eu_financials_coverage.jsonl;
     an unresolved or unindexed issuer is recorded there, never silently dropped.
+
+    ``out["errors"]`` counts the filings whose facts could not be fetched and
+    ``out["error_items"]`` carries one timestamped record each — a dead
+    aggregator therefore degrades the run instead of masquerading as an issuer
+    with no financials.
     """
     entities = resolve_entities(specs, fetcher=fetcher)
     storage = Storage(config)
     coverage: list[dict] = []
-    out = {"entities": 0, "with_financials": 0, "no_financials": 0, "periods": 0, "paths": []}
+    error_items: list[dict] = []
+    out = {"entities": 0, "with_financials": 0, "no_financials": 0, "periods": 0,
+           "paths": [], "errors": 0, "error_items": error_items}
     for ent in entities:
         out["entities"] += 1
         if not ent.lei:
@@ -108,7 +141,9 @@ def build_eu_financials(specs, *, fetcher, config: Config, write: bool = True, u
                              "status": "unresolved"})
             out["no_financials"] += 1
             continue
-        flat = facts_for_entity(ent, fetcher=fetcher)
+        n_errors_before = len(error_items)
+        flat = facts_for_entity(ent, fetcher=fetcher, errors=error_items)
+        own_errors = error_items[n_errors_before:]
         arelle_flat = arelle_facts_for_entity(ent, config=config) if use_arelle else {}
         for tag, pts in arelle_flat.items():
             flat.setdefault(tag, []).extend(pts)
@@ -122,6 +157,13 @@ def build_eu_financials(specs, *, fetcher, config: Config, write: bool = True, u
                                         company_current=ent.name, sic=None, sector_known=False)
         attach_ttm_from_flat(flat, summaries, concepts_by_key=IFRS_CONCEPTS_BY_KEY)
         if not summaries:
+            if own_errors:
+                # Every filing we knew about failed to load: the SOURCE is dead
+                # for this issuer, which is not the same fact as "filed nothing".
+                coverage.append({"lei": ent.lei, "name": ent.name,
+                                 "status": "source-error",
+                                 "error": own_errors[0]["error"]})
+                continue
             coverage.append({"lei": ent.lei, "name": ent.name, "status": "no-financials"})
             out["no_financials"] += 1
             continue
@@ -137,6 +179,7 @@ def build_eu_financials(specs, *, fetcher, config: Config, write: bool = True, u
         if use_arelle:
             cov_ok["arelle"] = bool(arelle_flat)
         coverage.append(cov_ok)
+    out["errors"] = len(error_items)
     cov_path = config.data_dir / "reports" / "eu_financials_coverage.jsonl"
     if write:
         cov_path.parent.mkdir(parents=True, exist_ok=True)

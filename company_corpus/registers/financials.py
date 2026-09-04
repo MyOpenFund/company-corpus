@@ -26,6 +26,7 @@ from ._common import (
     _finalise_coverage,
     _lei_or_none,
     _make_out,
+    _record_source_error,
     _summary,
 )
 from .bnb_cbso import fetch_bnb_deposit as _fetch_bnb_deposit
@@ -122,9 +123,9 @@ def build_register_financials(specs, *, fetcher, config: Config, write: bool = T
             _emit_entity_rows(r["orgnr"], rows, n, cov_base, storage, out, coverage,
                               write=write, leverage_basis=_BASIS_TOTAL_LIABILITIES)
         except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch going
-            coverage.append({"orgnr": r["orgnr"], "lei": r.get("lei"),
-                             "status": "error", "error": str(exc)})
-            out["errors"] += 1
+            cov_base = {"orgnr": r["orgnr"], "lei": r.get("lei")}
+            _record_source_error(exc, cov_base, entity_id=r["orgnr"],
+                                 source="brreg", out=out, coverage=coverage)
             continue
     return _finalise_coverage(out, coverage, config, "brreg", write=write)
 
@@ -211,8 +212,8 @@ def build_ch_financials(
                 )
 
             except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch
-                coverage.append({**cov_base, "status": "error", "error": str(exc)})
-                out["errors"] += 1
+                _record_source_error(exc, cov_base, entity_id=ch_number,
+                                     source="companies_house", out=out, coverage=coverage)
                 continue
 
     finally:
@@ -307,8 +308,8 @@ def build_be_financials_from_files(
             )
 
         except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch going
-            coverage.append({**cov_base, "status": "error", "error": str(exc)})
-            out["errors"] += 1
+            _record_source_error(exc, cov_base, entity_id=entity_id,
+                                 source="bnb", out=out, coverage=coverage)
             continue
 
     return _finalise_coverage(out, coverage, config, "bnb", write=write)
@@ -352,9 +353,9 @@ def build_lu_financials_from_files(
         try:
             declarers = list(iter_lu_declarers(path_obj, rcs_filter=rcs_filter))
         except Exception as exc:  # noqa: BLE001 — path-level error, no entity_id
-            coverage.append({"rcs": path_obj.name, "lei": None,
-                             "status": "error", "error": str(exc)})
-            out["errors"] += 1
+            cov_base = {"rcs": path_obj.name, "lei": None}
+            _record_source_error(exc, cov_base, entity_id=path_obj.name,
+                                 source="lbr", out=out, coverage=coverage)
             continue
 
         for declarer in declarers:
@@ -374,8 +375,8 @@ def build_lu_financials_from_files(
                 )
 
             except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch going
-                coverage.append({**cov_base, "status": "error", "error": str(exc)})
-                out["errors"] += 1
+                _record_source_error(exc, cov_base, entity_id=entity_id,
+                                     source="lbr", out=out, coverage=coverage)
                 continue
 
     return _finalise_coverage(out, coverage, config, "lbr", write=write)
@@ -451,8 +452,8 @@ def build_be_financials(
             )
 
         except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch going
-            coverage.append({**cov_base, "status": "error", "error": str(exc)})
-            out["errors"] += 1
+            _record_source_error(exc, cov_base, entity_id=be_number,
+                                 source="bnb", out=out, coverage=coverage)
             continue
 
     return _finalise_coverage(out, coverage, config, "bnb", write=write)
@@ -547,8 +548,8 @@ def build_fi_financials_from_files(
                 storage=storage, out=out, coverage=coverage, write=write,
             )
         except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch going
-            coverage.append({**cov_base, "status": "error", "error": str(exc)})
-            out["errors"] += 1
+            _record_source_error(exc, cov_base, entity_id=entity_id,
+                                 source="prh", out=out, coverage=coverage)
             continue
 
     return _finalise_coverage(out, coverage, config, "prh", write=write)
@@ -610,8 +611,13 @@ def build_fi_financials(
             latest_date = max(dates)
             xbrl_bytes = fetch_fi_financial(business_id, latest_date, fetcher=fetcher)
             if xbrl_bytes is None:
-                coverage.append({**cov_base, "status": "no-financials"})
-                out["no_financials"] += 1
+                # PRH itself listed a filing for this date, so an empty document
+                # is a DEAD SOURCE (fetch failed / returned nothing), never the
+                # issuer's own "filed nothing" — see prh_api's WARNING log.
+                _record_source_error(
+                    f"PRH returned no document for {business_id} @ {latest_date}",
+                    cov_base, entity_id=business_id, source="prh",
+                    out=out, coverage=coverage)
                 continue
 
             _fi_pipeline(
@@ -620,8 +626,8 @@ def build_fi_financials(
             )
 
         except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch going
-            coverage.append({**cov_base, "status": "error", "error": str(exc)})
-            out["errors"] += 1
+            _record_source_error(exc, cov_base, entity_id=business_id,
+                                 source="prh", out=out, coverage=coverage)
             continue
 
     return _finalise_coverage(out, coverage, config, "prh", write=write)
@@ -887,8 +893,8 @@ def build_dk_financials_from_files(
                 )
 
         except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch going
-            coverage.append({**cov_base, "status": "error", "error": str(exc)})
-            out["errors"] += 1
+            _record_source_error(exc, cov_base, entity_id=cov_base.get("cvr"),
+                                 source="erst", out=out, coverage=coverage)
             continue
 
     return _finalise_coverage(out, coverage, config, "erst", write=write)
@@ -961,9 +967,18 @@ def build_dk_financials(
                 if _best_url is not None else None
             )
 
-            if xml_bytes_dk is None or route_dk is None:
+            if route_dk is None:
                 coverage.append({**cov_base, "status": "no-financials"})
                 out["no_financials"] += 1
+                continue
+
+            if xml_bytes_dk is None:
+                # Virk listed a routable filing, so an empty document body is a
+                # DEAD SOURCE (see virk_api's WARNING log), not an empty filer.
+                _record_source_error(
+                    f"Virk returned no document for CVR {cvr} ({_best_url})",
+                    cov_base, entity_id=cvr, source="erst",
+                    out=out, coverage=coverage)
                 continue
 
             if route_dk == "fsa":
@@ -978,8 +993,8 @@ def build_dk_financials(
                 )
 
         except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch going
-            coverage.append({**cov_base, "status": "error", "error": str(exc)})
-            out["errors"] += 1
+            _record_source_error(exc, cov_base, entity_id=cvr,
+                                 source="erst", out=out, coverage=coverage)
             continue
 
     return _finalise_coverage(out, coverage, config, "erst", write=write)
@@ -1119,8 +1134,8 @@ def build_ee_financials_from_files(
                               write=write, leverage_basis=_BASIS_TOTAL_LIABILITIES)
 
         except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch going
-            coverage.append({**cov_base, "status": "error", "error": str(exc)})
-            out["errors"] += 1
+            _record_source_error(exc, cov_base, entity_id=registrikood,
+                                 source="rik", out=out, coverage=coverage)
             continue
 
     return _finalise_coverage(out, coverage, config, "rik", write=write)
@@ -1216,8 +1231,8 @@ def build_sk_financials_from_files(
         )
 
     except Exception as exc:  # noqa: BLE001 — record + skip
-        coverage.append({**cov_base, "status": "error", "error": str(exc)})
-        out["errors"] += 1
+        _record_source_error(exc, cov_base, entity_id=entity_id,
+                             source="registeruz", out=out, coverage=coverage)
 
     return _finalise_coverage(out, coverage, config, "registeruz", write=write)
 
@@ -1355,8 +1370,8 @@ def build_sk_financials(
                               write=write, leverage_basis=_BASIS_BORROWINGS)
 
         except Exception as exc:  # noqa: BLE001 — record + skip, keep the batch going
-            coverage.append({**cov_base, "status": "error", "error": str(exc)})
-            out["errors"] += 1
+            _record_source_error(exc, cov_base, entity_id=ico,
+                                 source="registeruz", out=out, coverage=coverage)
             continue
 
     return _finalise_coverage(out, coverage, config, "registeruz", write=write)

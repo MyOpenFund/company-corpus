@@ -66,7 +66,7 @@ def fetch_fi_financial(
         resp = fetcher.get(url, params=params)
         return resp.content
     except Exception:  # noqa: BLE001
-        log.debug(
+        log.warning(
             "PRH fetch_fi_financial failed for %s / %s",
             business_id,
             financial_date,
@@ -109,7 +109,7 @@ def list_fi_dates(business_id: str, *, fetcher) -> list[str]:
             return [it for it in data if isinstance(it, str)]
         return []
     except Exception:  # noqa: BLE001
-        log.debug("PRH list_fi_dates failed for %s", business_id, exc_info=True)
+        log.warning("PRH list_fi_dates failed for %s", business_id, exc_info=True)
         return []
 
 
@@ -146,7 +146,7 @@ def iter_fi_all(financial_date: str, *, fetcher) -> Iterator[str]:
                 url, params={"financialDate": financial_date, "page": page}
             )
         except Exception:  # noqa: BLE001
-            log.debug(
+            log.warning(
                 "PRH iter_fi_all failed on page %d for date %s",
                 page,
                 financial_date,
@@ -156,7 +156,7 @@ def iter_fi_all(financial_date: str, *, fetcher) -> Iterator[str]:
 
         # Real API response: {"totalResults": N, "financials": [{businessId, …}, …]}
         if not isinstance(resp, dict):
-            log.debug("PRH iter_fi_all unexpected response type %r on page %d", type(resp), page)
+            log.warning("PRH iter_fi_all unexpected response type %r on page %d", type(resp), page)
             return
 
         items = resp.get("financials") or []

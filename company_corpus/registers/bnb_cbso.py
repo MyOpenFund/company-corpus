@@ -79,7 +79,7 @@ def fetch_bnb_deposit(kbo: str, *, fetcher, key: str) -> bytes | None:
     try:
         deposits = fetcher.get_json(refs_url, headers=_cbso_headers(key))
     except Exception:  # noqa: BLE001
-        log.debug("CBSO references fetch failed for KBO %s", kbo, exc_info=True)
+        log.warning("CBSO references fetch failed for KBO %s", kbo, exc_info=True)
         return None
 
     if not deposits:
@@ -102,7 +102,7 @@ def fetch_bnb_deposit(kbo: str, *, fetcher, key: str) -> bytes | None:
         )
         return resp.content
     except Exception:  # noqa: BLE001
-        log.debug(
+        log.warning(
             "CBSO accounting-data fetch failed for KBO %s ref %s",
             kbo,
             latest.get("ReferenceNumber"),

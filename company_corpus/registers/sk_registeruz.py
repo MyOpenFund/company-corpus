@@ -151,7 +151,7 @@ def fetch_vykaz(id: int, *, fetcher) -> dict | None:
     try:
         return fetcher.get_json(f"{BASE}/uctovny-vykaz", params={"id": id})
     except Exception:  # noqa: BLE001
-        log.debug("SK fetch_vykaz failed for id=%s", id, exc_info=True)
+        log.warning("SK fetch_vykaz failed for id=%s", id, exc_info=True)
         return None
 
 
@@ -176,7 +176,7 @@ def fetch_sablona(id: int, *, fetcher) -> dict | None:
     try:
         return fetcher.get_json(f"{BASE}/sablona", params={"id": id})
     except Exception:  # noqa: BLE001
-        log.debug("SK fetch_sablona failed for id=%s", id, exc_info=True)
+        log.warning("SK fetch_sablona failed for id=%s", id, exc_info=True)
         return None
 
 
@@ -198,7 +198,7 @@ def fetch_entity(id: int, *, fetcher) -> dict | None:
     try:
         return fetcher.get_json(f"{BASE}/uctovna-jednotka", params={"id": id})
     except Exception:  # noqa: BLE001
-        log.debug("SK fetch_entity failed for id=%s", id, exc_info=True)
+        log.warning("SK fetch_entity failed for id=%s", id, exc_info=True)
         return None
 
 
@@ -220,7 +220,7 @@ def fetch_zavierka(id: int, *, fetcher) -> dict | None:
     try:
         return fetcher.get_json(f"{BASE}/uctovna-zavierka", params={"id": id})
     except Exception:  # noqa: BLE001
-        log.debug("SK fetch_zavierka failed for id=%s", id, exc_info=True)
+        log.warning("SK fetch_zavierka failed for id=%s", id, exc_info=True)
         return None
 
 
@@ -263,7 +263,7 @@ def iter_entity_ids(
                 params={"pokracovat-za-id": cursor, "max-zaznamov": max_zaznamov},
             )
         except Exception:  # noqa: BLE001
-            log.debug(
+            log.warning(
                 "SK iter_entity_ids failed at cursor=%s", cursor, exc_info=True
             )
             return
