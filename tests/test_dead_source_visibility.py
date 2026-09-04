@@ -299,6 +299,64 @@ def test_eu_financials_cli_dead_listing_is_degraded(monkeypatch, tmp_path, _dead
 
 
 # --------------------------------------------------------------------------
+# (d') GLEIF itself is dead: every spec is unresolved -> a failed run, not a
+#      green "no financials"
+# --------------------------------------------------------------------------
+def test_eu_financials_counts_unresolved_specs(tmp_path):
+    """GLEIF unreachable maps every LEI spec to 'unresolved'; the producer
+    counts them and lists the input specs so the CLI can tell the difference
+    between 'filed nothing' and 'could not even resolve'."""
+    from company_corpus.eu.financials import build_eu_financials
+
+    out = build_eu_financials([{"lei": "LEI1"}, {"lei": "LEI2"}], fetcher=_RaisingFetcher(),
+                              config=Config(data_dir=tmp_path), write=False)
+    assert out["entities"] == 2 and out["with_financials"] == 0
+    assert out["unresolved"] == 2
+    assert out["unresolved_specs"] == [{"lei": "LEI1"}, {"lei": "LEI2"}]
+
+
+def test_register_financials_counts_unresolved_specs(tmp_path):
+    from company_corpus.registers.financials import build_register_financials
+
+    out = build_register_financials([{"lei": "LEI1"}], fetcher=_RaisingFetcher(),
+                                    config=Config(data_dir=tmp_path), write=False)
+    assert out["entities"] == 1 and out["unresolved"] == 1
+    assert out["unresolved_specs"] == [{"lei": "LEI1"}]
+
+
+@pytest.mark.parametrize("argv", [
+    ["eu-financials", "--leis", "LEI1,LEI2"],
+    ["register-financials", "--leis", "LEI1,LEI2"],
+])
+def test_cli_dead_gleif_every_spec_unresolved_is_failed(argv, monkeypatch, tmp_path, capsys):
+    """Dead GLEIF: nothing resolves, no source is queried, and the run would
+    pass for a green nothing-to-do. It fails instead (exit 1 via the return-2
+    folding), naming GLEIF as a possible cause, and lists the specs."""
+    monkeypatch.setattr(cli, "Fetcher", lambda cfg: _RaisingFetcher())
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(tmp_path))
+    rc = cli.main(["--data-dir", str(tmp_path), *argv])
+    rep = json.loads((tmp_path / "runs.jsonl").read_text().strip().split("\n")[-1])
+    assert rc == 1 and rep["outcome"] == "failed"
+    captured = capsys.readouterr()
+    assert "unresolved" in captured.err and "GLEIF" in captured.err
+    assert "unresolved: LEI LEI1, LEI LEI2" in captured.out
+
+
+def test_eu_financials_cli_prints_partially_unresolved_specs(monkeypatch, tmp_path, capsys):
+    """One of two specs unresolved: the run still reports the resolved one
+    normally and prints the unresolved spec — exit 0, never a silent drop."""
+    monkeypatch.setattr(cli, "build_eu_financials", lambda specs, **kw: {
+        "entities": 2, "with_financials": 1, "no_financials": 1, "periods": 3,
+        "paths": [], "errors": 0, "error_items": [], "coverage_path": None,
+        "unresolved": 1, "unresolved_specs": [{"lei": "L9"}]})
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(tmp_path))
+    rc = cli.main(["eu-financials", "--leis", "L1,L9"])
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "unresolved: LEI L9" in captured.out and "error" not in captured.err
+
+
+# --------------------------------------------------------------------------
 # (e) the error trail itself
 # --------------------------------------------------------------------------
 def test_record_errors_stamps_ts_and_run_id(tmp_path):

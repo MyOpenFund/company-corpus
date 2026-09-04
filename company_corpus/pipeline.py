@@ -381,6 +381,7 @@ class OwnershipReport:
 
     issuers: int = 0
     downloaded: int = 0
+    would_download: int = 0   # dry run: filings that WOULD be downloaded
     parsed_insider: int = 0   # E1 Form 3/4/5
     parsed_13f: int = 0       # E2 13F-HR
     passthrough: int = 0      # E3 SC 13D/G (narrative, generic text)
@@ -449,6 +450,8 @@ def process_ownership(
                 continue
             if res.status == "downloaded":
                 report.downloaded += 1
+            elif res.status == "would-download":
+                report.would_download += 1
             if dry_run or not rec.local_path:
                 continue
 

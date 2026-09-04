@@ -130,7 +130,7 @@ a green "nothing to do":
 | `download` | sec | files downloaded |
 | `render-pdf` | sec | rendered + would_render |
 | `xbrl` | sec | period summaries |
-| `ownership` | sec | insider + 13F + passthrough filings |
+| `ownership` | sec | insider + 13F + passthrough filings (+ would-download on a dry run) |
 | `enrich-openfigi` | sec | identifiers mapped (no-match ≠ error) |
 | `eu-financials` | xbrlorg | period summaries |
 | `eu-acquire` | one row per backend dispatched to | documents kept from that backend |

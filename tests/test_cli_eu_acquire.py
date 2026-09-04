@@ -115,7 +115,7 @@ def test_eu_acquire_prints_partially_unresolved_specs(monkeypatch, tmp_path, cap
     """A spec that resolved to no LEI reaches no backend and no report row, so
     the only place it can show is stdout: it is listed by name, in input order,
     and the resolved specs' rows still report normally."""
-    out = _fake_out(unresolved=2,
+    out = _fake_out(entities=3, unresolved=2,
                     unresolved_specs=[{"isin": "XX0000000000"}, {"lei": "L9"}])
     _install(monkeypatch, tmp_path, out=out)
     rc = cli.main(["eu-acquire", "--isins", "XX0000000000,FR0000120271"])

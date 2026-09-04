@@ -103,7 +103,7 @@ def test_discover_index_feeds_sec_counters(monkeypatch, tmp_path):
         def save_records(self, recs, dry_run=False):
             return SaveStats(seen=2, added=1, unchanged=1)
 
-        def record_errors(self, errors):
+        def record_errors(self, errors, run_id=None):
             pass
 
     monkeypatch.setattr(cli, "EdgarFullIndex", FakeIndex)
@@ -226,6 +226,19 @@ def test_ownership_sums_parsed_rows_as_new(monkeypatch, tmp_path):
     assert rc == 0
     assert rep["totals"] == {"docs_seen": 3, "docs_new": 4, "docs_failed": 1}
     assert _source(rep, "sec")["error_samples"]
+
+
+def test_ownership_dry_run_counts_would_download_as_new(monkeypatch, tmp_path):
+    """A dry run that found candidates is `ok` with docs_new = what it would
+    download — like render-pdf, so `download` stays the only exception."""
+    monkeypatch.setattr(
+        cli, "process_ownership",
+        lambda ciks, **kw: OwnershipReport(issuers=1, would_download=2, errors=1,
+                                           error_items=[{"error": "403"}]))
+    rc = _run(monkeypatch, tmp_path, ["ownership", "--ciks", "0000320193"])
+    rep = _report(tmp_path)
+    assert rc == 0 and rep["outcome"] == "ok"
+    assert rep["totals"] == {"docs_seen": 1, "docs_new": 2, "docs_failed": 1}
 
 
 def test_ownership_nothing_parsed_with_errors_is_degraded(monkeypatch, tmp_path):

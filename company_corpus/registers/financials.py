@@ -88,15 +88,25 @@ def _dedupe_latest(entries: list[dict]) -> list[dict]:
 
 
 def build_register_financials(specs, *, fetcher, config: Config, write: bool = True) -> dict:
+    """Norway (Brreg) financials for ``specs`` (``orgnr`` direct, or ``lei`` via
+    GLEIF). ``out["unresolved"]`` / ``out["unresolved_specs"]`` count and list
+    the specs that resolved to no orgnr — an unknown LEI, or GLEIF unreachable,
+    which the resolver cannot tell apart — so the CLI can fail a run in which
+    nothing resolved instead of reporting a green "no financials"."""
     resolved = resolve_register_specs(specs, fetcher=fetcher)
     storage = Storage(config)
     coverage: list[dict] = []
     out = _make_out()
-    for r in resolved:
+    out["unresolved"] = 0
+    out["unresolved_specs"] = []
+    for i, r in enumerate(resolved):
         out["entities"] += 1
         if not r.get("orgnr"):
             coverage.append({"orgnr": None, "lei": r.get("lei"), "status": "unresolved"})
             out["no_financials"] += 1
+            out["unresolved"] += 1
+            # resolve_register_specs yields one row per spec, in order.
+            out["unresolved_specs"].append(specs[i] if i < len(specs) else dict(r))
             continue
         cov_base = {"orgnr": r["orgnr"], "lei": r.get("lei")}
         try:  # one malformed record must not abort the whole batch (nor the coverage write)

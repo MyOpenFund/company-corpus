@@ -25,6 +25,7 @@ render-pdf            sec        rendered+would+skipped+
                                  no_primary+errors            rendered + would_render render errors
 xbrl                  sec        issuers processed            period summaries        companyfacts errors
 ownership             sec        issuers processed            insider+13F+passthrough ownership errors
+                                                              + would_download (dry)
 enrich-openfigi       sec        identifiers submitted        identifiers mapped      (none: see below)
 eu-financials         xbrlorg    entities resolved            period summaries        ``out["errors"]``
 eu-acquire            per        entities dispatched to       documents kept from     that backend's
@@ -36,12 +37,12 @@ register-financials   per        entities resolved            period summaries  
 Three deliberate choices:
 
 * **Dry runs count what WOULD be written.** ``render-pdf`` folds ``would_render``
-  into ``docs_new``, and ``xbrl`` / ``eu-financials`` / ``register-financials``
-  count the period summaries they computed, so a dry run that found candidates
-  and hit no errors is ``ok`` while a dry run with errors and zero candidates is
-  ``degraded`` — never a green "nothing to do". ``download`` is the exception:
-  its producer has no would-download counter, so a dry-run download reports
-  ``docs_new=0``.
+  into ``docs_new``, ``ownership`` folds ``would_download``, and ``xbrl`` /
+  ``eu-financials`` / ``register-financials`` count the period summaries they
+  computed, so a dry run that found candidates and hit no errors is ``ok`` while
+  a dry run with errors and zero candidates is ``degraded`` — never a green
+  "nothing to do". ``download`` is the one exception: its producer has no
+  would-download counter, so a dry-run download reports ``docs_new=0``.
 * **``enrich-openfigi`` is recorded under ``sec``.** OpenFIGI is a mapping
   service, not a document authority, so it gets no code of its own (``one code
   per real-world regulatory authority``, see :mod:`company_corpus.source_codes`);
@@ -747,12 +748,37 @@ def _spec_label(spec: dict) -> str:
     return repr(spec)
 
 
+def _unresolved_verdict(cmd: str, out: dict) -> int:
+    """Print the specs that resolved to no identity; fail when NONE resolved.
+
+    An unresolved spec reaches no source and no report row, so its only trace
+    is the ``unresolved: …`` stdout line. When every spec is unresolved nothing
+    was queried at all and the run would pass for a green nothing-to-do — it
+    returns 2 instead (folded into a ``failed`` report by :func:`main`), and the
+    message names GLEIF as a possible cause, since an unreachable resolver
+    looks exactly like a bad identifier. Returns 0 otherwise.
+    """
+    unresolved_specs = out.get("unresolved_specs") or []
+    if unresolved_specs:
+        print("  unresolved: " + ", ".join(_spec_label(s) for s in unresolved_specs))
+    entities = int(out.get("entities") or 0)
+    unresolved = int(out.get("unresolved") or 0)
+    if entities and unresolved >= entities:
+        print(f"error: {cmd}: every spec is unresolved ({entities} entities, no identity: "
+              "bad identifiers, or GLEIF unreachable) — no source was queried",
+              file=sys.stderr)
+        return 2
+    return 0
+
+
 def _cmd_eu_financials(args: argparse.Namespace) -> int:
     """Build IFRS financials from ESEF; reported under ``xbrlorg``.
 
     The rows this command writes carry ``source="esef"`` and come from the
     filings.xbrl.org aggregator, not from a national OAM backend — so the
-    aggregator is the authority on the hook for them.
+    aggregator is the authority on the hook for them. Specs that resolved to
+    no LEI are printed, and a run in which none resolved fails (see
+    :func:`_unresolved_verdict`): dead GLEIF must not read as "no financials".
     """
     cfg = _config(args)
     fetcher = Fetcher(cfg)
@@ -765,7 +791,7 @@ def _cmd_eu_financials(args: argparse.Namespace) -> int:
         print(f"  coverage: {rep['coverage_path']}")
     _feed_from_out(getattr(args, "report", None), "esef", rep)
     _record_out_errors(args, cfg, rep)
-    return 0
+    return _unresolved_verdict("eu-financials", rep)
 
 
 def _cmd_eu_acquire(args: argparse.Namespace) -> int:
@@ -804,9 +830,6 @@ def _cmd_eu_acquire(args: argparse.Namespace) -> int:
           f"{out['manifests']} manifests, {out['deduped_by_bytes']} byte-deduped, "
           f"{out.get('documents_failed', 0)} documents failed, "
           f"{out['download_errors']} download errors, {len(out['errors'])} errors")
-    unresolved_specs = out.get("unresolved_specs") or []
-    if unresolved_specs:
-        print("  unresolved: " + ", ".join(_spec_label(s) for s in unresolved_specs))
     sources = out.get("sources") or {}
     for name in sorted(sources):
         st = sources[name]
@@ -835,12 +858,7 @@ def _cmd_eu_acquire(args: argparse.Namespace) -> int:
             raise RuntimeError(f"eu-acquire: {len(items)} error item(s) carry no backend "
                                f"source: {items[0]!r}")
         _feed_report(report, name, failed=len(items), errors=items)
-    if out["entities"] and not sources:
-        print(f"error: eu-acquire: every spec is unresolved ({out['entities']} entities, "
-              "no LEI: bad identifiers, or GLEIF unreachable) — no backend was queried",
-              file=sys.stderr)
-        return 2
-    return 0
+    return _unresolved_verdict("eu-acquire", out)
 
 
 def _register_specs(args: argparse.Namespace) -> list[dict]:
@@ -954,6 +972,9 @@ def _cmd_register_financials(args: argparse.Namespace) -> int:
             return 0
 
     # --- Norway / LEI path ---
+    # A LEI spec resolves through GLEIF; dead GLEIF must not read as "no
+    # financials", so the unresolved specs are printed and a run in which
+    # none resolved fails (see _unresolved_verdict).
     rep = build_register_financials(
         _register_specs(args), fetcher=Fetcher(cfg), config=cfg, write=args.write)
     mode = "WROTE" if args.write else "DRY-RUN (nothing written)"
@@ -963,7 +984,7 @@ def _cmd_register_financials(args: argparse.Namespace) -> int:
         print(f"  coverage: {rep['coverage_path']}")
     _feed_from_out(getattr(args, "report", None), "brreg", rep)
     _record_out_errors(args, cfg, rep)
-    return 0
+    return _unresolved_verdict("register-financials", rep)
 
 
 def _cmd_ownership(args: argparse.Namespace) -> int:
@@ -977,13 +998,18 @@ def _cmd_ownership(args: argparse.Namespace) -> int:
                             overwrite=args.overwrite, limit=args.limit, config=cfg,
                             run_id=_run_id(args))
     mode = "DRY-RUN (nothing written)" if dry_run else "WROTE"
-    print(f"ownership [{mode}] — {rep.issuers} issuers, downloaded={rep.downloaded}")
+    print(f"ownership [{mode}] — {rep.issuers} issuers, downloaded={rep.downloaded} "
+          f"would-download={rep.would_download}")
     print(f"  insider(E1)={rep.parsed_insider} 13F(E2)={rep.parsed_13f} "
           f"narrative(E3)={rep.passthrough} errors={rep.errors}")
     if rep.error_items:
         print(f"  errors logged: {len(rep.error_items)} (see discovery_errors.jsonl)")
+    # Parsed rows and would-download are mutually exclusive per record (a dry
+    # run parses nothing): summing them makes a dry run count what it WOULD
+    # download as the useful work, like render-pdf.
     _feed_report(getattr(args, "report", None), "sec", seen=rep.issuers,
-                 new=rep.parsed_insider + rep.parsed_13f + rep.passthrough,
+                 new=rep.parsed_insider + rep.parsed_13f + rep.passthrough
+                 + rep.would_download,
                  failed=rep.errors, errors=rep.error_items)
     return 0
 

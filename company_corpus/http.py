@@ -73,12 +73,17 @@ class Fetcher:
 
         Only failures that a later attempt can plausibly cure: a connection
         error or timeout (``requests.ConnectionError`` / ``requests.Timeout``),
-        HTTP 429 (throttled) and any 5xx. Every other 4xx (404, 403, 400, …) is
+        a transfer that broke mid-body (``ChunkedEncodingError`` — the chunked
+        read was cut short — or ``ContentDecodingError`` — a corrupt
+        content-encoding stream), HTTP 429 (throttled) and any 5xx. Every
+        other 4xx (404, 403, 400, …) is
         the server's definitive answer, and a malformed request (missing
         schema, invalid URL, …) is a caller bug: retrying either only burns the
         host's quota and the backoff time — contra the README's "Fair access".
         """
-        if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+        if isinstance(exc, (requests.ConnectionError, requests.Timeout,
+                            requests.exceptions.ChunkedEncodingError,
+                            requests.exceptions.ContentDecodingError)):
             return True
         if isinstance(exc, requests.HTTPError):
             status = getattr(exc.response, "status_code", None)

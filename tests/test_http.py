@@ -397,6 +397,19 @@ def test_connection_error_exhausts_retries_then_raises(cfg):
     assert len(sess.calls) == 3
 
 
+@pytest.mark.parametrize("exc", [
+    requests.exceptions.ChunkedEncodingError("connection broken: incomplete read"),
+    requests.exceptions.ContentDecodingError("failed to decode gzip body"),
+])
+def test_broken_transfer_then_200_succeeds(cfg, exc):
+    """A transfer that broke mid-body (chunked read cut short, corrupt
+    content-encoding) is a transient transport failure: retried once."""
+    sess = FakeSession([exc, FakeResponse(text="ok")])
+    f = Fetcher(cfg, session=sess)
+    assert f.get_text("https://www.sec.gov/a") == "ok"
+    assert len(sess.calls) == 2
+
+
 def test_non_transient_request_exception_is_not_retried(cfg):
     """A malformed URL / missing schema is a caller bug, not a flaky network."""
     sess = FakeSession([requests.exceptions.MissingSchema("bad url")])

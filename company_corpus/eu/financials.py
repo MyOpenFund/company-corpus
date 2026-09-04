@@ -138,19 +138,31 @@ def build_eu_financials(specs, *, fetcher, config: Config, write: bool = True, u
     with no financials. Errors are counted per *filing* while ``entities`` is
     per *issuer*, so in the run report ``docs_failed`` may exceed ``docs_seen``
     for an issuer with several dead filings.
+
+    ``out["unresolved"]`` counts the specs that resolved to no LEI (GLEIF had no
+    record — or GLEIF itself was unreachable, which looks identical here) and
+    ``out["unresolved_specs"]`` lists them, the input specs in input order, so
+    the CLI can fail a run in which NOTHING resolved instead of reporting a
+    green "no financials".
     """
     entities = resolve_entities(specs, fetcher=fetcher)
     storage = Storage(config)
     coverage: list[dict] = []
     error_items: list[dict] = []
+    unresolved_specs: list[dict] = []
     out = {"entities": 0, "with_financials": 0, "no_financials": 0, "periods": 0,
-           "paths": [], "errors": 0, "error_items": error_items}
-    for ent in entities:
+           "paths": [], "errors": 0, "error_items": error_items,
+           "unresolved": 0, "unresolved_specs": unresolved_specs}
+    for i, ent in enumerate(entities):
         out["entities"] += 1
         if not ent.lei:
             coverage.append({"lei": None, "name": ent.name, "resolution": ent.resolution,
                              "status": "unresolved"})
             out["no_financials"] += 1
+            out["unresolved"] += 1
+            # resolve_entities yields one Entity per spec, in order; the fallback
+            # only guards a resolver stub that returns a different shape.
+            unresolved_specs.append(specs[i] if i < len(specs) else {"name": ent.name})
             continue
         n_errors_before = len(error_items)
         flat = facts_for_entity(ent, fetcher=fetcher, errors=error_items)
