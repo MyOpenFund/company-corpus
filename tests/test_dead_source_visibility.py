@@ -598,3 +598,28 @@ def test_prh_iter_fi_all_reports_into_errors_out_param():
     assert list(iter_fi_all("2024-12-31", fetcher=_RaisingFetcher(), errors=errors)) == []
     assert len(errors) == 1 and errors[0]["stage"] == "iter_fi_all"
     assert errors[0]["error"].startswith("RuntimeError")
+
+
+# --------------------------------------------------------------------------
+# (i) the folded fetch-error message is capped; the trail gate fails loud
+# --------------------------------------------------------------------------
+def test_fetch_errors_message_caps_at_five():
+    from company_corpus.registers._common import _fetch_errors_message
+
+    errs = [{"stage": f"stage{i}", "error": f"boom{i}"} for i in range(8)]
+    msg = _fetch_errors_message(errs)
+    assert msg.startswith("stage0: boom0; ")
+    assert "stage4: boom4" in msg and "stage5" not in msg
+    assert msg.endswith("… (+3 more)")
+    assert _fetch_errors_message(errs[:5]) == "; ".join(
+        f"stage{i}: boom{i}" for i in range(5))
+
+
+def test_record_out_errors_requires_the_write_flag(tmp_path):
+    """Every reporting command defines --write; a namespace without it is a
+    programming error, not a dry run."""
+    import argparse
+
+    with pytest.raises(AttributeError):
+        cli._record_out_errors(argparse.Namespace(), Config(data_dir=tmp_path),
+                               {"error_items": [{"error": "x"}]})

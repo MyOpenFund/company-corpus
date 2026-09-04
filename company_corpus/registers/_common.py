@@ -246,12 +246,52 @@ def _record_source_error(
     log.warning("%s: source error for %s: %s", source, entity_id, msg)
 
 
+# How many dead calls one folded message spells out; the rest is a count.
+_FETCH_ERRORS_MESSAGE_CAP = 5
+
+
 def _fetch_errors_message(errors: list[dict]) -> str:
     """Fold the records a register helper appended to its ``errors``
     out-parameter (see :mod:`._errors`) into one ``stage: error`` message for
     :func:`_record_source_error`, so the coverage row and the trail say which
-    call died."""
-    return "; ".join(f"{e.get('stage')}: {e.get('error')}" for e in errors)
+    call died. Capped at :data:`_FETCH_ERRORS_MESSAGE_CAP` messages with a
+    ``… (+k more)`` suffix — a multi-year traversal can die on every call, and
+    the run report keeps 300-character samples."""
+    shown = errors[:_FETCH_ERRORS_MESSAGE_CAP]
+    msg = "; ".join(f"{e.get('stage')}: {e.get('error')}" for e in shown)
+    rest = len(errors) - len(shown)
+    return f"{msg} … (+{rest} more)" if rest > 0 else msg
+
+
+def _note_partial_fetch_errors(
+    fetch_errors: list[dict], cov: dict, *, entity_id, source: str, out: dict,
+) -> None:
+    """Surface dead calls on an entity that still got a coverage status of its
+    own (``ok`` / ``no-financials`` / ``unbalanced``).
+
+    A multi-call traversal (SK: zavierka → vykaz → sablona per period) can lose
+    some periods to a dead call and still produce others. The entity keeps the
+    status its surviving periods earned, but the dead calls are counted in
+    ``out["errors"]`` / ``out["source_errors"]``, itemised in ``error_items``
+    (the run report and the trail) and written onto the coverage row under
+    ``fetch_errors`` — so a partial traversal is never silent. No-op when
+    ``fetch_errors`` is empty. The coverage row is NOT appended here (the
+    caller's normal path does that); only ``cov`` is annotated.
+    """
+    if not fetch_errors:
+        return
+    msg = _fetch_errors_message(fetch_errors)
+    cov["fetch_errors"] = msg
+    out["errors"] += 1
+    out["source_errors"] = out.get("source_errors", 0) + 1
+    out.setdefault("error_items", []).append({
+        "entity_id": entity_id,
+        "source": source,
+        "error": msg,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
+    log.warning("%s: partial traversal for %s (%d dead call(s)): %s",
+                source, entity_id, len(fetch_errors), msg)
 
 
 def _finalise_coverage(

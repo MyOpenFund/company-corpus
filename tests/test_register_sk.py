@@ -759,3 +759,107 @@ def test_cli_sk_file_write(tmp_path):
     assert rc == 0
     out_file = tmp_path / "financials_register" / "36319007.jsonl"
     assert out_file.exists()
+
+
+# ---------------------------------------------------------------------------
+# Fetch errors surface regardless of the entity's coverage status
+# ---------------------------------------------------------------------------
+
+def _partial_sk_fetcher(*, second_vykaz):
+    """Entity with two zavierky: the FIRST zavierka call dies (a dead call),
+    the second yields ``second_vykaz`` under the synthetic sablona 699."""
+    _, sablona = _synth_pod(1000, 100, 200, 50)
+    entity_resp = {"ico": "36319007", "idUctovnychZavierok": [1001, 1002]}
+
+    def get_json(url, *, params=None, **_):
+        if "uctovna-jednotka" in url:
+            return entity_resp
+        if "uctovna-zavierka" in url:
+            if params["id"] == 1001:
+                raise RuntimeError("registeruz 502")
+            return {"id": 1002, "idUctovnychVykazov": [9002]}
+        if "uctovny-vykaz" in url:
+            return second_vykaz
+        if "sablona" in url:
+            return sablona
+        raise ValueError(f"Unexpected URL: {url}")
+
+    fetcher = MagicMock()
+    fetcher.get_json.side_effect = get_json
+    return fetcher
+
+
+def test_build_sk_dead_call_beats_unbalanced(tmp_path):
+    """One zavierka raises, the other yields an unbalanced vykaz: nothing came
+    out AND a call died -> source-error (a dead call is not a property of the
+    issuer), with the dead call counted and itemised."""
+    from company_corpus.config import Config
+    from company_corpus.registers.financials import build_sk_financials
+
+    unbalanced, _ = _synth_pod(assets=1000, equity=100, liab=200, accruals=50)
+    fetcher = _partial_sk_fetcher(second_vykaz=unbalanced)
+    out = build_sk_financials([12345], fetcher=fetcher, config=Config(data_dir=tmp_path),
+                              write=True)
+
+    assert out["errors"] >= 1
+    assert out["source_errors"] >= 1
+    assert out["unbalanced"] == 0
+    assert out["error_items"] and "fetch_zavierka" in out["error_items"][0]["error"]
+    cov = [json.loads(ln) for ln in
+           (tmp_path / "reports" / "register_coverage_registeruz.jsonl").read_text().splitlines()
+           if ln.strip()]
+    assert cov == [c for c in cov if c["status"] == "source-error"] and len(cov) == 1
+    assert "fetch_zavierka" in cov[0]["error"]
+
+
+def test_build_sk_partial_traversal_keeps_ok_but_counts_dead_call(tmp_path):
+    """One zavierka raises, the other yields a balanced vykaz: the entity is
+    ``ok`` (periods were obtained) but the dead call still lands in
+    ``out["errors"]`` / ``error_items`` and on the coverage row -- a partial
+    traversal is never silent."""
+    from company_corpus.config import Config
+    from company_corpus.registers.financials import build_sk_financials
+
+    vykaz_data = json.loads((FIXTURES / "sk_36319007_POD.json").read_bytes())
+    sablona_data = json.loads((FIXTURES / "sk_sablona_699.json").read_bytes())
+    fetcher = _partial_sk_fetcher(second_vykaz=vykaz_data)
+    fetcher.get_json.side_effect = None
+    inner = _partial_sk_fetcher(second_vykaz=vykaz_data).get_json.side_effect
+
+    def get_json(url, *, params=None, **_):
+        if "sablona" in url:
+            return sablona_data
+        return inner(url, params=params)
+    fetcher.get_json.side_effect = get_json
+
+    out = build_sk_financials([12345], fetcher=fetcher, config=Config(data_dir=tmp_path),
+                              write=True)
+
+    assert out["with_financials"] == 1
+    assert out["errors"] == 1 and out["source_errors"] == 1
+    assert len(out["error_items"]) == 1 and "fetch_zavierka" in out["error_items"][0]["error"]
+    cov = [json.loads(ln) for ln in
+           (tmp_path / "reports" / "register_coverage_registeruz.jsonl").read_text().splitlines()
+           if ln.strip()]
+    assert len(cov) == 1 and cov[0]["status"] == "ok"
+    assert "fetch_zavierka" in cov[0]["fetch_errors"]
+
+
+def test_cli_sk_id_dead_call_plus_unbalanced_is_degraded(monkeypatch, tmp_path):
+    """End to end: the dead zavierka call reaches the run report (degraded,
+    exit 3, an error sample) even though the surviving period was unbalanced."""
+    from company_corpus import cli
+
+    unbalanced, _ = _synth_pod(assets=1000, equity=100, liab=200, accruals=50)
+    monkeypatch.setattr(cli, "Fetcher", lambda cfg: _partial_sk_fetcher(second_vykaz=unbalanced))
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(tmp_path))
+    rc = cli.main(["--data-dir", str(tmp_path), "register-financials", "--sk-id", "12345",
+                   "--write"])
+    rep = json.loads((tmp_path / "runs.jsonl").read_text().strip().split("\n")[-1])
+
+    assert rc == 3 and rep["outcome"] == "degraded"
+    src = [s for s in rep["sources"] if s["source_code"] == "registeruz"][0]
+    assert src["fetch_errors"] >= 1 and src["error_samples"]
+    rows = [json.loads(x) for x in
+            (tmp_path / "discovery_errors.jsonl").read_text().splitlines() if x]
+    assert rows and rows[-1]["run_id"] == rep["run_id"]

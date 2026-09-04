@@ -240,9 +240,11 @@ def _record_out_errors(args: argparse.Namespace, config, out: dict) -> None:
     instead of living only in the run report's capped samples. A no-op when the
     producer reported nothing, and on a dry run (no ``--write``): the run report
     still carries the errors, but "DRY-RUN (nothing written)" means nothing —
-    the SEC pillar gates its trail on the same flag.
+    the SEC pillar gates its trail on the same flag. Every caller defines
+    ``--write``, so a namespace without it is a programming error and raises
+    rather than silently reading as a dry run.
     """
-    if not getattr(args, "write", False):
+    if not args.write:
         return
     items = out.get("error_items") or []
     if not items:

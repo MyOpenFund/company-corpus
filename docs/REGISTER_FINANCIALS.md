@@ -2391,7 +2391,13 @@ The `--sk-file` and `--sk-id` flags are mutually exclusive with each other and w
 
 The `--sk-file` path is entirely local (no network). The `--sk-id` path issues GET
 requests to `registeruz.sk` for each entity, with per-entity try / except error
-isolation (a single failed entity does not abort the batch).
+isolation (a single failed entity does not abort the batch). A dead
+zavierka / vykaz / sablona call is always counted as an error (run report + trail)
+whatever coverage status the entity ends up with: when no period survives it is
+`source-error` (even if the surviving periods were balance-rejected); when some
+periods were obtained the entity stays `ok` with the dead calls on its coverage row
+(`fetch_errors`) and a WARNING — by design, a partial traversal degrades the run
+only when it yielded nothing.
 
 ## Honest caveats — SK
 

@@ -27,6 +27,7 @@ from ._common import (
     _lei_or_none,
     _fetch_errors_message,
     _make_out,
+    _note_partial_fetch_errors,
     _record_source_error,
     _summary,
 )
@@ -1397,19 +1398,25 @@ def build_sk_financials(
             if suppressed_all:
                 cov["suppressed"] = suppressed_all
 
+            if not rows and fetch_errors:
+                # Nothing came out and at least one zavierka/vykaz/sablona call
+                # died along the way: a dead source, not an empty filer — and
+                # not "unbalanced" either, even when the surviving periods were
+                # balance-rejected: a dead call is not a property of the issuer.
+                _record_source_error(_fetch_errors_message(fetch_errors), cov_base,
+                                     entity_id=ico, source="registeruz",
+                                     out=out, coverage=coverage)
+                continue
+            # Whatever status the entity earns below (ok / no-financials /
+            # unbalanced), a dead call on a partial traversal is still an error.
+            _note_partial_fetch_errors(fetch_errors, cov, entity_id=ico,
+                                       source="registeruz", out=out)
             # If no period produced rows and all failures were balance-gate rejections,
             # classify as "unbalanced" rather than "no-financials".
             if not rows and had_unbalanced:
                 cov["status"] = "unbalanced"
                 coverage.append(cov)
                 out["unbalanced"] += 1
-                continue
-            if not rows and fetch_errors:
-                # Nothing came out and at least one zavierka/vykaz/sablona call
-                # died along the way: a dead source, not an empty filer.
-                _record_source_error(_fetch_errors_message(fetch_errors), cov_base,
-                                     entity_id=ico, source="registeruz",
-                                     out=out, coverage=coverage)
                 continue
 
             # SK maps real bank borrowings → borrowings-based leverage.
