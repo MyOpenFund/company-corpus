@@ -238,8 +238,12 @@ def _record_out_errors(args: argparse.Namespace, config, out: dict) -> None:
     :meth:`Storage.record_errors` with a timestamp and this run's id — so a dead
     EU or register source leaves the same auditable trace the SEC pillar leaves,
     instead of living only in the run report's capped samples. A no-op when the
-    producer reported nothing.
+    producer reported nothing, and on a dry run (no ``--write``): the run report
+    still carries the errors, but "DRY-RUN (nothing written)" means nothing —
+    the SEC pillar gates its trail on the same flag.
     """
+    if not getattr(args, "write", False):
+        return
     items = out.get("error_items") or []
     if not items:
         return

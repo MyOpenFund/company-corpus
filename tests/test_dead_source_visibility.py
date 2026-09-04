@@ -407,3 +407,27 @@ def test_sec_cli_threads_run_id_into_pipeline(cmd, monkeypatch, tmp_path):
     rep = json.loads((tmp_path / "runs.jsonl").read_text().strip().split("\n")[-1])
     assert "run_id" in seen, f"{func_name} was not given run_id="
     assert seen["run_id"] == rep["run_id"]
+
+
+# --------------------------------------------------------------------------
+# (g) the trail is corpus state too: a dry run leaves none
+# --------------------------------------------------------------------------
+def test_register_cli_dry_run_writes_no_trail(monkeypatch, tmp_path):
+    """Without --write the run is still degraded (the errors happened) but
+    nothing lands on disk — the SEC pillar gates its trail the same way."""
+    monkeypatch.setattr(cli, "Fetcher", _FiDeadDocumentFetcher)
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(tmp_path))
+    rc = cli.main(["--data-dir", str(tmp_path), "register-financials",
+                   "--fi-businessid", "2919415-2"])
+    rep = json.loads((tmp_path / "runs.jsonl").read_text().strip().split("\n")[-1])
+    assert rc == 3 and rep["outcome"] == "degraded"
+    assert not (tmp_path / "discovery_errors.jsonl").exists()
+
+
+def test_eu_financials_cli_dry_run_writes_no_trail(monkeypatch, tmp_path, _dead_esef):
+    monkeypatch.setattr(cli, "Fetcher", lambda cfg: _dead_esef)
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(tmp_path))
+    rc = cli.main(["--data-dir", str(tmp_path), "eu-financials", "--leis", "LEI1"])
+    rep = json.loads((tmp_path / "runs.jsonl").read_text().strip().split("\n")[-1])
+    assert rc == 3 and rep["outcome"] == "degraded"
+    assert not (tmp_path / "discovery_errors.jsonl").exists()
