@@ -31,6 +31,10 @@ class FakeResponse:
     def text(self):
         return self._text
 
+    @property
+    def content(self) -> bytes:
+        return self._text.encode("utf-8")
+
     def json(self):
         return self._json
 
@@ -425,20 +429,20 @@ def test_post_text_404_is_one_request(cfg):
     assert len(sess.calls) == 1
 
 
-# --- Charset handling: no declared charset -> sniff, declared -> respected ---
+# --- Charset handling: no declared charset -> strict UTF-8, else header default;
+#     declared -> respected ---
 
 
 def test_get_text_decodes_charset_less_utf8_body(cfg):
     """requests defaults text/* without a charset to ISO-8859-1, so a UTF-8
-    page came back as 'cafÃ©'. Sniff the body instead."""
+    page came back as 'cafÃ©'. Try strict UTF-8 first instead."""
     sess = FakeSession([_real_response(b"caf\xc3\xa9", "text/html")])
     f = Fetcher(cfg, session=sess)
     assert f.get_text("https://www.amf-france.org/x") == "caf\u00e9"
 
 
 def test_get_text_respects_declared_charset(cfg):
-    """A declared charset wins over sniffing (the sniffer guesses utf_16_be for
-    this 4-byte latin-1 body, which would be wrong)."""
+    """A declared charset is never overridden."""
     sess = FakeSession([_real_response(b"caf\xe9", "text/html; charset=iso-8859-1")])
     f = Fetcher(cfg, session=sess)
     assert f.get_text("https://www.cnmv.es/x") == "caf\u00e9"
@@ -457,8 +461,8 @@ def test_post_text_decodes_charset_less_utf8_body(cfg):
 
 
 def test_get_text_without_content_type_falls_back_to_utf8(cfg):
-    """No Content-Type at all and an undecidable body: never leave encoding
-    unset (requests would sniff anyway) — the fallback is UTF-8, not latin-1."""
+    """No Content-Type at all and an empty body: never leave encoding unset
+    (requests would sniff anyway) — the fallback is UTF-8, not latin-1."""
     resp = _real_response(b"", "text/html")
     resp.headers = {}
     resp.encoding = None
@@ -466,3 +470,45 @@ def test_get_text_without_content_type_falls_back_to_utf8(cfg):
     f = Fetcher(cfg, session=sess)
     assert f.get_text("https://x/y") == ""
     assert resp.encoding.lower().replace("_", "-") in ("utf-8", "ascii")
+
+
+def test_get_text_charset_less_latin1_body_uses_header_default(cfg):
+    """A real latin-1 page without a charset is not valid UTF-8; keep requests'
+    RFC 2616 default (ISO-8859-1) rather than sniffing (charset_normalizer
+    guesses windows-1250 for such pages and turns n-tilde into n-acute)."""
+    sess = FakeSession([_real_response(b"caf\xe9", "text/html")])
+    f = Fetcher(cfg, session=sess)
+    assert f.get_text("https://www.cnmv.es/x") == "caf\u00e9"
+
+
+def test_get_text_large_ascii_body_with_one_latin1_char(cfg):
+    """A large mostly-ASCII text/plain body (SEC full submission) with a single
+    latin-1 byte: the sniffer guessed Big5; the header default decodes it."""
+    body = b"x" * 200_000 + b" caf\xe9 " + b"y" * 200_000
+    sess = FakeSession([_real_response(body, "text/plain")])
+    f = Fetcher(cfg, session=sess)
+    assert f.get_text("https://www.sec.gov/x") == body.decode("iso-8859-1")
+
+
+def test_get_text_without_content_type_utf8_body_decodes_as_utf8(cfg):
+    """No Content-Type at all (requests leaves encoding None): a valid UTF-8
+    body decodes as UTF-8."""
+    resp = _real_response(b"caf\xc3\xa9", "text/html")
+    resp.headers = {}
+    resp.encoding = None
+    sess = FakeSession([resp])
+    f = Fetcher(cfg, session=sess)
+    assert f.get_text("https://x/y") == "caf\u00e9"
+    assert resp.encoding == "utf-8"
+
+
+def test_get_text_without_content_type_non_utf8_body_falls_back_to_utf8(cfg):
+    """No Content-Type and a body that is not valid UTF-8: with no header to
+    default from, fall back to UTF-8 (never sniff, never leave encoding None)."""
+    resp = _real_response(b"caf\xe9", "text/html")
+    resp.headers = {}
+    resp.encoding = None
+    sess = FakeSession([resp])
+    f = Fetcher(cfg, session=sess)
+    f.get_text("https://x/y")
+    assert resp.encoding == "utf-8"

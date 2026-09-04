@@ -7,9 +7,10 @@ Parallels ``cb_corpus.http``. Provides a small :class:`Fetcher` that:
 * retries *transient* failures only (connection errors, timeouts, HTTP 429 and
   5xx) with exponential backoff — any other 4xx is a definitive answer and
   raises after a single request, so a 404 never costs the host four requests,
-* decodes text bodies by the declared charset, sniffing only when none is
-  declared (``requests`` would otherwise default ``text/*`` to ISO-8859-1 and
-  turn UTF-8 pages into mojibake),
+* decodes text bodies by the declared charset; when none is declared it tries
+  strict UTF-8 first and otherwise keeps the header default (``requests``
+  would default ``text/*`` to ISO-8859-1 outright and turn UTF-8 pages into
+  mojibake; no charset sniffing, which mis-reads real latin-1 pages),
 * streams large bodies (complete submissions can be many MB).
 """
 
@@ -17,6 +18,7 @@ from __future__ import annotations
 
 import random
 import time
+from typing import Callable
 from urllib.parse import urlsplit
 
 import requests
@@ -83,7 +85,7 @@ class Fetcher:
             return status == 429 or (status is not None and 500 <= status <= 599)
         return False
 
-    def _send(self, url: str, do_request) -> requests.Response:
+    def _send(self, url: str, do_request: Callable[[], requests.Response]) -> requests.Response:
         """Run ``do_request()`` (one attempt on the session) under throttle +
         retry; return the successful response.
 
@@ -153,21 +155,29 @@ class Fetcher:
     @staticmethod
     def _decode(resp: requests.Response) -> str:
         """Decode a text body: the declared charset when the ``Content-Type``
-        header carries one, otherwise the sniffed encoding (UTF-8 as a last
-        resort).
+        header carries one; otherwise strict UTF-8 if the bytes are valid
+        UTF-8, else the encoding ``requests`` derived from the headers
+        (ISO-8859-1 for ``text/*``), else UTF-8 when there is no header at all.
 
         ``requests`` fills ``resp.encoding`` with ISO-8859-1 for any ``text/*``
         body that declares no charset (the RFC 2616 default), so a UTF-8 page
         from a regulator that omits the charset used to come back as
-        ``"cafÃ©"``; the old ``resp.encoding or "utf-8"`` never fired because
-        ``encoding`` was already set. A *declared* charset is never overridden:
-        the sniffer is a guess (it reads ``utf_16_be`` into a 4-byte latin-1
-        body), the header is a statement.
+        ``"cafÃ©"``. Charset sniffing (``apparent_encoding``) is deliberately
+        not used: it mis-detects real latin-1/cp1252 pages as windows-1250 and
+        a large mostly-ASCII ``text/plain`` submission with one accented byte
+        as Big5 -- bodies the header default decodes correctly. A *declared*
+        charset is never overridden: the header is a statement, not a guess.
         """
         headers = getattr(resp, "headers", None)
         ctype = headers.get("Content-Type", "") if hasattr(headers, "get") else ""
         if "charset" not in (ctype or "").lower():
-            resp.encoding = getattr(resp, "apparent_encoding", None) or "utf-8"
+            try:
+                resp.content.decode("utf-8")
+            except UnicodeDecodeError:
+                if resp.encoding is None:
+                    resp.encoding = "utf-8"
+            else:
+                resp.encoding = "utf-8"
         return resp.text
 
     def get_text(self, url: str, *, timeout: float | None = None,
