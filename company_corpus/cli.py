@@ -72,6 +72,9 @@ from .universe import (
 # Work commands that build a run-report, feed it through the pipeline, and
 # ALWAYS write it (even on crash) before returning the doctrine exit code.
 # Non-work commands (list-* / inspection / migrations, ...) are unaffected.
+# A work command's non-zero return value (e.g. a caught RuntimeError reported
+# as exit 1) is folded into the doctrine as a "failed" outcome rather than
+# being silently discarded and reported as "ok".
 REPORTING_CMDS = {
     "discover", "discover-index", "download", "render-pdf", "xbrl",
     "ownership", "enrich-openfigi", "eu-financials", "register-financials",
@@ -1009,12 +1012,32 @@ def main(argv: list[str] | None = None) -> int:
     report = DoctrineReport("company-corpus", args.cmd)
     args.report = report
     try:
-        args.func(args)
+        func_rc = args.func(args)
     except Exception as exc:
         rc = report.finish(fatal=f"{type(exc).__name__}: {exc}")
-        report.write(str(_runs_path(args)))
+        rc = _write_report(report, args, rc)
         print(f"error: {exc}", file=sys.stderr)
         return rc
+    if isinstance(func_rc, int) and func_rc != 0:
+        rc = report.finish(fatal=f"{args.cmd} returned exit code {func_rc}")
+        rc = _write_report(report, args, rc)
+        print(f"error: {args.cmd} returned exit code {func_rc}", file=sys.stderr)
+        return rc
     rc = report.finish()
-    report.write(str(_runs_path(args)))
+    return _write_report(report, args, rc)
+
+
+def _write_report(report: DoctrineReport, args: argparse.Namespace, rc: int) -> int:
+    """Write the run-report, surviving an unwritable runs path.
+
+    A report that can't be persisted is itself a failed run for the doctrine:
+    print an error and fold the exit code to at least 1 rather than let the
+    OSError escape as a traceback.
+    """
+    path = str(_runs_path(args))
+    try:
+        report.write(path)
+    except OSError as exc:
+        print(f"error: could not write run report to {path}: {exc}", file=sys.stderr)
+        return max(rc, 1)
     return rc
