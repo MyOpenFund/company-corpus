@@ -135,6 +135,22 @@ Module responsibilities, one line each:
 | `rag.py` / `completeness.py` | Read manifests back into `SourceItem`s; audit coverage vs. expected cadence. |
 | `config.py` / `http.py` | Runtime config + identifier parsers (`normalize_cik`, `cusip6`, …); the polite Fetcher. |
 | `openfigi.py` | **Isolated, optional** identifier enrichment/triage (no SEC, no CIK). Imported only by the CLI. |
+| `runreport.py` | `RunReport` — structured run-reports + the exit-code doctrine (see below). |
+| `source_codes.py` | `SOURCE_CODES` — the canonical authority registry (23 codes, one per real-world regulator); resolves any backend/producer tag via `source_code_for()`. |
+
+### Run-report seam
+
+Every work command is wrapped by `cli.main()`: it opens a `RunReport`
+(`runreport.py`), lets the command feed it counters per source through
+`_feed_report`/`_feed_from_out` (resolving each producer tag to its canonical
+authority via `source_codes.source_code_for`), then calls `report.finish()` —
+which applies the doctrine (§8) to pick `exit_code`/`outcome` — and always
+appends the report as one JSON line to `data/runs.jsonl`, even on a caught
+exception. That file is the seam to the outside world: the MyOpenFund vault
+ingests it unchanged into a `runs` table, so `runreport.py`'s dict shape
+(`totals`, `sources[].source_code`, `fatal`, …) is a stable, external contract,
+not an implementation detail. See [`README.md`](../README.md#operations) for
+the field-by-field reference and the per-command "unit of useful work" table.
 
 ---
 

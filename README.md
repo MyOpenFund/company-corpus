@@ -76,6 +76,102 @@ python -m company_corpus register-financials --orgnrs 923609016 --write
 python -m company_corpus register-financials --ch-bulk accounts_monthly_2024_01.zip --limit 100
 ```
 
+## Operations
+
+**Doctrine, in one sentence:** every work command folds its own counters into a
+structured run-report before exiting, so a run that did no useful work can
+never exit `0`.
+
+### Exit codes
+
+- `0` — clean: real work got done, or nothing was found and zero errors occurred.
+- `1` — fatal: an uncaught exception, or a command that itself returned non-zero.
+- `3` — degraded: any source reported a `truncated` (partial) result, OR zero
+  new documents were produced while errors occurred (save errors and/or fetch
+  errors). Recovered transient errors alongside real new documents do **not**
+  degrade a run.
+
+### `data/runs.jsonl`
+
+Every work command — `discover`, `discover-index`, `download`, `render-pdf`,
+`xbrl`, `ownership`, `enrich-openfigi`, `eu-financials`, `eu-acquire`,
+`register-financials` — appends one JSON line (atomic `O_APPEND` write) before
+returning:
+
+```json
+{"run_id": "...", "tool": "company-corpus", "command": "discover",
+ "started_at": "...", "finished_at": "...", "outcome": "ok", "exit_code": 0,
+ "totals": {"docs_seen": 120, "docs_new": 4, "docs_failed": 0},
+ "sources": [{"source_code": "sec", "docs_seen": 120, "docs_new": 4,
+              "docs_failed": 0, "fetch_errors": 0, "truncated": false,
+              "error_samples": []}]}
+```
+
+A `failed` run also carries a `fatal` field (the exception, capped at 500
+chars). The MyOpenFund vault ingests this file **unchanged** — the schema is
+deliberately flat and stable, so it feeds a `runs` table with no transform step.
+
+`COMPANY_DATA_DIR` overrides where the report (and the error trail below) land
+— a test/ops override that wins over everything else; absent that, `--data-dir`
+wins over `Config`'s own default (`./data`).
+
+### Unit of useful work, per command
+
+`docs_new` is what a command reports as its actual output; `docs_seen` is what
+it examined; `docs_failed` is its error count. A dry run still counts what it
+*would* write (except `download`, whose producer has no would-download
+counter), so a dry run that found candidates and hit no errors is `ok`, never
+a green "nothing to do":
+
+| command | source | docs_new (useful work) |
+|---|---|---|
+| `discover` (`--download`) | sec | records added (+ files downloaded) |
+| `discover-index` | sec | records added |
+| `download` | sec | files downloaded |
+| `render-pdf` | sec | rendered + would_render |
+| `xbrl` | sec | period summaries |
+| `ownership` | sec | insider + 13F + passthrough filings |
+| `enrich-openfigi` | sec | identifiers mapped (no-match ≠ error) |
+| `eu-financials` | xbrlorg | period summaries |
+| `eu-acquire` | one row per backend dispatched to | documents kept from that backend |
+| `register-financials` | one row per register | period summaries |
+
+Full detail (every column, plus the three deliberate policy choices behind
+this table) is documented in the `cli.py` module docstring.
+
+### Logging
+
+Work commands configure the root logger once (INFO, to stderr) so their own
+progress is visible; register and EU/OAM fetch failures — a dead source, or a
+partial multi-call traversal that still produced some periods — are logged as
+WARNINGs, in addition to being folded into the run report and the trail below.
+
+### The discovery-error trail
+
+Every pillar that hits a dead source (SEC discovery, an EU/OAM backend, or a
+national register) appends to `data/discovery_errors.jsonl`, one JSON line per
+error, stamped by `Storage.record_errors` with `ts` (ISO-8601 UTC) and the
+`run_id` of the run that hit it — so a trail entry ties back to its run report.
+Written **only with `--write`** for the EU and register commands (a dry run
+still reports the errors in `runs.jsonl`, but leaves no trail file — "DRY-RUN
+(nothing written)" means exactly that). In a register's own coverage file,
+`source-error` is a distinct status from `no-financials` / `unbalanced`: "the
+register could not be read" is a fact about the source, never confused with
+"the issuer filed nothing."
+
+### `SOURCE_CODES`: one code per authority
+
+The corpus pulls filings through three pillars — SEC EDGAR, the EU/OAM network
+(13 national mechanisms + the filings.xbrl.org aggregator), and 8 national
+company registers — and
+[`company_corpus/source_codes.py`](company_corpus/source_codes.py) is the
+canonical registry mapping every one of those **23 codes** to its real-world
+regulatory authority, never to a module, class, or file-format variant (e.g.
+`erst-fsa` and `erst-ifrs` are both the Danish `erst` authority; the finer
+"how it reached us" detail lives in the row's `provenance` field, not in a
+second near-duplicate code). `source_code_for()` resolves any producer/backend
+tag to its canonical code and raises rather than guess.
+
 ## Documentation
 
 | Doc | What's inside |
@@ -112,6 +208,11 @@ requests/second). It retries only transient failures — connection errors,
 timeouts, HTTP 429 and 5xx — with backoff (honouring `Retry-After`); any other
 4xx is taken as the server's answer and costs exactly one request, so a missing
 document never turns into four requests and seconds of backoff against the host.
+Text bodies are decoded by their declared charset; when none is declared it
+tries strict UTF-8 first and otherwise keeps the header default — `requests`
+would otherwise default undeclared `text/*` to ISO-8859-1 and turn UTF-8 pages
+into mojibake. There is no charset sniffing, which would mis-read genuine
+latin-1 pages as something else.
 
 **Belgium (FSMA STORI)** is the one exception, and it is opt-in
 (`pip install '.[be]'`) and off by default. The FSMA JSON API sits behind an F5
