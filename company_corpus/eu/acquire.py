@@ -93,9 +93,14 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True,
 
     The summary carries, besides the totals, ``sources``: per backend ``name``,
     the entities it was asked about, the kept documents it contributed
-    (``Document.source``), the errors it raised or recorded and ``not_indexed``
-    (the entities it answered "not indexed here" for — a note, not an error) —
-    the run report is fed one row per authority from it. Every error item is tagged with the
+    (``Document.source``), the errors it raised or recorded, ``not_indexed``
+    (the entities it answered "not indexed here" for — a note, not an error)
+    and ``truncated`` (it recorded a listing that hit a page cap) — the run
+    report is fed one row per authority from it. With ``download``, a document
+    whose EVERY file failed to download is not an acquired document: it is
+    dropped from the kept documents and counters (``documents_failed`` counts
+    it, its manifest is discarded) and the entity's coverage row becomes a
+    ``source-error`` — a listing with unreachable files is not useful work. Every error item is tagged with the
     backend's ``source`` (a raised discovery goes under the backend that died,
     a download failure under the document's source) so the trail names the
     authority, never a generic orchestrator. ``unresolved`` counts the specs
@@ -115,7 +120,8 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True,
 
     def _src(name: str) -> dict:
         return sources.setdefault(
-            name, {"entities": 0, "documents": 0, "errors": 0, "not_indexed": 0})
+            name, {"entities": 0, "documents": 0, "errors": 0, "not_indexed": 0,
+                   "truncated": False})
 
     def _discover(backend, e) -> list:
         name = _backend_name(backend)
@@ -133,6 +139,13 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True,
         recorded = list(getattr(backend, "errors", []))
         errors.extend(recorded)
         stats["errors"] += len(recorded)
+        # Every backend records a listing that hit its page cap as an error whose
+        # context ends with "truncated" (oam_ch: "six-truncated"/"eqs-truncated").
+        # Lift it onto the row so the run report degrades a partial listing
+        # even when the backend also returned documents.
+        if any(str(x.get("context") or "").endswith("truncated")
+               for x in recorded if isinstance(x, dict)):
+            stats["truncated"] = True
         # A backend's notes are observations, not failures: "not indexed here"
         # (the aggregator's 404) is counted on its row and never degrades a run.
         stats["not_indexed"] += sum(
@@ -183,6 +196,7 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True,
 
     manifests = 0
     download_errors = 0
+    documents_failed = 0
     deduped_by_bytes = 0
     kept_docs = all_docs
     if download:
@@ -207,15 +221,25 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True,
                 continue
             for s in shas:
                 seen_bytes[(*sig, s)] = d.doc_id
+            files = man.get("files", [])
+            bad = [f for f in files if "error" in f]
+            for f in bad:
+                download_errors += 1
+                _src(d.source)["errors"] += 1
+                errors.append({"source": d.source, "context": "download",
+                               "doc_id": d.doc_id, "file": f.get("name"),
+                               "error": f["error"]})
+            if files and len(bad) == len(files):
+                # Nothing of this document reached the disk: a failure, not an
+                # acquired document. Its manifest would only certify the gap.
+                documents_failed += 1
+                _discard_download(man, config)
+                if d.lei:
+                    discover_failures.setdefault(
+                        d.lei, f"download: {bad[0].get('name')}: {bad[0]['error']}")
+                continue
             manifests += 1
             kept_docs.append(d)
-            for f in man.get("files", []):
-                if "error" in f:
-                    download_errors += 1
-                    _src(d.source)["errors"] += 1
-                    errors.append({"source": d.source, "context": "download",
-                                   "doc_id": d.doc_id, "file": f.get("name"),
-                                   "error": f["error"]})
     for d in kept_docs:
         _src(d.source)["documents"] += 1
 
@@ -230,7 +254,7 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True,
             "unresolved_specs": unresolved_specs,
             "documents": len(kept_docs),
             "manifests": manifests, "deduped_by_bytes": deduped_by_bytes,
-            "download_errors": download_errors,
+            "download_errors": download_errors, "documents_failed": documents_failed,
             "coverage_path": str(cov_path) if cov_path else None, "errors": errors,
             # Same list under the shared key the run-report feeder reads on every
             # pillar (`_feed_from_out`), so acquire needs no special-casing there.

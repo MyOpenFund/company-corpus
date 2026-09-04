@@ -223,3 +223,62 @@ def test_eu_acquire_not_indexed_issuer_with_healthy_empty_oam_is_ok(monkeypatch,
     assert rc == 0 and rep["outcome"] == "ok"
     by_code = {s["source_code"]: s for s in rep["sources"]}
     assert by_code["xbrlorg"]["docs_failed"] == 0 and by_code["xbrlorg"]["fetch_errors"] == 0
+
+
+def test_eu_acquire_truncated_backend_degrades_even_with_documents(monkeypatch, tmp_path):
+    """A backend that reported a truncated listing degrades the run (exit 3)
+    even though it contributed documents: a partial listing must never look
+    complete. The report row carries `truncated: true`."""
+    out = _fake_out(documents=2,
+                    sources={"oam-fr": {"entities": 1, "documents": 2, "errors": 0,
+                                        "truncated": True},
+                             "filings.xbrl.org": {"entities": 1, "documents": 0, "errors": 0,
+                                                  "truncated": False}})
+    _install(monkeypatch, tmp_path, out=out)
+    rc = cli.main(["eu-acquire", "--leis", "L1"])
+    rep = _report(tmp_path)
+    assert rc == 3 and rep["outcome"] == "degraded"
+    by_code = {s["source_code"]: s for s in rep["sources"]}
+    assert by_code["amf"]["truncated"] is True and by_code["amf"]["docs_new"] == 2
+    assert by_code["amf"]["error_samples"], "a truncation with no payload still says why"
+    assert by_code["xbrlorg"]["truncated"] is False
+
+
+def test_eu_acquire_write_all_downloads_forbidden_is_degraded(monkeypatch, tmp_path):
+    """End to end through the REAL orchestrator: the listing is fine, every
+    file download is refused (403). Nothing was acquired, so the run is
+    degraded (exit 3) with docs_new 0 and docs_failed >= 1 — never `ok`."""
+    from company_corpus.eu import acquire as acq
+    from company_corpus.eu.documents import Document
+    from company_corpus.eu.entities import Entity
+    from datetime import date
+
+    class _Forbidden:
+        def download(self, url, dest):
+            raise RuntimeError(f"403 Forbidden for {url}")
+
+    class _OneDoc:
+        name = "oam-de"
+        def __init__(self, *a, **k): self.errors = []
+        def discover(self, e):
+            return [Document("de-1", "L1", "DE", "annual_report", date(2023, 12, 31),
+                             "2024-04-01", "x", "de", "oam-de",
+                             [{"name": "r.pdf", "url": "https://x/r.pdf", "kind": "pdf"}], {})]
+
+    class _NoDocs:
+        name = "filings.xbrl.org"
+        def __init__(self, *a, **k): self.errors = []
+        def discover(self, e): return []
+
+    monkeypatch.setattr(acq, "resolve_entities",
+                        lambda specs, *, fetcher: [Entity("L1", "X", "DE", resolution="lei")])
+    monkeypatch.setattr(acq, "COUNTRY_BACKENDS", {"DE": _OneDoc})
+    monkeypatch.setattr(acq, "FilingsXbrlOrg", _NoDocs)
+    monkeypatch.setattr(cli, "Fetcher", lambda cfg: _Forbidden())
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(tmp_path))
+    rc = cli.main(["--data-dir", str(tmp_path), "eu-acquire", "--leis", "L1", "--write"])
+    rep = _report(tmp_path)
+    assert rc == 3 and rep["outcome"] == "degraded"
+    assert rep["totals"]["docs_new"] == 0 and rep["totals"]["docs_failed"] >= 1
+    banz = {s["source_code"]: s for s in rep["sources"]}["banz"]
+    assert banz["docs_new"] == 0 and "403" in banz["error_samples"][0]

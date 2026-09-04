@@ -802,6 +802,7 @@ def _cmd_eu_acquire(args: argparse.Namespace) -> int:
     print(f"eu-acquire [{mode}] — {out['entities']} entities "
           f"({out.get('unresolved', 0)} unresolved), {verb} {out['documents']} documents, "
           f"{out['manifests']} manifests, {out['deduped_by_bytes']} byte-deduped, "
+          f"{out.get('documents_failed', 0)} documents failed, "
           f"{out['download_errors']} download errors, {len(out['errors'])} errors")
     unresolved_specs = out.get("unresolved_specs") or []
     if unresolved_specs:
@@ -810,7 +811,8 @@ def _cmd_eu_acquire(args: argparse.Namespace) -> int:
     for name in sorted(sources):
         st = sources[name]
         print(f"  {name}: entities={st['entities']} documents={st['documents']} "
-              f"errors={st['errors']} not-indexed={st.get('not_indexed', 0)}")
+              f"errors={st['errors']} not-indexed={st.get('not_indexed', 0)}"
+              f"{' TRUNCATED' if st.get('truncated') else ''}")
     if out.get("coverage_path"):
         print(f"  coverage: {out['coverage_path']}")
 
@@ -823,7 +825,8 @@ def _cmd_eu_acquire(args: argparse.Namespace) -> int:
         items_by_source.setdefault(key, []).append(item)
     for name, st in sources.items():
         _feed_report(report, name, seen=st["entities"], new=st["documents"],
-                     failed=st["errors"], errors=items_by_source.pop(name, []))
+                     failed=st["errors"], errors=items_by_source.pop(name, []),
+                     truncated=bool(st.get("truncated", False)))
     # An error tagged with a backend that reported no counts (cannot happen by
     # construction) is still fed under that backend's code — never dropped; an
     # untagged one is a producer bug and raises rather than vanish.
