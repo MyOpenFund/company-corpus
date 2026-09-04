@@ -265,7 +265,8 @@ stays *detectably* partial rather than silently truncated.
 | `EdgarFTS` | `efts.sec.gov/LATEST/search-index` (offering forms only) | `(cik, display_name)` | `build-universe --fts` |
 
 The throttled `http.Fetcher` (declared contact-carrying User-Agent, per-host ≤10
-req/s, retry with backoff on 429/5xx) is the single network chokepoint.
+req/s, retry with backoff on connection errors/timeouts and 429/5xx only — any
+other 4xx raises after one request) is the single network chokepoint.
 
 ---
 

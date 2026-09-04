@@ -108,7 +108,10 @@ python -m company_corpus register-financials --ch-bulk accounts_monthly_2024_01.
 
 The HTTP client sends a declared, contact-carrying `User-Agent` and throttles per
 host to stay at/under each regulator's published rate limit (e.g. the SEC's 10
-requests/second).
+requests/second). It retries only transient failures — connection errors,
+timeouts, HTTP 429 and 5xx — with backoff (honouring `Retry-After`); any other
+4xx is taken as the server's answer and costs exactly one request, so a missing
+document never turns into four requests and seconds of backoff against the host.
 
 **Belgium (FSMA STORI)** is the one exception, and it is opt-in
 (`pip install '.[be]'`) and off by default. The FSMA JSON API sits behind an F5

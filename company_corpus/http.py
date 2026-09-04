@@ -4,7 +4,12 @@ Parallels ``cb_corpus.http``. Provides a small :class:`Fetcher` that:
 
 * sends a declared, contact-carrying ``User-Agent`` (SEC requirement),
 * throttles per host to stay at/under the SEC's 10 req/s ceiling,
-* retries transient failures with exponential backoff,
+* retries *transient* failures only (connection errors, timeouts, HTTP 429 and
+  5xx) with exponential backoff — any other 4xx is a definitive answer and
+  raises after a single request, so a 404 never costs the host four requests,
+* decodes text bodies by the declared charset, sniffing only when none is
+  declared (``requests`` would otherwise default ``text/*`` to ISO-8859-1 and
+  turn UTF-8 pages into mojibake),
 * streams large bodies (complete submissions can be many MB).
 """
 
@@ -60,39 +65,69 @@ class Fetcher:
                 time.sleep(wait)
         self._last_request[host] = time.monotonic()
 
+    @staticmethod
+    def _is_transient(exc: Exception) -> bool:
+        """The retry predicate: is ``exc`` worth another request?
+
+        Only failures that a later attempt can plausibly cure: a connection
+        error or timeout (``requests.ConnectionError`` / ``requests.Timeout``),
+        HTTP 429 (throttled) and any 5xx. Every other 4xx (404, 403, 400, …) is
+        the server's definitive answer, and a malformed request (missing
+        schema, invalid URL, …) is a caller bug: retrying either only burns the
+        host's quota and the backoff time — contra the README's "Fair access".
+        """
+        if isinstance(exc, (requests.ConnectionError, requests.Timeout)):
+            return True
+        if isinstance(exc, requests.HTTPError):
+            status = getattr(exc.response, "status_code", None)
+            return status == 429 or (status is not None and 500 <= status <= 599)
+        return False
+
+    def _send(self, url: str, do_request) -> requests.Response:
+        """Run ``do_request()`` (one attempt on the session) under throttle +
+        retry; return the successful response.
+
+        A 429 / 5xx status is raised as :class:`requests.HTTPError` (with the
+        response attached, so ``Retry-After`` is honoured) and retried up to
+        ``config.max_retries`` times; any other non-2xx status raises through
+        ``raise_for_status`` after this single attempt. Transport exceptions go
+        through :meth:`_is_transient`: retried when transient, raised at once
+        otherwise. Whatever failed last is what the caller sees.
+        """
+        for attempt in range(self.config.max_retries + 1):
+            self._throttle(url)
+            try:
+                resp = do_request()
+                status = resp.status_code
+                if status == 429 or 500 <= status <= 599:
+                    raise requests.HTTPError(f"{status} for {url}", response=resp)
+                resp.raise_for_status()
+                return resp
+            except requests.RequestException as exc:
+                if attempt < self.config.max_retries and self._is_transient(exc):
+                    time.sleep(self._backoff_seconds(attempt, exc))
+                    continue
+                raise
+        raise AssertionError("unreachable: the loop returns or raises")  # pragma: no cover
+
     def get(self, url: str, *, stream: bool = False, timeout: float | None = None,
             headers: dict | None = None, params: dict | None = None) -> requests.Response:
         """GET ``url`` with throttling + retries; returns the response.
 
-        Raises the last exception (or ``requests.HTTPError``) if all attempts
-        fail. 429/503 responses are treated as retryable. ``headers`` are merged
-        into this request only (per-request, NOT onto the shared session).
-        ``params`` are URL-encoded onto the query string by ``requests``.
+        Retries only transient failures (connection errors, timeouts, HTTP 429
+        and 5xx — see :meth:`_is_transient`); any other 4xx raises
+        ``requests.HTTPError`` after exactly one request. Raises the last
+        exception if every attempt fails. ``headers`` are merged into this
+        request only (per-request, NOT onto the shared session). ``params`` are
+        URL-encoded onto the query string by ``requests``.
         """
-        last_exc: Exception | None = None
-        for attempt in range(self.config.max_retries + 1):
-            self._throttle(url)
-            try:
-                resp = self.session.get(
-                    url,
-                    stream=stream,
-                    timeout=timeout or self.config.timeout,
-                    headers=headers,
-                    params=params,
-                )
-                if resp.status_code in (429, 500, 502, 503, 504):
-                    raise requests.HTTPError(f"{resp.status_code} for {url}", response=resp)
-                resp.raise_for_status()
-                return resp
-            except (requests.RequestException, requests.HTTPError) as exc:
-                last_exc = exc
-                if attempt < self.config.max_retries:
-                    time.sleep(self._backoff_seconds(attempt, exc))
-                    continue
-                raise
-        # Unreachable, but keeps type-checkers happy.
-        assert last_exc is not None
-        raise last_exc
+        return self._send(url, lambda: self.session.get(
+            url,
+            stream=stream,
+            timeout=timeout or self.config.timeout,
+            headers=headers,
+            params=params,
+        ))
 
     _BACKOFF_CAP_SECONDS = 30.0
 
@@ -115,12 +150,30 @@ class Fetcher:
         base = min(2.0 ** attempt, self._BACKOFF_CAP_SECONDS)
         return base * (0.5 + random.random() * 0.5)
 
+    @staticmethod
+    def _decode(resp: requests.Response) -> str:
+        """Decode a text body: the declared charset when the ``Content-Type``
+        header carries one, otherwise the sniffed encoding (UTF-8 as a last
+        resort).
+
+        ``requests`` fills ``resp.encoding`` with ISO-8859-1 for any ``text/*``
+        body that declares no charset (the RFC 2616 default), so a UTF-8 page
+        from a regulator that omits the charset used to come back as
+        ``"cafÃ©"``; the old ``resp.encoding or "utf-8"`` never fired because
+        ``encoding`` was already set. A *declared* charset is never overridden:
+        the sniffer is a guess (it reads ``utf_16_be`` into a 4-byte latin-1
+        body), the header is a statement.
+        """
+        headers = getattr(resp, "headers", None)
+        ctype = headers.get("Content-Type", "") if hasattr(headers, "get") else ""
+        if "charset" not in (ctype or "").lower():
+            resp.encoding = getattr(resp, "apparent_encoding", None) or "utf-8"
+        return resp.text
+
     def get_text(self, url: str, *, timeout: float | None = None,
                  headers: dict | None = None, params: dict | None = None) -> str:
-        """Fetch and decode a text body."""
-        resp = self.get(url, timeout=timeout, headers=headers, params=params)
-        resp.encoding = resp.encoding or "utf-8"
-        return resp.text
+        """Fetch and decode a text body (see :meth:`_decode` for the charset rule)."""
+        return self._decode(self.get(url, timeout=timeout, headers=headers, params=params))
 
     def get_json(self, url: str, *, timeout: float | None = None, headers: dict | None = None,
                  params: dict | None = None):
@@ -134,62 +187,29 @@ class Fetcher:
         """POST ``url`` with a JSON body; returns the parsed JSON response.
 
         Applies the same throttle, retry, and raise-for-status policy as
-        :meth:`get`.  429 / 5xx responses are treated as retryable. ``headers``
-        are merged into this request only (not onto the shared session).
+        :meth:`get` (transient failures only). ``headers`` are merged into this
+        request only (not onto the shared session).
         """
-        last_exc: Exception | None = None
-        for attempt in range(self.config.max_retries + 1):
-            self._throttle(url)
-            try:
-                resp = self.session.post(
-                    url,
-                    json=json_body,
-                    timeout=timeout or self.config.timeout,
-                    headers=headers,
-                )
-                if resp.status_code in (429, 500, 502, 503, 504):
-                    raise requests.HTTPError(f"{resp.status_code} for {url}", response=resp)
-                resp.raise_for_status()
-                return resp.json()
-            except (requests.RequestException, requests.HTTPError) as exc:
-                last_exc = exc
-                if attempt < self.config.max_retries:
-                    time.sleep(self._backoff_seconds(attempt, exc))
-                    continue
-                raise
-        assert last_exc is not None
-        raise last_exc
+        return self._send(url, lambda: self.session.post(
+            url,
+            json=json_body,
+            timeout=timeout or self.config.timeout,
+            headers=headers,
+        )).json()
 
     def post_text(self, url: str, data, *, timeout: float | None = None) -> str:
         """POST ``url`` with a form-encoded body; returns the decoded text response.
 
         Applies the same throttle, retry, and raise-for-status policy as
-        :meth:`get`.  429 / 5xx responses are treated as retryable. Used by the
-        stateful Wicket scrape (Bundesanzeiger) that drives its search via a
-        form-encoded POST rather than JSON.
+        :meth:`get` (transient failures only) and the charset rule of
+        :meth:`_decode`. Used by the stateful Wicket scrape (Bundesanzeiger)
+        that drives its search via a form-encoded POST rather than JSON.
         """
-        last_exc: Exception | None = None
-        for attempt in range(self.config.max_retries + 1):
-            self._throttle(url)
-            try:
-                resp = self.session.post(
-                    url,
-                    data=data,
-                    timeout=timeout or self.config.timeout,
-                )
-                if resp.status_code in (429, 500, 502, 503, 504):
-                    raise requests.HTTPError(f"{resp.status_code} for {url}", response=resp)
-                resp.raise_for_status()
-                resp.encoding = resp.encoding or "utf-8"
-                return resp.text
-            except (requests.RequestException, requests.HTTPError) as exc:
-                last_exc = exc
-                if attempt < self.config.max_retries:
-                    time.sleep(self._backoff_seconds(attempt, exc))
-                    continue
-                raise
-        assert last_exc is not None
-        raise last_exc
+        return self._decode(self._send(url, lambda: self.session.post(
+            url,
+            data=data,
+            timeout=timeout or self.config.timeout,
+        )))
 
     def download(self, url: str, dest, *, chunk_size: int = 1 << 16) -> int:
         """Stream ``url`` to ``dest`` (a path-like). Returns bytes written."""

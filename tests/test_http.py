@@ -39,7 +39,11 @@ class FakeResponse:
 
 
 class FakeSession:
-    """Returns canned responses in order (repeating the last); records calls."""
+    """Returns canned responses in order (repeating the last); records calls.
+
+    An entry that is an exception instance is *raised* instead of returned
+    (models a connection error / timeout on that attempt).
+    """
 
     def __init__(self, responses):
         self.responses = list(responses)
@@ -52,7 +56,33 @@ class FakeSession:
                            "headers": headers, "params": params})
         resp = self.responses[min(self._i, len(self.responses) - 1)]
         self._i += 1
+        if isinstance(resp, Exception):
+            raise resp
         return resp
+
+    def post(self, url, json=None, data=None, timeout=None, headers=None):
+        self.calls.append({"url": url, "json": json, "data": data, "timeout": timeout,
+                           "headers": headers})
+        resp = self.responses[min(self._i, len(self.responses) - 1)]
+        self._i += 1
+        if isinstance(resp, Exception):
+            raise resp
+        return resp
+
+
+def _real_response(body: bytes, content_type: str, status: int = 200) -> requests.Response:
+    """A genuine requests.Response, encoded the way requests does off the wire:
+    the header charset when declared, else requests' RFC 2616 default
+    (ISO-8859-1 for text/*) — the source of the mojibake being tested."""
+    from requests.structures import CaseInsensitiveDict
+    from requests.utils import get_encoding_from_headers
+
+    resp = requests.Response()
+    resp.status_code = status
+    resp._content = body
+    resp.headers = CaseInsensitiveDict({"Content-Type": content_type})
+    resp.encoding = get_encoding_from_headers(resp.headers)
+    return resp
 
 
 @pytest.fixture
@@ -300,3 +330,139 @@ def test_get_json_forwards_per_request_headers(cfg):
     f.get_json("https://x/y", headers={"Accept-Language": "en"})
     assert sess.calls[0]["headers"] == {"Accept-Language": "en"}
     assert "Accept-Language" not in sess.headers, "must not leak onto the session"
+
+
+# --- Retry predicate: transient failures only (README "Fair access") ---------
+
+
+def test_404_is_not_retried_and_costs_one_request(cfg):
+    """A 404 is a definitive answer: retrying it burns the host's quota and
+    ~4 s of backoff for nothing. Exactly one request, then HTTPError."""
+    sess = FakeSession([FakeResponse(404)])
+    f = Fetcher(cfg, session=sess)
+    with pytest.raises(requests.HTTPError):
+        f.get("https://www.sec.gov/missing")
+    assert len(sess.calls) == 1
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 410])
+def test_other_4xx_raise_immediately(cfg, status):
+    sess = FakeSession([FakeResponse(status)])
+    f = Fetcher(cfg, session=sess)
+    with pytest.raises(requests.HTTPError):
+        f.get("https://www.sec.gov/x")
+    assert len(sess.calls) == 1
+
+
+def test_429_then_200_is_two_requests(cfg):
+    sess = FakeSession([FakeResponse(429), FakeResponse(text="ok")])
+    f = Fetcher(cfg, session=sess)
+    assert f.get("https://www.sec.gov/a").status_code == 200
+    assert len(sess.calls) == 2
+
+
+def test_503_is_retried_max_retries_times_then_raises(cfg):
+    cfg = Config(contact="test@example.com", max_retries=3)
+    sess = FakeSession([FakeResponse(503)])
+    f = Fetcher(cfg, session=sess)
+    with pytest.raises(requests.HTTPError):
+        f.get("https://www.sec.gov/a")
+    assert len(sess.calls) == 4  # initial + 3 retries
+
+
+def test_connection_error_then_200_succeeds(cfg):
+    sess = FakeSession([requests.ConnectionError("reset by peer"), FakeResponse(text="ok")])
+    f = Fetcher(cfg, session=sess)
+    assert f.get_text("https://www.sec.gov/a") == "ok"
+    assert len(sess.calls) == 2
+
+
+def test_timeout_then_200_succeeds(cfg):
+    sess = FakeSession([requests.ReadTimeout("slow"), FakeResponse(text="ok")])
+    f = Fetcher(cfg, session=sess)
+    assert f.get_text("https://www.sec.gov/a") == "ok"
+    assert len(sess.calls) == 2
+
+
+def test_connection_error_exhausts_retries_then_raises(cfg):
+    cfg = Config(contact="test@example.com", max_retries=2)
+    sess = FakeSession([requests.ConnectionError("down")])
+    f = Fetcher(cfg, session=sess)
+    with pytest.raises(requests.ConnectionError):
+        f.get("https://www.sec.gov/a")
+    assert len(sess.calls) == 3
+
+
+def test_non_transient_request_exception_is_not_retried(cfg):
+    """A malformed URL / missing schema is a caller bug, not a flaky network."""
+    sess = FakeSession([requests.exceptions.MissingSchema("bad url")])
+    f = Fetcher(cfg, session=sess)
+    with pytest.raises(requests.exceptions.MissingSchema):
+        f.get("www.sec.gov/a")
+    assert len(sess.calls) == 1
+
+
+def test_post_json_404_is_one_request(cfg):
+    sess = FakeSession([FakeResponse(404)])
+    f = Fetcher(cfg, session=sess)
+    with pytest.raises(requests.HTTPError):
+        f.post_json("https://consob.1info.it/x", {})
+    assert len(sess.calls) == 1
+
+
+def test_post_json_connection_error_then_200(cfg):
+    sess = FakeSession([requests.ConnectionError("reset"), FakeResponse(json_data={"ok": 1})])
+    f = Fetcher(cfg, session=sess)
+    assert f.post_json("https://consob.1info.it/x", {}) == {"ok": 1}
+    assert len(sess.calls) == 2
+
+
+def test_post_text_404_is_one_request(cfg):
+    sess = FakeSession([FakeResponse(404)])
+    f = Fetcher(cfg, session=sess)
+    with pytest.raises(requests.HTTPError):
+        f.post_text("https://www.cnmv.es/x", {})
+    assert len(sess.calls) == 1
+
+
+# --- Charset handling: no declared charset -> sniff, declared -> respected ---
+
+
+def test_get_text_decodes_charset_less_utf8_body(cfg):
+    """requests defaults text/* without a charset to ISO-8859-1, so a UTF-8
+    page came back as 'cafÃ©'. Sniff the body instead."""
+    sess = FakeSession([_real_response(b"caf\xc3\xa9", "text/html")])
+    f = Fetcher(cfg, session=sess)
+    assert f.get_text("https://www.amf-france.org/x") == "caf\u00e9"
+
+
+def test_get_text_respects_declared_charset(cfg):
+    """A declared charset wins over sniffing (the sniffer guesses utf_16_be for
+    this 4-byte latin-1 body, which would be wrong)."""
+    sess = FakeSession([_real_response(b"caf\xe9", "text/html; charset=iso-8859-1")])
+    f = Fetcher(cfg, session=sess)
+    assert f.get_text("https://www.cnmv.es/x") == "caf\u00e9"
+
+
+def test_get_text_declared_utf8_is_respected(cfg):
+    sess = FakeSession([_real_response(b"caf\xc3\xa9", "text/html; charset=UTF-8")])
+    f = Fetcher(cfg, session=sess)
+    assert f.get_text("https://x/y") == "caf\u00e9"
+
+
+def test_post_text_decodes_charset_less_utf8_body(cfg):
+    sess = FakeSession([_real_response(b"<p>caf\xc3\xa9 \xe2\x82\xac</p>", "text/html")])
+    f = Fetcher(cfg, session=sess)
+    assert f.post_text("https://www.cnmv.es/x", {}) == "<p>caf\u00e9 \u20ac</p>"
+
+
+def test_get_text_without_content_type_falls_back_to_utf8(cfg):
+    """No Content-Type at all and an undecidable body: never leave encoding
+    unset (requests would sniff anyway) — the fallback is UTF-8, not latin-1."""
+    resp = _real_response(b"", "text/html")
+    resp.headers = {}
+    resp.encoding = None
+    sess = FakeSession([resp])
+    f = Fetcher(cfg, session=sess)
+    assert f.get_text("https://x/y") == ""
+    assert resp.encoding.lower().replace("_", "-") in ("utf-8", "ascii")
