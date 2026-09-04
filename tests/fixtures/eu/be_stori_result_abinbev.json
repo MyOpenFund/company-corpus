@@ -1,0 +1,557 @@
+{
+ "resultCount": 446,
+ "storiResultItems": [
+  {
+   "requiredReportingTopicId": "8ce4dbb5-63e6-41e4-bea7-dcfd51d5e558",
+   "companyName": "AB INBEV",
+   "companyNumber": "0417497106",
+   "nationality": "BE",
+   "reportingTopicName": "Communiqué de notification de transparence",
+   "datePublication": "2026-06-25T18:00:00",
+   "dateReceived": "2026-06-25T18:05:51.743",
+   "lei": "5493008H3828EMEXB082",
+   "mainDocuments": [
+    {
+     "fileDataId": "21d89ee9-9b60-4777-9884-1c249a06e80e",
+     "language": "nl",
+     "title": "ABI - Transparency notification (25.06.26) - BlackRock press release (NL).pdf",
+     "originalFileName": "ABI - Transparency notification (25.06.26) - BlackRock press release (NL).pdf",
+     "size": 458,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "ed36e134-498c-407e-8eaf-8619258500af",
+     "language": "fr",
+     "title": "ABI - Transparency notitifcation (25.06.26) - BlackRock press release (FR).pdf",
+     "originalFileName": "ABI - Transparency notitifcation (25.06.26) - BlackRock press release (FR).pdf",
+     "size": 471,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "f47b9076-370f-4967-8649-3d79507ed4c5",
+     "language": "en",
+     "title": "ABI - Transparency notification (25.06.26) - BlackRock Press release (EN).pdf",
+     "originalFileName": "ABI - Transparency notification (25.06.26) - BlackRock Press release (EN).pdf",
+     "size": 454,
+     "fileType": "pdf"
+    }
+   ],
+   "attachments": [],
+   "isinCodes": [
+    {
+     "code": "BE0974293251",
+     "startDate": "2016-10-11T00:00:00",
+     "isinType": "Actions",
+     "market": "Euronext Brussels"
+    }
+   ],
+   "documentTitle": ""
+  },
+  {
+   "requiredReportingTopicId": "8527cf4c-e38c-42e8-8744-6f9d2b84267f",
+   "companyName": "AB INBEV",
+   "companyNumber": "0417497106",
+   "nationality": "BE",
+   "reportingTopicName": "Communiqué de rachat d'actions propres",
+   "datePublication": "2026-06-22T22:15:00",
+   "dateReceived": "2026-06-22T22:20:46.403",
+   "lei": "5493008H3828EMEXB082",
+   "mainDocuments": [
+    {
+     "fileDataId": "02ae8656-c67a-4227-9ad2-8610338972c7",
+     "language": "nl",
+     "title": "29. Share Buy Back - Press release_NL - 22Jun26.pdf",
+     "originalFileName": "29. Share Buy Back - Press release_NL - 22Jun26.pdf",
+     "size": 334,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "faf12843-21cb-4f6a-9b87-4c3a6528d904",
+     "language": "fr",
+     "title": "29. Share Buy Back - Press release_FR - 22Jun26.pdf",
+     "originalFileName": "29. Share Buy Back - Press release_FR - 22Jun26.pdf",
+     "size": 340,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "317b7a41-9aa0-4510-89e5-66de218209a1",
+     "language": "en",
+     "title": "29. Share Buy Back - Press release_EN - 22Jun26.pdf",
+     "originalFileName": "29. Share Buy Back - Press release_EN - 22Jun26.pdf",
+     "size": 328,
+     "fileType": "pdf"
+    }
+   ],
+   "attachments": [],
+   "isinCodes": [
+    {
+     "code": "BE0974293251",
+     "startDate": "2016-10-11T00:00:00",
+     "isinType": "Actions",
+     "market": "Euronext Brussels"
+    }
+   ],
+   "documentTitle": ""
+  },
+  {
+   "requiredReportingTopicId": "5dda0733-7373-401c-be57-373dc5e987cc",
+   "companyName": "AB INBEV",
+   "companyNumber": "0417497106",
+   "nationality": "BE",
+   "reportingTopicName": "Communiqué de notification de transparence",
+   "datePublication": "2026-06-17T18:00:00",
+   "dateReceived": "2026-06-17T18:02:35.21",
+   "lei": "5493008H3828EMEXB082",
+   "mainDocuments": [
+    {
+     "fileDataId": "8fa50c3e-94c2-444a-a351-f10de9668fd7",
+     "language": "nl",
+     "title": "ABI - Transparency notification (17.06.26) - BlackRock press release (NL).pdf",
+     "originalFileName": "ABI - Transparency notification (17.06.26) - BlackRock press release (NL).pdf",
+     "size": 406,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "1d81769a-1e20-472c-affc-80de160197f2",
+     "language": "fr",
+     "title": "ABI - Transparency notitifcation (17.06.26) - BlackRock press release (FR).pdf",
+     "originalFileName": "ABI - Transparency notitifcation (17.06.26) - BlackRock press release (FR).pdf",
+     "size": 417,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "d5508e4c-1634-45f5-8e9d-473ac68d75a1",
+     "language": "en",
+     "title": "ABI - Transparency notification (17.06.26) - BlackRock Press release (EN).pdf",
+     "originalFileName": "ABI - Transparency notification (17.06.26) - BlackRock Press release (EN).pdf",
+     "size": 403,
+     "fileType": "pdf"
+    }
+   ],
+   "attachments": [],
+   "isinCodes": [
+    {
+     "code": "BE0974293251",
+     "startDate": "2016-10-11T00:00:00",
+     "isinType": "Actions",
+     "market": "Euronext Brussels"
+    }
+   ],
+   "documentTitle": ""
+  },
+  {
+   "requiredReportingTopicId": "0a10dd6b-e377-4349-94de-64f7abdd4177",
+   "companyName": "AB INBEV",
+   "companyNumber": "0417497106",
+   "nationality": "BE",
+   "reportingTopicName": "Communiqué de rachat d'actions propres",
+   "datePublication": "2026-06-15T22:15:00",
+   "dateReceived": "2026-06-16T08:05:20.827",
+   "lei": "5493008H3828EMEXB082",
+   "mainDocuments": [
+    {
+     "fileDataId": "acf6b6e6-679e-4efc-8ccc-4240da54bebe",
+     "language": "nl",
+     "title": "28. Share Buy Back - Press release_NL - 15Jun26.pdf",
+     "originalFileName": "28. Share Buy Back - Press release_NL - 15Jun26.pdf",
+     "size": 334,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "e0d89ca2-b1a7-4a28-93ee-818d9222405e",
+     "language": "fr",
+     "title": "28. Share Buy Back - Press release_FR - 15Jun26.pdf",
+     "originalFileName": "28. Share Buy Back - Press release_FR - 15Jun26.pdf",
+     "size": 340,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "37f5a652-dcd5-4f01-9476-9e6db800f337",
+     "language": "en",
+     "title": "28. Share Buy Back - Press release_EN - 15Jun26.pdf",
+     "originalFileName": "28. Share Buy Back - Press release_EN - 15Jun26.pdf",
+     "size": 328,
+     "fileType": "pdf"
+    }
+   ],
+   "attachments": [],
+   "isinCodes": [
+    {
+     "code": "BE0974293251",
+     "startDate": "2016-10-11T00:00:00",
+     "isinType": "Actions",
+     "market": "Euronext Brussels"
+    }
+   ],
+   "documentTitle": ""
+  },
+  {
+   "requiredReportingTopicId": "3946d79c-c308-464c-b373-14c3ed8b925a",
+   "companyName": "AB INBEV",
+   "companyNumber": "0417497106",
+   "nationality": "BE",
+   "reportingTopicName": "Communiqué de notification de transparence",
+   "datePublication": "2026-06-10T18:00:00",
+   "dateReceived": "2026-06-10T18:38:30.96",
+   "lei": "5493008H3828EMEXB082",
+   "mainDocuments": [
+    {
+     "fileDataId": "2b980dc4-5f31-47e3-9069-85da0e989819",
+     "language": "nl",
+     "title": "ABI - Transparency notification (10.06.26) - BlackRock press release (NL).pdf",
+     "originalFileName": "ABI - Transparency notification (10.06.26) - BlackRock press release (NL).pdf",
+     "size": 455,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "8c41ff18-de15-4852-b978-4649f54a43f1",
+     "language": "fr",
+     "title": "ABI - Transparency notitifcation (10.06.26) - BlackRock press release (FR).pdf",
+     "originalFileName": "ABI - Transparency notitifcation (10.06.26) - BlackRock press release (FR).pdf",
+     "size": 469,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "b6c70011-276b-4297-a134-9f90cb20e6ba",
+     "language": "en",
+     "title": "ABI - Transparency notification (10.06.26) - BlackRock Press release (EN).pdf",
+     "originalFileName": "ABI - Transparency notification (10.06.26) - BlackRock Press release (EN).pdf",
+     "size": 451,
+     "fileType": "pdf"
+    }
+   ],
+   "attachments": [],
+   "isinCodes": [
+    {
+     "code": "BE0974293251",
+     "startDate": "2016-10-11T00:00:00",
+     "isinType": "Actions",
+     "market": "Euronext Brussels"
+    }
+   ],
+   "documentTitle": ""
+  },
+  {
+   "requiredReportingTopicId": "b618fb35-672b-4b54-8575-c6d0538b8c44",
+   "companyName": "AB INBEV",
+   "companyNumber": "0417497106",
+   "nationality": "BE",
+   "reportingTopicName": "Communiqué de rachat d'actions propres",
+   "datePublication": "2026-06-08T22:15:00",
+   "dateReceived": "2026-06-08T22:27:10.247",
+   "lei": "5493008H3828EMEXB082",
+   "mainDocuments": [
+    {
+     "fileDataId": "138687ab-1e3f-4760-9322-246af94f1c27",
+     "language": "nl",
+     "title": "27. Share Buy Back - Press release_NL - 08Jun26.pdf",
+     "originalFileName": "27. Share Buy Back - Press release_NL - 08Jun26.pdf",
+     "size": 336,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "9c117c3a-6811-477e-a333-a158f0397f38",
+     "language": "fr",
+     "title": "27. Share Buy Back - Press release_FR - 08Jun26.pdf",
+     "originalFileName": "27. Share Buy Back - Press release_FR - 08Jun26.pdf",
+     "size": 342,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "5f5a0488-905b-4bcd-9c34-5e032a1c3f0b",
+     "language": "en",
+     "title": "27. Share Buy Back - Press release_EN - 08Jun26.pdf",
+     "originalFileName": "27. Share Buy Back - Press release_EN - 08Jun26.pdf",
+     "size": 330,
+     "fileType": "pdf"
+    }
+   ],
+   "attachments": [],
+   "isinCodes": [
+    {
+     "code": "BE0974293251",
+     "startDate": "2016-10-11T00:00:00",
+     "isinType": "Actions",
+     "market": "Euronext Brussels"
+    }
+   ],
+   "documentTitle": ""
+  },
+  {
+   "requiredReportingTopicId": "9ea06e68-19ac-4975-8c3d-b7e0e62a961b",
+   "companyName": "AB INBEV",
+   "companyNumber": "0417497106",
+   "nationality": "BE",
+   "reportingTopicName": "Communiqué de notification de transparence",
+   "datePublication": "2026-06-03T18:00:00",
+   "dateReceived": "2026-06-03T18:06:24.407",
+   "lei": "5493008H3828EMEXB082",
+   "mainDocuments": [
+    {
+     "fileDataId": "9453caea-1956-453b-a998-f70aebef7dbd",
+     "language": "nl",
+     "title": "ABI - Transparency notification (03.06.26) - BlackRock press release (NL).pdf",
+     "originalFileName": "ABI - Transparency notification (03.06.26) - BlackRock press release (NL).pdf",
+     "size": 467,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "b7542520-9c8a-4cfe-ba26-9d358bb8fdca",
+     "language": "fr",
+     "title": "ABI - Transparency notitifcation (03.06.26) - BlackRock press release (FR).pdf",
+     "originalFileName": "ABI - Transparency notitifcation (03.06.26) - BlackRock press release (FR).pdf",
+     "size": 480,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "6bf523e3-90c3-43a1-b20e-9ff89ee5176e",
+     "language": "en",
+     "title": "ABI - Transparency notification (03.06.26) - BlackRock Press release (EN).pdf",
+     "originalFileName": "ABI - Transparency notification (03.06.26) - BlackRock Press release (EN).pdf",
+     "size": 460,
+     "fileType": "pdf"
+    }
+   ],
+   "attachments": [],
+   "isinCodes": [
+    {
+     "code": "BE0974293251",
+     "startDate": "2016-10-11T00:00:00",
+     "isinType": "Actions",
+     "market": "Euronext Brussels"
+    }
+   ],
+   "documentTitle": ""
+  },
+  {
+   "requiredReportingTopicId": "be1074e6-3192-4bfa-b418-3218652383cc",
+   "companyName": "AB INBEV",
+   "companyNumber": "0417497106",
+   "nationality": "BE",
+   "reportingTopicName": "Communiqué de rachat d'actions propres",
+   "datePublication": "2026-06-01T22:15:00",
+   "dateReceived": "2026-06-01T22:32:42.667",
+   "lei": "5493008H3828EMEXB082",
+   "mainDocuments": [
+    {
+     "fileDataId": "a860f3ed-d98d-4f1f-b945-d1a06a356c2b",
+     "language": "nl",
+     "title": "26. Share Buy Back - Press release_NL - 01Jun26.pdf",
+     "originalFileName": "26. Share Buy Back - Press release_NL - 01Jun26.pdf",
+     "size": 334,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "1db27187-5482-4ee7-bcc7-3e5bd4329ae7",
+     "language": "fr",
+     "title": "26. Share Buy Back - Press release_FR - 01Jun26.pdf",
+     "originalFileName": "26. Share Buy Back - Press release_FR - 01Jun26.pdf",
+     "size": 340,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "75d96001-89f8-412b-9235-791ed457b0fb",
+     "language": "en",
+     "title": "26. Share Buy Back - Press release_EN - 01Jun26.pdf",
+     "originalFileName": "26. Share Buy Back - Press release_EN - 01Jun26.pdf",
+     "size": 328,
+     "fileType": "pdf"
+    }
+   ],
+   "attachments": [],
+   "isinCodes": [
+    {
+     "code": "BE0974293251",
+     "startDate": "2016-10-11T00:00:00",
+     "isinType": "Actions",
+     "market": "Euronext Brussels"
+    }
+   ],
+   "documentTitle": ""
+  },
+  {
+   "requiredReportingTopicId": "3151ca59-2581-442f-8dde-fed321c96d56",
+   "companyName": "AB INBEV",
+   "companyNumber": "0417497106",
+   "nationality": "BE",
+   "reportingTopicName": "Communiqué de notification de transparence",
+   "datePublication": "2026-05-26T18:00:00",
+   "dateReceived": "2026-05-26T18:03:01.57",
+   "lei": "5493008H3828EMEXB082",
+   "mainDocuments": [
+    {
+     "fileDataId": "ab83547f-0bdd-49f7-a807-47a790ab20af",
+     "language": "nl",
+     "title": "ABI - Transparency notification (26.05.26) - BlackRock press release (NL).pdf",
+     "originalFileName": "ABI - Transparency notification (26.05.26) - BlackRock press release (NL).pdf",
+     "size": 458,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "137e6430-3bc1-43c5-9b3d-5c63ce2db722",
+     "language": "fr",
+     "title": "ABI - Transparency notitifcation (26.05.26) - BlackRock press release (FR).pdf",
+     "originalFileName": "ABI - Transparency notitifcation (26.05.26) - BlackRock press release (FR).pdf",
+     "size": 472,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "b441cf95-4427-4482-82b8-92475fc31c33",
+     "language": "en",
+     "title": "ABI - Transparency notification (26.05.26) - BlackRock Press release (EN).pdf",
+     "originalFileName": "ABI - Transparency notification (26.05.26) - BlackRock Press release (EN).pdf",
+     "size": 455,
+     "fileType": "pdf"
+    }
+   ],
+   "attachments": [],
+   "isinCodes": [
+    {
+     "code": "BE0974293251",
+     "startDate": "2016-10-11T00:00:00",
+     "isinType": "Actions",
+     "market": "Euronext Brussels"
+    }
+   ],
+   "documentTitle": ""
+  },
+  {
+   "requiredReportingTopicId": "305d767a-e3af-4b85-8cb8-3081f7047fd1",
+   "companyName": "AB INBEV",
+   "companyNumber": "0417497106",
+   "nationality": "BE",
+   "reportingTopicName": "Communiqué de rachat d'actions propres",
+   "datePublication": "2026-05-25T22:15:00",
+   "dateReceived": "2026-05-25T22:56:51.68",
+   "lei": "5493008H3828EMEXB082",
+   "mainDocuments": [
+    {
+     "fileDataId": "1869d2d0-7afe-4060-98dd-eebe2e9a17c4",
+     "language": "nl",
+     "title": "25. Share Buy Back - Press release_NL - 25May26.pdf",
+     "originalFileName": "25. Share Buy Back - Press release_NL - 25May26.pdf",
+     "size": 333,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "1b1261d9-6832-4997-af33-fdcd43b3c0bf",
+     "language": "fr",
+     "title": "25. Share Buy Back - Press release_FR - 25May26.pdf",
+     "originalFileName": "25. Share Buy Back - Press release_FR - 25May26.pdf",
+     "size": 339,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "77bf7ed1-4aa2-4a65-91eb-1b8d4de03265",
+     "language": "en",
+     "title": "25. Share Buy Back - Press release_EN - 25May26.pdf",
+     "originalFileName": "25. Share Buy Back - Press release_EN - 25May26.pdf",
+     "size": 328,
+     "fileType": "pdf"
+    }
+   ],
+   "attachments": [],
+   "isinCodes": [
+    {
+     "code": "BE0974293251",
+     "startDate": "2016-10-11T00:00:00",
+     "isinType": "Actions",
+     "market": "Euronext Brussels"
+    }
+   ],
+   "documentTitle": ""
+  },
+  {
+   "requiredReportingTopicId": "27a12153-e8bb-4a2f-b332-3035125f32dd",
+   "companyName": "AB INBEV",
+   "companyNumber": "0417497106",
+   "nationality": "BE",
+   "reportingTopicName": "Communiqué de rachat d'actions propres",
+   "datePublication": "2026-05-18T22:15:00",
+   "dateReceived": "2026-05-18T22:29:49.703",
+   "lei": "5493008H3828EMEXB082",
+   "mainDocuments": [
+    {
+     "fileDataId": "cf8840e9-1a3e-4be3-ba8d-3b0396efbaf5",
+     "language": "nl",
+     "title": "24. Share Buy Back - Press release_NL - 18May26.pdf",
+     "originalFileName": "24. Share Buy Back - Press release_NL - 18May26.pdf",
+     "size": 335,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "60cec810-313a-4249-a6f5-1819c61ce370",
+     "language": "fr",
+     "title": "24. Share Buy Back - Press release_FR - 18May26.pdf",
+     "originalFileName": "24. Share Buy Back - Press release_FR - 18May26.pdf",
+     "size": 341,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "929607a2-2844-4e88-b81c-156ae9215e62",
+     "language": "en",
+     "title": "24. Share Buy Back - Press release_EN - 18May26.pdf",
+     "originalFileName": "24. Share Buy Back - Press release_EN - 18May26.pdf",
+     "size": 330,
+     "fileType": "pdf"
+    }
+   ],
+   "attachments": [],
+   "isinCodes": [
+    {
+     "code": "BE0974293251",
+     "startDate": "2016-10-11T00:00:00",
+     "isinType": "Actions",
+     "market": "Euronext Brussels"
+    }
+   ],
+   "documentTitle": ""
+  },
+  {
+   "requiredReportingTopicId": "61ba11d6-a6a9-49b1-ae7f-66b162e64568",
+   "companyName": "AB INBEV",
+   "companyNumber": "0417497106",
+   "nationality": "BE",
+   "reportingTopicName": "Communiqué de notification de transparence",
+   "datePublication": "2026-05-18T18:00:00",
+   "dateReceived": "2026-05-18T18:05:54.963",
+   "lei": "5493008H3828EMEXB082",
+   "mainDocuments": [
+    {
+     "fileDataId": "422f2380-9479-472d-b433-1d4123cd8729",
+     "language": "nl",
+     "title": "ABI - Transparency notification (18.05.26) - BlackRock press release (NL).pdf",
+     "originalFileName": "ABI - Transparency notification (18.05.26) - BlackRock press release (NL).pdf",
+     "size": 407,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "a3341c38-0d6a-4046-9dee-66229ada43bb",
+     "language": "fr",
+     "title": "ABI - Transparency notitifcation (18.05.26) - BlackRock press release (FR).pdf",
+     "originalFileName": "ABI - Transparency notitifcation (18.05.26) - BlackRock press release (FR).pdf",
+     "size": 417,
+     "fileType": "pdf"
+    },
+    {
+     "fileDataId": "6c56693d-b87a-4abc-8366-366045d1699e",
+     "language": "en",
+     "title": "ABI - Transparency notification (18.05.26) - BlackRock Press release (EN) .pdf",
+     "originalFileName": "ABI - Transparency notification (18.05.26) - BlackRock Press release (EN) .pdf",
+     "size": 403,
+     "fileType": "pdf"
+    }
+   ],
+   "attachments": [],
+   "isinCodes": [
+    {
+     "code": "BE0974293251",
+     "startDate": "2016-10-11T00:00:00",
+     "isinType": "Actions",
+     "market": "Euronext Brussels"
+    }
+   ],
+   "documentTitle": ""
+  }
+ ]
+}

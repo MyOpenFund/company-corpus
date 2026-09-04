@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "goldenCopy": {"publishDate": "2026-06-26T00:00:00Z"},
+    "pagination": {"currentPage": 1, "perPage": 10, "from": 1, "to": 1, "total": 1, "lastPage": 1}
+  },
+  "links": {},
+  "data": [
+    {
+      "type": "lei-records",
+      "id": "FR0000000000000000C3",
+      "attributes": {
+        "lei": "FR0000000000000000C3",
+        "entity": {
+          "legalName": {"name": "UniqueBar SA", "language": "fr"},
+          "legalAddress": {"country": "FR", "city": "Paris", "postalCode": "75001", "addressLines": []},
+          "headquartersAddress": {"country": "FR", "city": "Paris", "postalCode": "75001", "addressLines": []},
+          "status": "ACTIVE"
+        },
+        "registration": {"status": "ISSUED"}
+      }
+    }
+  ]
+}

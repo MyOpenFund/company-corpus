@@ -1,0 +1,46 @@
+{
+  "data": [
+    {
+      "id": "8764",
+      "company": {"id": "193", "name": "ABB Ltd", "isin": "CH0012221716"},
+      "news_date": 1782345600000,
+      "ad_hoc": false,
+      "content": [
+        {
+          "language": "en",
+          "title": "ABB  Ltd: ABB share buybacks - June 18, 2026 - June 24, 2026",
+          "content": "<p>During the period ABB repurchased shares.</p><hr><br>File: <a href=\"https://app.schedulr.ch/trace/visit/6849e241-9e57-43db-bf17-11f7cb02eef8\">ABB share buybacks</a><br>Appendix: <a href=\"https://app.schedulr.ch/trace/visit/26f49508-c1a0-4e16-b370-b9f48ef6b16e\">transactions</a>"
+        }
+      ]
+    },
+    {
+      "id": "8500",
+      "company": {"id": "193", "name": "ABB Ltd", "isin": "CH0012221716"},
+      "news_date": 1771200000000,
+      "ad_hoc": true,
+      "content": [
+        {
+          "language": "en",
+          "title": "ABB  Ltd: ABB raises full-year guidance",
+          "content": "<p>ABB today raised its outlook.</p><br>File: <a href=\"https://app.schedulr.ch/trace/visit/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\">media release</a>"
+        }
+      ]
+    },
+    {
+      "id": "8000",
+      "company": {"id": "193", "name": "ABB Ltd", "isin": "CH0012221716"},
+      "news_date": 1740960000000,
+      "ad_hoc": false,
+      "content": [
+        {
+          "language": "en",
+          "title": "ABB publishes its Annual Reporting Suite 2025",
+          "content": "<p>ABB published its Annual Report 2025 on its website. No attachment here.</p>"
+        }
+      ]
+    }
+  ],
+  "total": 3,
+  "limit": 100,
+  "offset": 0
+}

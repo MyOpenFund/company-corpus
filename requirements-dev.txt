@@ -1,0 +1,12 @@
+# Test/development dependencies: runtime deps + the test runner and the
+# network guard (pytest.ini sets --disable-socket, so pytest-socket is
+# required to run the suite at all).
+#
+# Floor: the guard relies on pytest-socket re-disabling sockets in its
+# per-test `pytest_runtest_setup()` hook, which replaced the old autouse
+# fixture in 0.5.0 -- but 0.8.0 is the first release that supports (and is
+# tested against) the Python 3.13 this project runs on, so that is the real
+# minimum here.
+-r requirements.txt
+pytest
+pytest-socket>=0.8

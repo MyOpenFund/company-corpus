@@ -1,0 +1,6 @@
+requests>=2.31
+beautifulsoup4>=4.12
+lxml>=5.0
+pandas>=2.0
+python-dateutil>=2.9
+# curl_cffi>=0.7  # optional — only for the BE (FSMA STORI) backend: pip install ".[be]"

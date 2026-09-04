@@ -1,0 +1,60 @@
+# Data license — CC BY 4.0
+
+The metadata files committed under `data/` (`data/entities/aliases.jsonl`,
+`data/universe/sp_curated.jsonl`) and the manifests and tables this tool
+produces are licensed under the Creative Commons Attribution 4.0
+International license (CC BY 4.0).
+
+Full license text: https://creativecommons.org/licenses/by/4.0/legalcode
+Human-readable summary: https://creativecommons.org/licenses/by/4.0/
+
+Attribution: "MyOpenFund company-corpus
+(https://github.com/MyOpenFund/company-corpus)".
+
+## Scope note
+
+These files contain **metadata only**: entity identifiers and aliases,
+curated universe membership, and provenance records for filings acquired from
+national registers and regulators. The underlying filings and documents
+themselves are **not** part of this repository and are **not** covered by
+this license — they remain on their issuing authorities' servers under those
+authorities' own terms.
+
+The source code of this repository is separately licensed under the MIT
+license — see [LICENSE](LICENSE).
+
+## Recorded fixtures under `tests/fixtures/`
+
+The directories below hold recorded HTML/JSON/XBRL responses reproduced
+verbatim for regression tests. They are recordings of each authority's own
+publicly served output, not original data produced by this project; each
+authority's own reuse terms apply to them and the CC BY grant above does
+**not** cover them.
+
+- `tests/fixtures/be/` — National Bank of Belgium (NBB) Central Balance Sheet
+  Office (CBSO): BE-GAAP annual-account XBRL deposit filings.
+- `tests/fixtures/dk/` — Erhvervsstyrelsen (Danish Business Authority), via
+  the Virk/ERST distribution service (`distribution.virk.dk` /
+  `regnskaber.virk.dk`): DK-GAAP class-B annual-account XBRL filings.
+- `tests/fixtures/ee/` — Estonian e-Business Register (Äriregister / RIK,
+  `avaandmed.ariregister.rik.ee`): bulk open-data CSV exports of annual
+  report elements and metadata.
+- `tests/fixtures/eu/` — captures from the "European EDGAR" OAM portals and
+  supporting identity registries: Belgium FSMA STORI, Switzerland SIX/EQS
+  (DisclosureCH), Germany Bundesanzeiger, Denmark Finanstilsynet OAM
+  Publication API, Spain CNMV, Euronext cross-market notices, Finland oam.fi
+  (Nasdaq Helsinki), France AMF info-financiere.gouv.fr, UK FCA National
+  Storage Mechanism, Italy 1Info (OneInfo), Netherlands AFM, Norway Oslo
+  Børs NewsWeb, Sweden Finanscentralen OAM, GLEIF LEI-record API, and
+  filings.xbrl.org (XBRL International).
+- `tests/fixtures/fi/` — Finnish Patent and Registration Office (PRH):
+  dimensional XBRL annual-account filings.
+- `tests/fixtures/lu/` — Luxembourg Business Registers (LBR) eCDF: annual
+  financial-declaration XML filings.
+- `tests/fixtures/sk/` — Slovak RegisterUZ (`registeruz.sk`): positional
+  JSON annual-financial-statement API responses.
+- `tests/fixtures/uk/` — UK Companies House: bare-iXBRL annual-account
+  filings (FRS 102 and FRS 105).
+
+Personal fields (names, addresses and contact details) have been redacted
+from the recorded captures.

@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- personal fields (names, addresses, contact details) redacted from the recorded capture -->
+<xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance"
+            xmlns="http://www.w3.org/1999/xhtml"
+            xmlns:ixt="http://www.xbrl.org/inlineXBRL/transformation/2010-04-20"
+            xmlns:cmn="http://xbrl.dcca.dk/cmn"
+            xmlns:sob="http://xbrl.dcca.dk/sob"
+            xmlns:lnk="http://www.xbrl.org/2003/linkbase"
+            xmlns:iso4217="http://www.xbrl.org/2003/iso4217"
+            xmlns:ix="http://www.xbrl.org/2008/inlineXBRL"
+            xmlns:mrv="http://xbrl.dcca.dk/mrv"
+            xmlns:fsa="http://xbrl.dcca.dk/fsa"
+            xmlns:xbrldi="http://xbrl.org/2006/xbrldi"
+            xmlns:gsd="http://xbrl.dcca.dk/gsd"
+            xmlns:xlink="http://www.w3.org/1999/xlink">
+   <lnk:schemaRef xlink:href="http://archprod.service.eogs.dk/taxonomy/20241001/entryDanishGAAPBalanceSheetAccountFormIncomeStatementByNatureIncludingManagementsReviewStatisticsAndTax20241001.xsd"
+                  xlink:type="simple"/>
+   <xbrli:context id="ctx1">
+      <xbrli:entity>
+         <xbrli:identifier scheme="http://www.dcca.dk/cvr">42710644</xbrli:identifier>
+      </xbrli:entity>
+      <xbrli:period>
+         <xbrli:startDate>2025-01-01</xbrli:startDate>
+         <xbrli:endDate>2025-12-31</xbrli:endDate>
+      </xbrli:period>
+   </xbrli:context>
+   <xbrli:context id="ctx2">
+      <xbrli:entity>
+         <xbrli:identifier scheme="http://www.dcca.dk/cvr">42710644</xbrli:identifier>
+      </xbrli:entity>
+      <xbrli:period>
+         <xbrli:startDate>2025-01-01</xbrli:startDate>
+         <xbrli:endDate>2025-12-31</xbrli:endDate>
+      </xbrli:period>
+      <xbrli:scenario>
+         <xbrldi:typedMember dimension="cmn:IdentificationOfMemberOfExecutiveBoardDimension">
+            <cmn:memberOfBoardIdentifier>1</cmn:memberOfBoardIdentifier>
+         </xbrldi:typedMember>
+      </xbrli:scenario>
+   </xbrli:context>
+   <xbrli:context id="ctx3">
+      <xbrli:entity>
+         <xbrli:identifier scheme="http://www.dcca.dk/cvr">42710644</xbrli:identifier>
+      </xbrli:entity>
+      <xbrli:period>
+         <xbrli:instant>2025-12-31</xbrli:instant>
+      </xbrli:period>
+   </xbrli:context>
+   <xbrli:context id="ctx4">
+      <xbrli:entity>
+         <xbrli:identifier scheme="http://www.dcca.dk/cvr">42710644</xbrli:identifier>
+      </xbrli:entity>
+      <xbrli:period>
+         <xbrli:startDate>2024-01-01</xbrli:startDate>
+         <xbrli:endDate>2024-12-31</xbrli:endDate>
+      </xbrli:period>
+   </xbrli:context>
+   <xbrli:context id="ctx5">
+      <xbrli:entity>
+         <xbrli:identifier scheme="http://www.dcca.dk/cvr">42710644</xbrli:identifier>
+      </xbrli:entity>
+      <xbrli:period>
+         <xbrli:instant>2024-12-31</xbrli:instant>
+      </xbrli:period>
+   </xbrli:context>
+   <xbrli:unit id="dkk">
+      <xbrli:measure>iso4217:DKK</xbrli:measure>
+   </xbrli:unit>
+   <xbrli:unit id="pure">
+      <xbrli:measure>xbrli:pure</xbrli:measure>
+   </xbrli:unit>
+   <gsd:NameOfReportingEntity contextRef="ctx1">Taxikørsel 011 ApS</gsd:NameOfReportingEntity>
+   <gsd:AddressOfReportingEntityStreetName contextRef="ctx1">REDACTED</gsd:AddressOfReportingEntityStreetName>
+   <gsd:AddressOfReportingEntityStreetBuildingIdentifier contextRef="ctx1">REDACTED</gsd:AddressOfReportingEntityStreetBuildingIdentifier>
+   <gsd:AddressOfReportingEntityPostCodeIdentifier contextRef="ctx1">REDACTED</gsd:AddressOfReportingEntityPostCodeIdentifier>
+   <gsd:AddressOfReportingEntityDistrictName contextRef="ctx1">REDACTED</gsd:AddressOfReportingEntityDistrictName>
+   <gsd:IdentificationNumberCvrOfReportingEntity contextRef="ctx1">42710644</gsd:IdentificationNumberCvrOfReportingEntity>
+   <gsd:DateOfFoundationOfReportingEntity contextRef="ctx1">2021-09-28</gsd:DateOfFoundationOfReportingEntity>
+   <gsd:NameAndSurnameOfChairmanOfGeneralMeeting contextRef="ctx1">REDACTED</gsd:NameAndSurnameOfChairmanOfGeneralMeeting>
+   <gsd:DateOfGeneralMeeting contextRef="ctx1">2026-07-01</gsd:DateOfGeneralMeeting>
+   <sob:StatementByExecutiveAndSupervisoryBoards contextRef="ctx1">Direktionen har pr. dags dato behandlet og godkendt årsrapporten for regnskabsåret 01/01/2025 - 31/12/2025 for Taxikørsel 011 ApS.Årsrapporten aflægges i overensstemmelse med årsregnskabsloven.Det er vores opfattelse, at årsrapporten giver et retvisende billede af selskabets aktiver, passiver og finansielle stilling pr. 31/12/2025 og resultatet af selskabets aktiviteter for regnskabsåret 01/01/2025 - 31/12/2025.Ledelsesberetningen indeholder efter vores opfattelse en retvisende redegørelse for de forhold, beretningen omhandler.</sob:StatementByExecutiveAndSupervisoryBoards>
+   <gsd:ReportingPeriodStartDate contextRef="ctx1">2025-01-01</gsd:ReportingPeriodStartDate>
+   <gsd:ReportingPeriodEndDate contextRef="ctx1">2025-12-31</gsd:ReportingPeriodEndDate>
+   <sob:ConfirmationThatFinancialStatementsAreExemptedFromAuditing contextRef="ctx1">Årsrapporten er ikke revideret. Ledelsen erklærer, at betingelserne herfor er opfyldt.</sob:ConfirmationThatFinancialStatementsAreExemptedFromAuditing>
+   <sob:RecommendationForApprovalOfAnnualReportByGeneralMeeting contextRef="ctx1">Årsrapporten indstilles til generalforsamlingens godkendelse.</sob:RecommendationForApprovalOfAnnualReportByGeneralMeeting>
+   <sob:PlaceOfSignatureOfStatement contextRef="ctx1">Viborg</sob:PlaceOfSignatureOfStatement>
+   <sob:DateOfApprovalOfAnnualReport contextRef="ctx1">2026-07-01</sob:DateOfApprovalOfAnnualReport>
+   <cmn:NameAndSurnameOfMemberOfExecutiveBoard contextRef="ctx2">REDACTED</cmn:NameAndSurnameOfMemberOfExecutiveBoard>
+   <cmn:TitleOfMemberOfExecutiveBoard contextRef="ctx2">Adm. Direktør</cmn:TitleOfMemberOfExecutiveBoard>
+   <mrv:ManagementsReview contextRef="ctx1">Virksomhedens væsentligste aktiviteterSelskabets formål er at drive virksomhed med erhvervsmæssig personbefordring og hermed forbundet virksomhed.Udviklingen i virksomhedens aktiviteter og økonomiske forholdVirksomhedens resultatopgørelse udviser et overskud på kr. 63.109, og virksomhedens balance pr. 31/12/2025 udviser en egenkapital på kr. 83.118.Betydningsfulde hændelser, som er indtruffet efter regnskabsårets afslutningDer er efter regnskabsårets afslutning ikke indtruffet begivenheder, som væsentligt vil kunne påvirke virksomhedens finansielle stilling.</mrv:ManagementsReview>
+   <mrv:DescriptionOfPrimaryActivitiesOfEntity contextRef="ctx1">Selskabets formål er at drive virksomhed med erhvervsmæssig personbefordring og hermed forbundet virksomhed.</mrv:DescriptionOfPrimaryActivitiesOfEntity>
+   <fsa:ProfitLoss contextRef="ctx1" decimals="0" unitRef="dkk">63109</fsa:ProfitLoss>
+   <fsa:Equity contextRef="ctx3" decimals="0" unitRef="dkk">83118</fsa:Equity>
+   <mrv:DescriptionOfSignificantEventsOccurringAfterEndOfReportingPeriod contextRef="ctx1">Betydningsfulde hændelser, som er indtruffet efter regnskabsårets afslutning</mrv:DescriptionOfSignificantEventsOccurringAfterEndOfReportingPeriod>
+   <fsa:InformationOnReportingClassOfEntity contextRef="ctx1">Årsrapporten er aflagt i overensstemmelse med årsregnskabslovens bestemmelser for regnskabsklasse B.Den anvendte regnskabspraksis er uændret i forhold til sidste år.Årsrapporten for 2025 er aflagt i kr.</fsa:InformationOnReportingClassOfEntity>
+   <fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfRevenue contextRef="ctx1">Nettoomsætning indregnes i resultatopgørelsen, såfremt levering og risikoovergang til køber har fundet sted inden årets udgang. Nettoomsætning indregnes ekskl. moms med fradrag af rabatter i forbindelse med salget.</fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfRevenue>
+   <fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfGrossProfitLoss contextRef="ctx1">Selskabet anvender bestemmelsen i årsregnskabslovens § 32, hvorefter selskabets omsætning ikke er oplyst.Bruttoresultat er et sammendrag af nettoomsætning med fradrag af andre eksterne omkostninger.</fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfGrossProfitLoss>
+   <fsa:GrossResult contextRef="ctx1" decimals="0" unitRef="dkk">1335417</fsa:GrossResult>
+   <fsa:GrossResult contextRef="ctx4" decimals="0" unitRef="dkk">0</fsa:GrossResult>
+   <fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfEmployeeBenefitExpense contextRef="ctx1">Personaleomkostninger omfatter løn og gager, inklusive feriepenge og pensioner samt andre omkostninger til social sikring mv. til selskabets medarbejdere.</fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfEmployeeBenefitExpense>
+   <fsa:EmployeeBenefitsExpense contextRef="ctx1" decimals="0" unitRef="dkk">1285890</fsa:EmployeeBenefitsExpense>
+   <fsa:EmployeeBenefitsExpense contextRef="ctx4" decimals="0" unitRef="dkk">0</fsa:EmployeeBenefitsExpense>
+   <fsa:WagesAndSalaries contextRef="ctx1" decimals="0" unitRef="dkk">1133501</fsa:WagesAndSalaries>
+   <fsa:WagesAndSalaries contextRef="ctx4" decimals="0" unitRef="dkk">0</fsa:WagesAndSalaries>
+   <fsa:PostemploymentBenefitExpense contextRef="ctx1" decimals="0" unitRef="dkk">143903</fsa:PostemploymentBenefitExpense>
+   <fsa:PostemploymentBenefitExpense contextRef="ctx4" decimals="0" unitRef="dkk">0</fsa:PostemploymentBenefitExpense>
+   <fsa:SocialSecurityContributions contextRef="ctx1" decimals="0" unitRef="dkk">8486</fsa:SocialSecurityContributions>
+   <fsa:SocialSecurityContributions contextRef="ctx4" decimals="0" unitRef="dkk">0</fsa:SocialSecurityContributions>
+   <fsa:AverageNumberOfEmployees contextRef="ctx1" decimals="0" unitRef="pure">3</fsa:AverageNumberOfEmployees>
+   <fsa:AverageNumberOfEmployees contextRef="ctx4" decimals="0" unitRef="pure">2</fsa:AverageNumberOfEmployees>
+   <fsa:ProfitLossFromOrdinaryActivitiesBeforeTax contextRef="ctx1" decimals="0" unitRef="dkk">49527</fsa:ProfitLossFromOrdinaryActivitiesBeforeTax>
+   <fsa:ProfitLossFromOrdinaryActivitiesBeforeTax contextRef="ctx4" decimals="0" unitRef="dkk">0</fsa:ProfitLossFromOrdinaryActivitiesBeforeTax>
+   <fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfTaxExpenses contextRef="ctx1">Årets skat, som består af årets aktuelle selskabsskat og ændring i udskudt skat, indregnes i resultatopgørelsen med den del, der kan henføres til årets resultat, og direkte i egenkapitalen med den del, der kan henføres til posteringer direkte i egenkapitalen.</fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfTaxExpenses>
+   <fsa:TaxExpense contextRef="ctx1" decimals="0" unitRef="dkk">-13582</fsa:TaxExpense>
+   <fsa:TaxExpense contextRef="ctx4" decimals="0" unitRef="dkk">0</fsa:TaxExpense>
+   <fsa:ProfitLoss contextRef="ctx4" decimals="0" unitRef="dkk">0</fsa:ProfitLoss>
+   <fsa:ProposedDividendRecognisedInEquity contextRef="ctx3" decimals="0" unitRef="dkk">40000</fsa:ProposedDividendRecognisedInEquity>
+   <fsa:ProposedDividendRecognisedInEquity contextRef="ctx5" decimals="0" unitRef="dkk">60000</fsa:ProposedDividendRecognisedInEquity>
+   <fsa:TransferredToFromRetainedEarnings contextRef="ctx1" decimals="0" unitRef="dkk">23109</fsa:TransferredToFromRetainedEarnings>
+   <fsa:TransferredToFromRetainedEarnings contextRef="ctx4" decimals="0" unitRef="dkk">-60000</fsa:TransferredToFromRetainedEarnings>
+   <fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfPropertyPlantAndEquipment contextRef="ctx1">Materielle anlægsaktiver måles til kostpris med fradrag af akkumulerede af- og nedskrivninger. Afskrivningsgrundlaget er kostpris med fradrag af forventet restværdi efter afsluttet brugstid.Kostpris omfatter anskaffelsesprisen og omkostninger direkte tilknyttet anskaffelsen indtil det tidspunkt, hvor aktivet er klar til brug.Der foretages lineære afskrivninger baseret på følgende vurdering af aktivernes forventede brugstider og restværdier:BrugstidRestværdiAndre anlæg, driftsmateriel og inventar5 år10 %Aktiver med en kostpris på under kr. 34.400 omkostningsføres i anskaffelsesåret.</fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfPropertyPlantAndEquipment>
+   <fsa:DescriptionOfMethodsOfAmortisationOfNoncurrentAssets contextRef="ctx1">Den regnskabsmæssige værdi af immaterielle og materielle anlægsaktiver vurderes årligt for indikationer på værdiforringelse, ud over det som udtrykkes ved afskrivning.Foreligger der indikationer på værdiforringelse, foretages nedskrivningstest af hvert enkelt aktiv eller gruppe af aktiver. Der foretages nedskrivning til genindvindingsværdien, hvis denne er lavere end den regnskabsmæssige værdi.</fsa:DescriptionOfMethodsOfAmortisationOfNoncurrentAssets>
+   <fsa:FixturesFittingsToolsAndEquipment contextRef="ctx3" decimals="0" unitRef="dkk">81250</fsa:FixturesFittingsToolsAndEquipment>
+   <fsa:FixturesFittingsToolsAndEquipment contextRef="ctx5" decimals="0" unitRef="dkk">81250</fsa:FixturesFittingsToolsAndEquipment>
+   <fsa:PropertyPlantAndEquipment contextRef="ctx3" decimals="0" unitRef="dkk">81250</fsa:PropertyPlantAndEquipment>
+   <fsa:PropertyPlantAndEquipment contextRef="ctx5" decimals="0" unitRef="dkk">81250</fsa:PropertyPlantAndEquipment>
+   <fsa:DepositsLongtermInvestmentsAndReceivables contextRef="ctx3" decimals="0" unitRef="dkk">30000</fsa:DepositsLongtermInvestmentsAndReceivables>
+   <fsa:DepositsLongtermInvestmentsAndReceivables contextRef="ctx5" decimals="0" unitRef="dkk">30000</fsa:DepositsLongtermInvestmentsAndReceivables>
+   <fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfInvestments contextRef="ctx1">Deposita indregnes til kostpris.</fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfInvestments>
+   <fsa:LongtermInvestmentsAndReceivables contextRef="ctx3" decimals="0" unitRef="dkk">30000</fsa:LongtermInvestmentsAndReceivables>
+   <fsa:LongtermInvestmentsAndReceivables contextRef="ctx5" decimals="0" unitRef="dkk">30000</fsa:LongtermInvestmentsAndReceivables>
+   <fsa:NoncurrentAssets contextRef="ctx3" decimals="0" unitRef="dkk">111250</fsa:NoncurrentAssets>
+   <fsa:NoncurrentAssets contextRef="ctx5" decimals="0" unitRef="dkk">111250</fsa:NoncurrentAssets>
+   <fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfTaxPayablesAndDeferredTax contextRef="ctx1">Aktuelle skatteforpligtelser og tilgodehavende aktuel skat indregnes i balancen som beregnet skat af årets skattepligtige indkomst, reguleret for skat af tidligere års skattepligtige indkomster samt for betalte acontoskatter. Udskudt skat måles efter den balanceorienterede gældsmetode af midlertidige forskelle mellem regnskabsmæssig og skattemæssig værdi af aktiver og forpligtelser opgjort på grundlag af den planlagte anvendelse af aktivet henholdsvis afvikling af forpligtelsen.</fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfTaxPayablesAndDeferredTax>
+   <fsa:ShorttermTaxReceivables contextRef="ctx3" decimals="0" unitRef="dkk">3434</fsa:ShorttermTaxReceivables>
+   <fsa:ShorttermTaxReceivables contextRef="ctx5" decimals="0" unitRef="dkk">15572</fsa:ShorttermTaxReceivables>
+   <fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfReceivables contextRef="ctx1">Tilgodehavender måles til amortiseret kostpris, der sædvanligvis svarer til nominel værdi. </fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfReceivables>
+   <fsa:ShorttermReceivables contextRef="ctx3" decimals="0" unitRef="dkk">3434</fsa:ShorttermReceivables>
+   <fsa:ShorttermReceivables contextRef="ctx5" decimals="0" unitRef="dkk">15572</fsa:ShorttermReceivables>
+   <fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfCashAndCashEquivalents contextRef="ctx1">Likvide beholdninger omfatter kontante beholdninger og bankindeståender.</fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfCashAndCashEquivalents>
+   <fsa:CashAndCashEquivalents contextRef="ctx3" decimals="0" unitRef="dkk">164341</fsa:CashAndCashEquivalents>
+   <fsa:CashAndCashEquivalents contextRef="ctx5" decimals="0" unitRef="dkk">180774</fsa:CashAndCashEquivalents>
+   <fsa:CurrentAssets contextRef="ctx3" decimals="0" unitRef="dkk">167775</fsa:CurrentAssets>
+   <fsa:CurrentAssets contextRef="ctx5" decimals="0" unitRef="dkk">196346</fsa:CurrentAssets>
+   <fsa:Assets contextRef="ctx3" decimals="0" unitRef="dkk">279025</fsa:Assets>
+   <fsa:Assets contextRef="ctx5" decimals="0" unitRef="dkk">307596</fsa:Assets>
+   <fsa:ContributedCapital contextRef="ctx3" decimals="0" unitRef="dkk">40000</fsa:ContributedCapital>
+   <fsa:ContributedCapital contextRef="ctx5" decimals="0" unitRef="dkk">40000</fsa:ContributedCapital>
+   <fsa:RetainedEarnings contextRef="ctx3" decimals="0" unitRef="dkk">3118</fsa:RetainedEarnings>
+   <fsa:RetainedEarnings contextRef="ctx5" decimals="0" unitRef="dkk">-19991</fsa:RetainedEarnings>
+   <fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfEquity contextRef="ctx1">Egenkapital Foreslået udbytte vises som en særskilt post under egenkapitalen. Udbytte indregnes som en forpligtelse på tidspunktet for vedtagelse på generalforsamlingen.</fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfEquity>
+   <fsa:Equity contextRef="ctx5" decimals="0" unitRef="dkk">80009</fsa:Equity>
+   <fsa:ProvisionsForDeferredTax contextRef="ctx3" decimals="0" unitRef="dkk">4469</fsa:ProvisionsForDeferredTax>
+   <fsa:ProvisionsForDeferredTax contextRef="ctx5" decimals="0" unitRef="dkk">24475</fsa:ProvisionsForDeferredTax>
+   <fsa:Provisions contextRef="ctx3" decimals="0" unitRef="dkk">4469</fsa:Provisions>
+   <fsa:Provisions contextRef="ctx5" decimals="0" unitRef="dkk">24475</fsa:Provisions>
+   <fsa:ShorttermPayablesToShareholdersAndManagement contextRef="ctx3" decimals="0" unitRef="dkk">19705</fsa:ShorttermPayablesToShareholdersAndManagement>
+   <fsa:ShorttermPayablesToShareholdersAndManagement contextRef="ctx5" decimals="0" unitRef="dkk">61122</fsa:ShorttermPayablesToShareholdersAndManagement>
+   <fsa:OtherPayablesIncludingTaxPayablesLiabilitiesOtherThanProvisionsShortterm contextRef="ctx3" decimals="0" unitRef="dkk">171733</fsa:OtherPayablesIncludingTaxPayablesLiabilitiesOtherThanProvisionsShortterm>
+   <fsa:OtherPayablesIncludingTaxPayablesLiabilitiesOtherThanProvisionsShortterm contextRef="ctx5" decimals="0" unitRef="dkk">141990</fsa:OtherPayablesIncludingTaxPayablesLiabilitiesOtherThanProvisionsShortterm>
+   <fsa:ShorttermLiabilitiesOtherThanProvisions contextRef="ctx3" decimals="0" unitRef="dkk">191438</fsa:ShorttermLiabilitiesOtherThanProvisions>
+   <fsa:ShorttermLiabilitiesOtherThanProvisions contextRef="ctx5" decimals="0" unitRef="dkk">203112</fsa:ShorttermLiabilitiesOtherThanProvisions>
+   <fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfLiabilitiesOtherThanProvisions contextRef="ctx1">Gældsforpligtelser, som omfatter gæld til leverandører samt anden gæld, måles til amortiseret kostpris, hvilket sædvanligvis svarer til nominel værdi.</fsa:DescriptionOfMethodsOfRecognitionAndMeasurementBasisOfLiabilitiesOtherThanProvisions>
+   <fsa:LiabilitiesOtherThanProvisions contextRef="ctx3" decimals="0" unitRef="dkk">191438</fsa:LiabilitiesOtherThanProvisions>
+   <fsa:LiabilitiesOtherThanProvisions contextRef="ctx5" decimals="0" unitRef="dkk">203112</fsa:LiabilitiesOtherThanProvisions>
+   <fsa:LiabilitiesAndEquity contextRef="ctx3" decimals="0" unitRef="dkk">279025</fsa:LiabilitiesAndEquity>
+   <fsa:LiabilitiesAndEquity contextRef="ctx5" decimals="0" unitRef="dkk">307596</fsa:LiabilitiesAndEquity>
+   <gsd:NameOfSubmittingEnterprise contextRef="ctx1">Reportability A/S</gsd:NameOfSubmittingEnterprise>
+   <gsd:AddressOfSubmittingEnterpriseStreetAndNumber contextRef="ctx1">REDACTED</gsd:AddressOfSubmittingEnterpriseStreetAndNumber>
+   <gsd:AddressOfSubmittingEnterprisePostcodeAndTown contextRef="ctx1">REDACTED</gsd:AddressOfSubmittingEnterprisePostcodeAndTown>
+   <gsd:PrecedingReportingPeriodStartDate contextRef="ctx1">2024-01-01</gsd:PrecedingReportingPeriodStartDate>
+   <gsd:PredingReportingPeriodEndDate contextRef="ctx1">2024-12-31</gsd:PredingReportingPeriodEndDate>
+   <gsd:InformationOnTypeOfSubmittedReport contextRef="ctx1">Årsrapport</gsd:InformationOnTypeOfSubmittedReport>
+   <fsa:ClassOfReportingEntity contextRef="ctx1">Regnskabsklasse B</fsa:ClassOfReportingEntity>
+   <cmn:TypeOfAuditorAssistance contextRef="ctx1">Ingen bistand</cmn:TypeOfAuditorAssistance>
+</xbrli:xbrl>

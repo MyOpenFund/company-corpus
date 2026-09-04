@@ -1,0 +1,27 @@
+{
+  "_provenance": {
+    "note": "REAL, MINIMAL ESEF/OIM fixture — a hand-trimmed subset of a genuine filings.xbrl.org report. Only the un-dimensioned FY2022 primary-statement facts asserted by tests/test_eu_financials.py::test_real_esef_fsecure_end_to_end are kept; the ~250 other facts (dimensional breakdowns, per-share, prior-year comparatives) are dropped to stay minimal. Values are verbatim from the source (EUR, canonical).",
+    "issuer": "F-Secure Oyj",
+    "lei": "9845006BFDJF0375E466",
+    "fxo_id": "9845006BFDJF0375E466-2022-12-31-ESEF-FI-1",
+    "period_end": "2022-12-31",
+    "source_url": "https://filings.xbrl.org/9845006BFDJF0375E466/2022-12-31/ESEF/FI/1/9845006BFDJF0375E466-2022-12-31-fi.json",
+    "source_sha256": "80d19dda3858d2c4872890884890789cdff7a2cde4ef1210b688984b8724cc66",
+    "date_added": "2023-02-21 10:33:44.055676"
+  },
+  "documentInfo": {"documentType": "https://xbrl.org/2021/xbrl-json"},
+  "facts": {
+    "f-rev": {"value": "111017000", "dimensions": {"concept": "ifrs-full:Revenue", "entity": "lei:9845006BFDJF0375E466", "period": "2022-01-01T00:00:00/2023-01-01T00:00:00", "unit": "iso4217:EUR"}},
+    "f-opinc": {"value": "38770000", "dimensions": {"concept": "ifrs-full:ProfitLossFromOperatingActivities", "entity": "lei:9845006BFDJF0375E466", "period": "2022-01-01T00:00:00/2023-01-01T00:00:00", "unit": "iso4217:EUR"}},
+    "f-pretax": {"value": "38556000", "dimensions": {"concept": "ifrs-full:ProfitLossBeforeTax", "entity": "lei:9845006BFDJF0375E466", "period": "2022-01-01T00:00:00/2023-01-01T00:00:00", "unit": "iso4217:EUR"}},
+    "f-tax": {"value": "8403000", "dimensions": {"concept": "ifrs-full:IncomeTaxExpenseContinuingOperations", "entity": "lei:9845006BFDJF0375E466", "period": "2022-01-01T00:00:00/2023-01-01T00:00:00", "unit": "iso4217:EUR"}},
+    "f-niparent": {"value": "30153000", "dimensions": {"concept": "ifrs-full:ProfitLossAttributableToOwnersOfParent", "entity": "lei:9845006BFDJF0375E466", "period": "2022-01-01T00:00:00/2023-01-01T00:00:00", "unit": "iso4217:EUR"}},
+    "f-ni": {"value": "30153000", "dimensions": {"concept": "ifrs-full:ProfitLoss", "entity": "lei:9845006BFDJF0375E466", "period": "2022-01-01T00:00:00/2023-01-01T00:00:00", "unit": "iso4217:EUR"}},
+    "f-assets": {"value": "62667000", "dimensions": {"concept": "ifrs-full:Assets", "entity": "lei:9845006BFDJF0375E466", "period": "2023-01-01T00:00:00", "unit": "iso4217:EUR"}},
+    "f-eqparent": {"value": "24804000", "dimensions": {"concept": "ifrs-full:EquityAttributableToOwnersOfParent", "entity": "lei:9845006BFDJF0375E466", "period": "2023-01-01T00:00:00", "unit": "iso4217:EUR"}},
+    "f-eq": {"value": "24804000", "dimensions": {"concept": "ifrs-full:Equity", "entity": "lei:9845006BFDJF0375E466", "period": "2023-01-01T00:00:00", "unit": "iso4217:EUR"}},
+    "f-ca": {"value": "47828000", "dimensions": {"concept": "ifrs-full:CurrentAssets", "entity": "lei:9845006BFDJF0375E466", "period": "2023-01-01T00:00:00", "unit": "iso4217:EUR"}},
+    "f-cl": {"value": "27251000", "dimensions": {"concept": "ifrs-full:CurrentLiabilities", "entity": "lei:9845006BFDJF0375E466", "period": "2023-01-01T00:00:00", "unit": "iso4217:EUR"}},
+    "f-cash": {"value": "22953000", "dimensions": {"concept": "ifrs-full:CashAndCashEquivalents", "entity": "lei:9845006BFDJF0375E466", "period": "2023-01-01T00:00:00", "unit": "iso4217:EUR"}}
+  }
+}

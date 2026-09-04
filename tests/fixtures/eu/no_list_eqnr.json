@@ -1,0 +1,253 @@
+{
+  "header": {
+    "OB_REQUEST_ID": "24734945-0809-4ab9-ab48-8b6b8bd38402",
+    "result.val": 0,
+    "http.code": 200,
+    "result.text": "OK"
+  },
+  "data": {
+    "messages": [
+      {
+        "id": 635746,
+        "messageId": 635746,
+        "newsId": 587894,
+        "title": "Equinor ASA: Tilbakekjøp av egne aksjer",
+        "category": [
+          {
+            "id": 1007,
+            "category_no": "UTSTEDERS MELDEPLIKT VED HANDEL I EGNE AKSJER",
+            "category_en": "ACQUISITION OR DISPOSAL OF AN ISSUER'S OWN SHARES"
+          }
+        ],
+        "markets": [
+          "XOSL"
+        ],
+        "issuerId": 1309,
+        "correctionForMessageId": 0,
+        "correctedByMessageId": 0,
+        "issuerSign": "EQNR",
+        "issuerName": "Equinor ASA",
+        "instrId": 0,
+        "instrumentName": "",
+        "instrumentFullName": "",
+        "publishedTime": "2024-12-30T11:25:00.870Z",
+        "test": false,
+        "numbAttachments": 1,
+        "clientAnnouncementId": "7ccd1788-e73e-4edc-afc0-b34301147ab3",
+        "infoRequired": 0,
+        "oamMandatory": 0
+      },
+      {
+        "id": 634424,
+        "messageId": 634424,
+        "newsId": 586573,
+        "title": "Equinor ASA: Meldepliktig handel",
+        "category": [
+          {
+            "id": 1102,
+            "category_no": "MELDEPLIKTIG HANDEL FOR PRIMÆRINNSIDERE",
+            "category_en": "MANAGERS’ TRANSACTION"
+          }
+        ],
+        "markets": [
+          "XOSL"
+        ],
+        "issuerId": 1309,
+        "correctionForMessageId": 0,
+        "correctedByMessageId": 0,
+        "issuerSign": "EQNR",
+        "issuerName": "Equinor ASA",
+        "instrId": 0,
+        "instrumentName": "",
+        "instrumentFullName": "",
+        "publishedTime": "2024-12-12T07:00:00.842Z",
+        "test": false,
+        "numbAttachments": 1,
+        "clientAnnouncementId": "74d023c3-e43f-4022-8be0-448830f9a633",
+        "infoRequired": 0,
+        "oamMandatory": 0
+      },
+      {
+        "id": 633876,
+        "messageId": 633876,
+        "newsId": 586017,
+        "title": "Equinor and Shell to create the UK's largest independent oil and gas company",
+        "category": [
+          {
+            "id": 1005,
+            "category_no": "INNSIDEINFORMASJON",
+            "category_en": "INSIDE INFORMATION"
+          }
+        ],
+        "markets": [
+          "XOSL"
+        ],
+        "issuerId": 1309,
+        "correctionForMessageId": 0,
+        "correctedByMessageId": 0,
+        "issuerSign": "EQNR",
+        "issuerName": "Equinor ASA",
+        "instrId": 0,
+        "instrumentName": "",
+        "instrumentFullName": "",
+        "publishedTime": "2024-12-05T07:11:08.865Z",
+        "test": false,
+        "numbAttachments": 0,
+        "clientAnnouncementId": "3bdf6923-0454-426f-bce5-b40e8e164eea",
+        "infoRequired": 0,
+        "oamMandatory": 0
+      },
+      {
+        "id": 633050,
+        "messageId": 633050,
+        "newsId": 585198,
+        "title": "Equinor ASA: Announcement of cash dividend per share in NOK for second quarter 2024",
+        "category": [
+          {
+            "id": 1008,
+            "category_no": "KAPITAL- OG STEMMERETTSENDRINGER",
+            "category_en": "TOTAL NUMBER OF VOTING RIGHTS AND CAPITAL"
+          }
+        ],
+        "markets": [
+          "XOSL"
+        ],
+        "issuerId": 1309,
+        "correctionForMessageId": 0,
+        "correctedByMessageId": 0,
+        "issuerSign": "EQNR",
+        "issuerName": "Equinor ASA",
+        "instrId": 0,
+        "instrumentName": "",
+        "instrumentFullName": "",
+        "publishedTime": "2024-11-25T06:50:00.485Z",
+        "test": false,
+        "numbAttachments": 0,
+        "clientAnnouncementId": "e9da7d5b-07c1-4e9a-a3f0-fb3b4806609f",
+        "infoRequired": 0,
+        "oamMandatory": 0
+      },
+      {
+        "id": 632467,
+        "messageId": 632467,
+        "newsId": 584612,
+        "title": "Equinor ASA: Eks. utbytte andre kvartal 2024 i dag - Oslo Børs",
+        "category": [
+          {
+            "id": 1101,
+            "category_no": "EKS.DATO",
+            "category_en": "EX DATE"
+          }
+        ],
+        "markets": [
+          "XOSL"
+        ],
+        "issuerId": 1309,
+        "correctionForMessageId": 0,
+        "correctedByMessageId": 0,
+        "issuerSign": "EQNR",
+        "issuerName": "Equinor ASA",
+        "instrId": 0,
+        "instrumentName": "",
+        "instrumentFullName": "",
+        "publishedTime": "2024-11-18T06:50:00.523Z",
+        "test": false,
+        "numbAttachments": 0,
+        "clientAnnouncementId": "2679e007-16a4-40c6-b592-37e27d8e085a",
+        "infoRequired": 0,
+        "oamMandatory": 0
+      },
+      {
+        "id": 632428,
+        "messageId": 632428,
+        "newsId": 584562,
+        "title": "Financial calendar",
+        "category": [
+          {
+            "id": 1010,
+            "category_no": "ANNEN INFORMASJONSPLIKTIG REGULATORISK INFORMASJON",
+            "category_en": "ADDITIONAL REGULATED INFORMATION REQUIRED TO BE DISCLOSED UNDER THE LAWS OF A MEMBER STATE"
+          }
+        ],
+        "markets": [
+          "XOSL"
+        ],
+        "issuerId": 1309,
+        "correctionForMessageId": 0,
+        "correctedByMessageId": 0,
+        "issuerSign": "EQNR",
+        "issuerName": "Equinor ASA",
+        "instrId": 0,
+        "instrumentName": "",
+        "instrumentFullName": "",
+        "publishedTime": "2024-11-15T13:57:17.693Z",
+        "test": false,
+        "numbAttachments": 0,
+        "clientAnnouncementId": "9f0ddd33-02c2-4923-9f7c-bca37f015052",
+        "infoRequired": 0,
+        "oamMandatory": 0
+      },
+      {
+        "id": 630237,
+        "messageId": 630237,
+        "newsId": 582366,
+        "title": "Equinor third quarter 2024 results",
+        "category": [
+          {
+            "id": 1002,
+            "category_no": "HALVÅRSRAPPORT",
+            "category_en": "HALF YEAR FINANCIAL REPORT"
+          }
+        ],
+        "markets": [
+          "XOSL"
+        ],
+        "issuerId": 1309,
+        "correctionForMessageId": 0,
+        "correctedByMessageId": 0,
+        "issuerSign": "EQNR",
+        "issuerName": "Equinor ASA",
+        "instrId": 0,
+        "instrumentName": "",
+        "instrumentFullName": "",
+        "publishedTime": "2024-10-24T04:45:01.719Z",
+        "test": false,
+        "numbAttachments": 2,
+        "clientAnnouncementId": "1150898a-ff66-4e5e-970e-4ac208ed7547",
+        "infoRequired": 0,
+        "oamMandatory": 0
+      },
+      {
+        "id": 614113,
+        "messageId": 614113,
+        "newsId": 566106,
+        "title": "Equinor presenterer integrert årsrapport for 2023",
+        "category": [
+          {
+            "id": 1001,
+            "category_no": "ÅRSRAPPORT",
+            "category_en": "ANNUAL FINANCIAL REPORT"
+          }
+        ],
+        "markets": [
+          "XOSL"
+        ],
+        "issuerId": 1309,
+        "correctionForMessageId": 0,
+        "correctedByMessageId": 0,
+        "issuerSign": "EQNR",
+        "issuerName": "Equinor ASA",
+        "instrId": 0,
+        "instrumentName": "",
+        "instrumentFullName": "",
+        "publishedTime": "2024-03-21T07:45:05.522Z",
+        "test": false,
+        "numbAttachments": 6,
+        "clientAnnouncementId": "07144a6d-e4f0-4698-bafe-524567e9675e",
+        "infoRequired": 0,
+        "oamMandatory": 0
+      }
+    ],
+    "overflow": false
+  }
+}

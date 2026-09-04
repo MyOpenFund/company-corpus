@@ -1,0 +1,67 @@
+{
+  "header": {
+    "OB_REQUEST_ID": "3bf9ad74-813a-4dfe-858b-603b1191f8a6",
+    "result.val": 0,
+    "http.code": 200,
+    "result.text": "OK"
+  },
+  "data": {
+    "message": {
+      "id": 614113,
+      "messageId": 614113,
+      "newsId": 566106,
+      "title": "Equinor presenterer integrert årsrapport for 2023",
+      "category": [
+        {
+          "id": 1001,
+          "category_no": "ÅRSRAPPORT",
+          "category_en": "ANNUAL FINANCIAL REPORT"
+        }
+      ],
+      "markets": [
+        "XOSL"
+      ],
+      "issuerId": 1309,
+      "correctionForMessageId": 0,
+      "correctedByMessageId": 0,
+      "issuerSign": "EQNR",
+      "issuerName": "Equinor ASA",
+      "instrId": 0,
+      "instrumentName": "",
+      "instrumentFullName": "",
+      "publishedTime": "2024-03-21T07:45:05.522Z",
+      "test": false,
+      "numbAttachments": 6,
+      "attachments": [
+        {
+          "id": 278960,
+          "name": "Annual report 2023 on Form 20F.pdf"
+        },
+        {
+          "id": 278961,
+          "name": "Betalinger til myndigheter 2023.pdf"
+        },
+        {
+          "id": 278963,
+          "name": "Oil and gas reserves report 2023.pdf"
+        },
+        {
+          "id": 278964,
+          "name": "eqnr20231231NO.zip"
+        },
+        {
+          "id": 278968,
+          "name": "Equinor Integrert aarsrapport 2023.pdf"
+        },
+        {
+          "id": 278970,
+          "name": "Styrets redegjorelse for eierstyring og selskapsledelse 2023.pdf"
+        }
+      ],
+      "clientAnnouncementId": "07144a6d-e4f0-4698-bafe-524567e9675e",
+      "infoRequired": 1,
+      "oamMandatory": 1,
+      "body": "Equinor ASA (OSE: EQNR, NYSE: EQNR) publiserer sin årsrapport for 2023, som\nintegrerer finansiell- og bærekraftsrapportering.\n\n\"I 2023 førte geopolitiske spenninger og krevende makroøkonomi til svingn...[trimmed]"
+    }
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "goPublicVersion": "0.11.0",
+  "components": {
+    "filters": [
+      {
+        "type": "dropdown",
+        "key": "IssuerFilter",
+        "options": [
+          {
+            "id": "33597142",
+            "label": "5TH PLANET GAMES A/S"
+          },
+          {
+            "id": "29604363",
+            "label": "A. ENGGAARD HOLDING A/S"
+          },
+          {
+            "id": "22756214",
+            "label": "A.P. MØLLER - MÆRSK A/S"
+          },
+          {
+            "id": "10634970",
+            "label": "A/S STOREBÆLTSFORBINDELSEN"
+          },
+          {
+            "id": "15807830",
+            "label": "A/S ØRESUNDSFORBINDELSEN"
+          },
+          {
+            "id": "24256790",
+            "label": "NOVO NORDISK A/S"
+          },
+          {
+            "id": "12599307",
+            "label": "BIRKETINGET A/S"
+          },
+          {
+            "id": "31179580",
+            "label": "BLS CAPITAL FONDSMÆGLERSELSKAB A/S"
+          },
+          {
+            "id": "34018413",
+            "label": "BOCONCEPT HOLDING A/S"
+          },
+          {
+            "id": "24431118",
+            "label": "BONUSBANKEN A/S"
+          },
+          {
+            "id": "19347508",
+            "label": "Bording Danmark A/S"
+          }
+        ]
+      }
+    ]
+  }
+}

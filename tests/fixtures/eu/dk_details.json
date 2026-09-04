@@ -1,0 +1,216 @@
+{
+ "heading": "Novo Nordisk has published its annual report for 2025",
+ "sections": [
+  {
+   "heading": "Indberetning",
+   "elements": [
+    {
+     "type": "keyvalue",
+     "key": {
+      "name": "Meddelelses-ID",
+      "tooltip": ""
+     },
+     "value": {
+      "type": "text",
+      "value": "300003307",
+      "tooltip": ""
+     }
+    },
+    {
+     "type": "keyvalue",
+     "key": {
+      "name": "",
+      "tooltip": ""
+     },
+     "value": {
+      "type": "text",
+      "text": "Annual financial report"
+     }
+    },
+    {
+     "type": "keyvalue",
+     "key": {
+      "name": "Type",
+      "tooltip": ""
+     },
+     "value": {
+      "type": "text",
+      "value": "Udsteder",
+      "tooltip": ""
+     }
+    },
+    {
+     "type": "keyvalue",
+     "key": {
+      "name": "",
+      "tooltip": ""
+     },
+     "value": {
+      "type": "text",
+      "value": "Årsrapport",
+      "tooltip": ""
+     }
+    },
+    {
+     "type": "keyvalue",
+     "key": {
+      "name": "Indeholder intern viden",
+      "tooltip": ""
+     },
+     "value": {
+      "type": "text",
+      "value": "Nej",
+      "tooltip": ""
+     }
+    },
+    {
+     "type": "keyvalue",
+     "key": {
+      "name": "Dokument(er)",
+      "tooltip": ""
+     },
+     "value": {
+      "type": "link",
+      "title": "NovoNordis-1001162905-en_eeb9594f-5631-4bcc-a642-69a687783c90.html (Engelsk)",
+      "url": "https://saegressprod.blob.core.windows.net/attachments/3df8723c-e951-4bc7-ad69-d72f5d5144a3/NovoNordis-1001162905-en_eeb9594f-5631-4bcc-a642-69a687783c90.html"
+     }
+    },
+    {
+     "type": "keyvalue",
+     "key": {
+      "name": "",
+      "tooltip": ""
+     },
+     "value": {
+      "type": "link",
+      "title": "NOVO-2025-12-31-1-en-en_8ac1a6af-3504-4041-a454-af65d565a6f9.zip (Engelsk)",
+      "url": "https://saegressprod.blob.core.windows.net/attachments/3df8723c-e951-4bc7-ad69-d72f5d5144a3/NOVO-2025-12-31-1-en-en_8ac1a6af-3504-4041-a454-af65d565a6f9.zip"
+     }
+    },
+    {
+     "type": "keyvalue",
+     "key": {
+      "name": "",
+      "tooltip": ""
+     },
+     "value": {
+      "type": "link",
+      "title": "CA260204-AR-published-en_72224dd1-4b26-466b-aa2e-8de5291dbf3d.pdf (Engelsk)",
+      "url": "https://saegressprod.blob.core.windows.net/attachments/3df8723c-e951-4bc7-ad69-d72f5d5144a3/CA260204-AR-published-en_72224dd1-4b26-466b-aa2e-8de5291dbf3d.pdf"
+     }
+    }
+   ]
+  },
+  {
+   "heading": "Tidspunkter",
+   "elements": [
+    {
+     "type": "keyvalue",
+     "key": {
+      "name": "Offentliggørelse",
+      "tooltip": ""
+     },
+     "value": {
+      "type": "text",
+      "value": "04-02-2026 07:30:43",
+      "tooltip": ""
+     }
+    },
+    {
+     "type": "keyvalue",
+     "key": {
+      "name": "Registrering",
+      "tooltip": ""
+     },
+     "value": {
+      "type": "text",
+      "value": "04-02-2026 07:30:51",
+      "tooltip": ""
+     }
+    }
+   ]
+  },
+  {
+   "heading": "Udsteder",
+   "elements": [
+    {
+     "type": "keyvalue",
+     "key": {
+      "name": "Virksomhed",
+      "tooltip": ""
+     },
+     "value": {
+      "type": "text",
+      "value": "NOVO NORDISK A/S",
+      "tooltip": ""
+     }
+    },
+    {
+     "type": "keyvalue",
+     "key": {
+      "name": "CVR-nr.",
+      "tooltip": ""
+     },
+     "value": {
+      "type": "text",
+      "value": "24256790",
+      "tooltip": ""
+     }
+    },
+    {
+     "type": "keyvalue",
+     "key": {
+      "name": "LEI-kode",
+      "tooltip": ""
+     },
+     "value": {
+      "type": "text",
+      "value": "549300DAQ1CVT6CXN342",
+      "tooltip": ""
+     }
+    }
+   ]
+  },
+  {
+   "heading": "Indberetter",
+   "elements": [
+    {
+     "type": "keyvalue",
+     "key": {
+      "name": "Virksomhed",
+      "tooltip": ""
+     },
+     "value": {
+      "type": "text",
+      "value": "GlobeNewswire",
+      "tooltip": ""
+     }
+    },
+    {
+     "type": "keyvalue",
+     "key": {
+      "name": "CVR-nr.",
+      "tooltip": ""
+     },
+     "value": {
+      "type": "text",
+      "value": "UK-02775270",
+      "tooltip": ""
+     }
+    },
+    {
+     "type": "keyvalue",
+     "key": {
+      "name": "LEI-kode",
+      "tooltip": ""
+     },
+     "value": {
+      "type": "text",
+      "value": "",
+      "tooltip": ""
+     }
+    }
+   ]
+  }
+ ]
+}

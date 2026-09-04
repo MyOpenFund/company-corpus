@@ -1,0 +1,251 @@
+{
+ "took": 19,
+ "timed_out": false,
+ "_shards": {
+  "failed": 0.0,
+  "skipped": 0.0,
+  "successful": 4.0,
+  "total": 4.0
+ },
+ "hits": {
+  "total": {
+   "relation": "eq",
+   "value": 1361
+  },
+  "hits": [
+   {
+    "_index": "fca-nsm-searchdata",
+    "_id": "ce9d47b6-0e76-4dd1-9119-deaa925fc068",
+    "_source": {
+     "submitted_date": "2026-06-26T06:12:19Z",
+     "tag_esef": "",
+     "classifications_code": "",
+     "document_date": "2026-06-26T06:12:19Z",
+     "source": "RNS",
+     "type": "Transaction in Own Shares",
+     "related_org": [],
+     "lei_remediation_flag": "N",
+     "classifications": "",
+     "lei": "2138002P5RNKC5W2JZ46",
+     "download_link": "NSM/RNS/ce9d47b6-0e76-4dd1-9119-deaa925fc068.html",
+     "disclosure_id": "ce9d47b6-0e76-4dd1-9119-deaa925fc068",
+     "latest_flag": "Y",
+     "hist_seq": "1",
+     "publication_date": "2026-06-26T06:00:02Z",
+     "seq_id": "ce9d47b6-0e76-4dd1-9119-deaa925fc068",
+     "company": "TESCO PLC",
+     "last_updated_date": "2026-06-26T06:00:02Z",
+     "headline": "Transaction in Own Shares",
+     "type_code": "POS"
+    },
+    "sort": [
+     1782453602000
+    ]
+   },
+   {
+    "_index": "fca-nsm-searchdata",
+    "_id": "dab33f99-6b9b-48c8-82a7-5fc07588eff3",
+    "_source": {
+     "submitted_date": "2026-06-25T06:12:21Z",
+     "tag_esef": "",
+     "classifications_code": "",
+     "document_date": "2026-06-25T06:12:21Z",
+     "source": "RNS",
+     "type": "Transaction in Own Shares",
+     "related_org": [],
+     "lei_remediation_flag": "N",
+     "classifications": "",
+     "lei": "2138002P5RNKC5W2JZ46",
+     "download_link": "NSM/RNS/dab33f99-6b9b-48c8-82a7-5fc07588eff3.html",
+     "disclosure_id": "dab33f99-6b9b-48c8-82a7-5fc07588eff3",
+     "latest_flag": "Y",
+     "hist_seq": "1",
+     "publication_date": "2026-06-25T06:00:02Z",
+     "seq_id": "dab33f99-6b9b-48c8-82a7-5fc07588eff3",
+     "company": "TESCO PLC",
+     "last_updated_date": "2026-06-25T06:00:02Z",
+     "headline": "Transaction in Own Shares",
+     "type_code": "POS"
+    },
+    "sort": [
+     1782367202000
+    ]
+   },
+   {
+    "_index": "fca-nsm-searchdata",
+    "_id": "600b4f73-a2a1-4c9b-9563-36d593842c2f",
+    "_source": {
+     "submitted_date": "2026-06-24T06:12:26Z",
+     "tag_esef": "",
+     "classifications_code": "",
+     "document_date": "2026-06-24T06:12:26Z",
+     "source": "RNS",
+     "type": "Transaction in Own Shares",
+     "related_org": [],
+     "lei_remediation_flag": "N",
+     "classifications": "",
+     "lei": "2138002P5RNKC5W2JZ46",
+     "download_link": "NSM/RNS/600b4f73-a2a1-4c9b-9563-36d593842c2f.html",
+     "disclosure_id": "600b4f73-a2a1-4c9b-9563-36d593842c2f",
+     "latest_flag": "Y",
+     "hist_seq": "1",
+     "publication_date": "2026-06-24T06:00:02Z",
+     "seq_id": "600b4f73-a2a1-4c9b-9563-36d593842c2f",
+     "company": "TESCO PLC",
+     "last_updated_date": "2026-06-24T06:00:02Z",
+     "headline": "Transaction in Own Shares",
+     "type_code": "POS"
+    },
+    "sort": [
+     1782280802000
+    ]
+   },
+   {
+    "_index": "fca-nsm-searchdata",
+    "_id": "c2ea4355-e7df-4fff-a12a-18a9cb214dcd",
+    "_source": {
+     "submitted_date": "2026-06-23T13:12:10Z",
+     "tag_esef": "",
+     "classifications_code": "",
+     "document_date": "2026-06-23T13:12:10Z",
+     "source": "RNS",
+     "type": "Director/PDMR Shareholding",
+     "related_org": [],
+     "lei_remediation_flag": "N",
+     "classifications": "",
+     "lei": "2138002P5RNKC5W2JZ46",
+     "download_link": "NSM/RNS/c2ea4355-e7df-4fff-a12a-18a9cb214dcd.html",
+     "disclosure_id": "c2ea4355-e7df-4fff-a12a-18a9cb214dcd",
+     "latest_flag": "Y",
+     "hist_seq": "1",
+     "publication_date": "2026-06-23T13:00:00Z",
+     "seq_id": "c2ea4355-e7df-4fff-a12a-18a9cb214dcd",
+     "company": "TESCO PLC",
+     "last_updated_date": "2026-06-23T13:00:00Z",
+     "headline": "Director/PDMR Shareholding",
+     "type_code": "DSH"
+    },
+    "sort": [
+     1782219600000
+    ]
+   },
+   {
+    "_index": "fca-nsm-searchdata",
+    "_id": "a259fa18-df5e-481f-b9ef-0ea0ee26acd8",
+    "_source": {
+     "submitted_date": "2026-06-23T06:12:47Z",
+     "tag_esef": "",
+     "classifications_code": "",
+     "document_date": "2026-06-23T06:12:47Z",
+     "source": "RNS",
+     "type": "Miscellaneous",
+     "related_org": [],
+     "lei_remediation_flag": "N",
+     "classifications": "",
+     "lei": "2138002P5RNKC5W2JZ46",
+     "download_link": "NSM/RNS/a259fa18-df5e-481f-b9ef-0ea0ee26acd8.html",
+     "disclosure_id": "a259fa18-df5e-481f-b9ef-0ea0ee26acd8",
+     "latest_flag": "Y",
+     "hist_seq": "1",
+     "publication_date": "2026-06-23T06:00:05Z",
+     "seq_id": "a259fa18-df5e-481f-b9ef-0ea0ee26acd8",
+     "company": "TESCO PLC",
+     "last_updated_date": "2026-06-23T06:00:05Z",
+     "headline": "Continuation of Share Buyback Programme",
+     "type_code": "MSCL"
+    },
+    "sort": [
+     1782194405000
+    ]
+   },
+   {
+    "_index": "fca-nsm-searchdata",
+    "_id": "75a75898-e223-41eb-a09c-b8cdccfb28f5",
+    "_source": {
+     "submitted_date": "2026-06-19T06:12:25Z",
+     "tag_esef": "",
+     "classifications_code": "",
+     "document_date": "2026-06-19T06:12:25Z",
+     "source": "RNS",
+     "type": "Transaction in Own Shares",
+     "related_org": [],
+     "lei_remediation_flag": "N",
+     "classifications": "",
+     "lei": "2138002P5RNKC5W2JZ46",
+     "download_link": "NSM/RNS/75a75898-e223-41eb-a09c-b8cdccfb28f5.html",
+     "disclosure_id": "75a75898-e223-41eb-a09c-b8cdccfb28f5",
+     "latest_flag": "Y",
+     "hist_seq": "1",
+     "publication_date": "2026-06-19T06:00:03Z",
+     "seq_id": "75a75898-e223-41eb-a09c-b8cdccfb28f5",
+     "company": "TESCO PLC",
+     "last_updated_date": "2026-06-19T06:00:03Z",
+     "headline": "Transaction in Own Shares",
+     "type_code": "POS"
+    },
+    "sort": [
+     1781848803000
+    ]
+   },
+   {
+    "_index": "fca-nsm-searchdata",
+    "_id": "e7e8bd51-d24d-4a45-91c0-0a375dd30c7c",
+    "_source": {
+     "submitted_date": "2026-06-18T14:18:09Z",
+     "tag_esef": "",
+     "classifications_code": "",
+     "document_date": "2026-06-18T14:18:09Z",
+     "source": "RNS",
+     "type": "Result of AGM",
+     "related_org": [],
+     "lei_remediation_flag": "N",
+     "classifications": "",
+     "lei": "2138002P5RNKC5W2JZ46",
+     "download_link": "NSM/RNS/e7e8bd51-d24d-4a45-91c0-0a375dd30c7c.html",
+     "disclosure_id": "e7e8bd51-d24d-4a45-91c0-0a375dd30c7c",
+     "latest_flag": "Y",
+     "hist_seq": "1",
+     "publication_date": "2026-06-18T14:06:24Z",
+     "seq_id": "e7e8bd51-d24d-4a45-91c0-0a375dd30c7c",
+     "company": "TESCO PLC",
+     "last_updated_date": "2026-06-18T14:06:24Z",
+     "headline": "Result of AGM",
+     "type_code": "RAG"
+    },
+    "sort": [
+     1781791584000
+    ]
+   },
+   {
+    "_index": "fca-nsm-searchdata",
+    "_id": "NI-000147059",
+    "_source": {
+     "submitted_date": "2026-06-18T14:21:10.785Z",
+     "tag_esef": "",
+     "document_date": "2026-06-18",
+     "source": "Direct Upload",
+     "ContentVersionId": "068Tw00000lNaUfIAK",
+     "type": "Result of AGM",
+     "related_org": [],
+     "lei_remediation_flag": "N",
+     "lei": "2138002P5RNKC5W2JZ46",
+     "ProcessType": "NSM",
+     "download_link": "NSM/DirectUpload/NI-000147059/NI-000147059.docx",
+     "disclosure_id": "NI-000147059",
+     "latest_flag": "Y",
+     "hist_seq": "1",
+     "publication_date": "2026-06-18T13:00:00.000Z",
+     "seq_id": "NI-000147059",
+     "company": "TESCO PLC;",
+     "html_link": "",
+     "last_updated_date": "2026-06-18T14:21:40.194046716Z",
+     "headline": "Tesco PLC Resolutions of AGM",
+     "type_code": "RAG"
+    },
+    "sort": [
+     1781787600000
+    ]
+   }
+  ]
+ }
+}

@@ -1,0 +1,93 @@
+{
+ "paging": {
+  "page": 1,
+  "pageSize": 100,
+  "totalCount": 10,
+  "totalPages": 1
+ },
+ "data": {
+  "type": "table",
+  "rows": [
+   {
+    "id": "300003307",
+    "HeadlineColumn": "Novo Nordisk has published its annual report for 2025",
+    "IssuerColumn": "NOVO NORDISK A/S",
+    "CategoryColumn": "Udsteder",
+    "PublicationDateColumn": "04-02-2026 07:30:43",
+    "RegistrationDateColumn": "04-02-2026 07:30:51"
+   },
+   {
+    "id": "250054545",
+    "HeadlineColumn": "Novo Nordisk half-year report H1 2025",
+    "IssuerColumn": "NOVO NORDISK A/S",
+    "CategoryColumn": "Udsteder",
+    "PublicationDateColumn": "06-08-2025 07:30:26",
+    "RegistrationDateColumn": "06-08-2025 07:30:28"
+   },
+   {
+    "id": "220007470",
+    "HeadlineColumn": "Novo Nordisk A/S: major shareholder announcement",
+    "IssuerColumn": "NOVO NORDISK A/S",
+    "CategoryColumn": "Udsteder",
+    "PublicationDateColumn": "07-06-2022 13:26:43",
+    "RegistrationDateColumn": "07-06-2022 13:26:44"
+   },
+   {
+    "id": "300009453",
+    "HeadlineColumn": "Novo Nordisk A/S - share repurchase programme",
+    "IssuerColumn": "NOVO NORDISK A/S",
+    "CategoryColumn": "Udsteder",
+    "PublicationDateColumn": "26-05-2026 16:16:23",
+    "RegistrationDateColumn": "26-05-2026 16:16:26"
+   },
+   {
+    "id": "128192",
+    "HeadlineColumn": "Novo Nordisk's net profit increased by 8% in 2020",
+    "IssuerColumn": "NOVO NORDISK A/S",
+    "CategoryColumn": "Udsteder",
+    "PublicationDateColumn": "03-02-2021 07:30:24",
+    "RegistrationDateColumn": "03-02-2021 07:30:29"
+   },
+   {
+    "id": "127848",
+    "HeadlineColumn": "Novo Nordisk files for regulatory approval",
+    "IssuerColumn": "NOVO NORDISK A/S",
+    "CategoryColumn": "Udsteder",
+    "PublicationDateColumn": "20-01-2021 16:07:55",
+    "RegistrationDateColumn": "20-01-2021 16:08:00"
+   },
+   {
+    "id": "300010011",
+    "HeadlineColumn": "Novo Nordisk A/S - total voting rights Q2 2026",
+    "IssuerColumn": "NOVO NORDISK A/S",
+    "CategoryColumn": "Udsteder",
+    "PublicationDateColumn": "08-06-2026 14:09:08",
+    "RegistrationDateColumn": "08-06-2026 14:09:10"
+   },
+   {
+    "id": "300009698",
+    "HeadlineColumn": "Novo Nordisk - own shares acquisition",
+    "IssuerColumn": "NOVO NORDISK A/S",
+    "CategoryColumn": "Udsteder",
+    "PublicationDateColumn": "01-06-2026 13:16:47",
+    "RegistrationDateColumn": "01-06-2026 13:16:50"
+   },
+   {
+    "id": "300010410",
+    "HeadlineColumn": "Novo Nordisk - Payments to Governments 2025",
+    "IssuerColumn": "NOVO NORDISK A/S",
+    "CategoryColumn": "Udsteder",
+    "PublicationDateColumn": "15-06-2026 13:02:40",
+    "RegistrationDateColumn": "15-06-2026 13:02:44"
+   },
+   {
+    "id": "300003286",
+    "HeadlineColumn": "Novo Nordisk annual report preliminary results 2025",
+    "IssuerColumn": "NOVO NORDISK A/S",
+    "CategoryColumn": "Udsteder",
+    "PublicationDateColumn": "03-02-2026 17:38:27",
+    "RegistrationDateColumn": "03-02-2026 17:38:29"
+   }
+  ]
+ }
+}

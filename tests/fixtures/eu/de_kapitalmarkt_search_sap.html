@@ -1,0 +1,2267 @@
+<!DOCTYPE html>
+<html lang="de" data-signedin="nein" data-siteid="3">
+<head><script type="text/javascript" src="https://www.bundesanzeiger.de/pub/wicket/resource/org.apache.wicket.resource.JQueryResourceReference/jquery/jquery-3.7.1-ver-962A4A135B116C30221466C5E4F0E7A1.js"></script>
+<script type="text/javascript" src="https://www.bundesanzeiger.de/pub/wicket/resource/org.apache.wicket.ajax.AbstractDefaultAjaxBehavior/res/js/wicket-ajax-jquery-ver-8CD946166F47E5DD4EADD165939FF57D.js"></script>
+<style type="text/css" id="menu-panel-css">
+.menu__content .menu__wrapper li a:focus {
+    border: 1px solid #3F3F3F;
+    background: #e9e9ea;
+}</style>
+<script type="text/javascript" src="https://www.bundesanzeiger.de/pub/wicket/resource/de.banz.shared.common.panel.ModalPanel/ModalPanel-ver-5CE9B77506DEDC0F924FCB9FD201BAE9.js"></script>
+<script type="text/javascript" src="https://www.bundesanzeiger.de/pub/wicket/resource/de.banz.www.input.Select/Select-ver-D41D8CD98F00B204E9800998ECF8427E.js"></script>
+
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+<meta name="description" content="Bundesanzeiger">
+<meta name="copyright" content="Bundesanzeiger Verlag">
+<meta name="referrer" content="strict-origin">
+<meta name="revisit" content="7 days">
+<meta name="robots" content="index,follow">
+<meta name="format-detection" content="telephone=no">
+<title>
+Suchergebnis – Bundesanzeiger
+</title>
+
+<link rel="apple-touch-icon" href="https://www.bundesanzeiger.de/pub/wicket/resource/org.apache.wicket.Application/img/favicon/apple-touch-icon-ver-AB2A8E259B7AD16EE49DAFE2BFC89F18.png" sizes="180x180" />
+<link rel="icon" href="https://www.bundesanzeiger.de/pub/wicket/resource/org.apache.wicket.Application/img/favicon/favicon-32x32-ver-9DB9300FBD07F6EF43F6776E0E283356.png" sizes="32x32" type="image/png" />
+<link rel="icon" href="https://www.bundesanzeiger.de/pub/wicket/resource/org.apache.wicket.Application/img/favicon/favicon-16x16-ver-86104F137C02E8AB860CE0BCB8FFF30C.png" sizes="16x16" type="image/png" />
+<link rel="mask-icon" href="https://www.bundesanzeiger.de/pub/wicket/resource/org.apache.wicket.Application/img/favicon/safari-pinned-tab-ver-E2E9083C839C8A316D9AFC29C38C7615.svg" color="#006378" />
+<link rel="shortcut icon" href="https://www.bundesanzeiger.de/pub/wicket/resource/org.apache.wicket.Application/img/favicon/favicon-ver-607C4A35777DEA4325C56D5986730270.ico" type="image/x-icon" />
+<link rel="stylesheet" type="text/css" href="https://www.bundesanzeiger.de/pub/wicket/resource/org.apache.wicket.Application/css/main-ver-D42D0913DDBB932B647AF54549E3D6FD.css" media="all" />
+<noscript><link rel="stylesheet" type="text/css" href="https://www.bundesanzeiger.de/pub/wicket/resource/org.apache.wicket.Application/css/fallback-ver-D058BBBC18DF76874662168FF9D9A0FE.css" media="all" />
+</noscript><link rel="stylesheet" type="text/css" href="https://www.bundesanzeiger.de/pub/wicket/resource/org.apache.wicket.Application/css/plus-ver-4D5B13CE9C4E9B5175838D40234C2F08.css" media="all" />
+<script type="text/javascript" src="https://www.bundesanzeiger.de/pub/wicket/resource/org.apache.wicket.Application/js/main-ver-09268C0B342BF55DED3E9EF6ABEAB37D.js"></script>
+<script type="text/javascript" src="https://www.bundesanzeiger.de/pub/wicket/resource/org.apache.wicket.Application/js/plus-ver-B213CEE37016AD6B1FE93355FE14A1D5.js"></script>
+<script type="text/javascript">
+/*<![CDATA[*/
+Wicket.Event.add(window, "domready", function(event) { 
+jQuery(document).ready(function () {
+  jQuery("body").on("click", ".menu__toggle", function (event) {
+      if (jQuery("body").hasClass("showMenu")) {
+          jQuery('body .menu__wrapper li:first-of-type a:first').focus();
+      }
+  })
+ });;
+initModalPanel();;
+$('#id1e-0, #id1e-6, #id1e-7, #id1e-73, #id1e-74, #id1e-75, #id1e-93, #id1e-999991, #id1e-54, #id1e-76, #id1e-999992, #id1e-12, #id1e-13, #id1e-14, #id1e-15, #id1e-29, #id1e-59, #id1e-11, #id1e-51, #id1e-87, #id1e-16, #id1e-62, #id1e-999995, #id1e-1, #id1e-2, #id1e-3, #id1e-5, #id1e-4, #id1e-94, #id1e-34, #id1e-35, #id1e-30, #id1e-999996, #id1e-18, #id1e-36, #id1e-90, #id1e-56, #id1e-57, #id1e-58, #id1e-72, #id1e-19, #id1e-20, #id1e-21, #id1e-61, #id1e-77, #id1e-39, #id1e-60, #id1e-79, #id1e-999997, #id1e-40, #id1e-92, #id1e-41, #id1e-42, #id1e-43, #id1e-44, #id1e-26, #id1e-999998, #id1e-67, #id1e-69, #id1e-70, #id1e-71, #id1e-63, #id1e-91, #id1e-78, #id1e-66, #id1e-64, #id1e-89, #id1e-65, #id1e-68, #id1e-9999922').on('change', function()
+{
+  $('#id1f').trigger('click');
+}).filter(':checked');;
+Wicket.Event.add('id26_hf_1', 'click', function(event) { var b=document.getElementById('id25'); if (b!=null && b.onclick!=null && typeof(b.onclick) != 'undefined') {  var r = Wicket.bind(b.onclick, b)(); if (r != false) b.click(); } else { b.click(); };  return false;;});;
+$('#id20').on('change', function() {
+    if ($('#id20').val() != '')
+        this.form.submit();
+});
+;
+$('#id27').show();$('#id28').show();$('.concern-list0').hide();$('.subsidiary-list0').hide();;
+$('#id29').show();$('#id2a').show();$('.concern-list1').hide();$('.subsidiary-list1').hide();;
+$('#id2b').show();$('#id2c').show();$('.concern-list2').hide();$('.subsidiary-list2').hide();;
+$('#id2d').show();$('#id2e').show();$('.concern-list3').hide();$('.subsidiary-list3').hide();;
+$('#id2f').show();$('#id30').show();$('.concern-list4').hide();$('.subsidiary-list4').hide();;
+$('#id31').show();$('#id32').show();$('.concern-list5').hide();$('.subsidiary-list5').hide();;
+$('#id33').show();$('#id34').show();$('.concern-list6').hide();$('.subsidiary-list6').hide();;
+$('#id35').show();$('#id36').show();$('.concern-list7').hide();$('.subsidiary-list7').hide();;
+$('#id37').show();$('#id38').show();$('.concern-list8').hide();$('.subsidiary-list8').hide();;
+$('#id39').show();$('#id3a').show();$('.concern-list9').hide();$('.subsidiary-list9').hide();;
+$('#id3b').show();$('#id3c').show();$('.concern-list10').hide();$('.subsidiary-list10').hide();;
+$('#id3d').show();$('#id3e').show();$('.concern-list11').hide();$('.subsidiary-list11').hide();;
+$('#id3f').show();$('#id40').show();$('.concern-list12').hide();$('.subsidiary-list12').hide();;
+$('#id41').show();$('#id42').show();$('.concern-list13').hide();$('.subsidiary-list13').hide();;
+$('#id43').show();$('#id44').show();$('.concern-list14').hide();$('.subsidiary-list14').hide();;
+$('#id45').show();$('#id46').show();$('.concern-list15').hide();$('.subsidiary-list15').hide();;
+$('#id47').show();$('#id48').show();$('.concern-list16').hide();$('.subsidiary-list16').hide();;
+$('#id49').show();$('#id4a').show();$('.concern-list17').hide();$('.subsidiary-list17').hide();;
+$('#id4b').show();$('#id4c').show();$('.concern-list18').hide();$('.subsidiary-list18').hide();;
+$('#id4d').show();$('#id4e').show();$('.concern-list19').hide();$('.subsidiary-list19').hide();;
+$('#id21').on('change', function() {
+    if ($('#id21').val() != '')
+        this.form.submit();
+});
+;
+Wicket.Event.publish(Wicket.Event.Topic.AJAX_HANDLERS_BOUND);
+;});
+/*]]>*/
+</script>
+</head>
+<body data-argus="S24" class="">
+
+
+
+<noscript>
+<div class="container javascript-fallback-info">
+<div class="block margin_bottom_small">
+<div class="block-headline bg-red">
+<h3>JavaScript deaktiviert!</h3>
+</div>
+<div class="block-content">
+<p>Vergrößern Sie bitte die Fensterbreite, um die Benutzung ohne JavaScript fortzusetzen.</p>
+</div>
+</div>
+</div>
+</noscript>
+<header>
+
+<div class="cockpit">
+<div class="container">
+
+<div class="platform_block menu_button">
+<button class="platform__toggle" type="button" id="platform__content" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" aria-controls="platform__menu">Bundesanzeiger</button>
+<div class="dropdown-menu platform__content">
+<div class="dropdown-menu-wrapper">
+<ul class="platform__list" role="menu" id="platform__menu" aria-labelledby="platform__content" aria-label="Plattform-Auswahl">
+<li role="none">
+<a role="menuitem" href="/pub/de/start" data-argus="Shared-A45" class="active">Bundesanzeiger</a>
+</li>
+<li role="none">
+<a role="menuitem" href="/redirect/start_new/ureg/index.html?dest=ureg&amp;language=de" data-argus="Shared-A46">Unternehmensregister</a>
+</li>
+<li role="none">
+<a role="menuitem" href="/redirect/start_new?global_data.designmode=pp&amp;global_data.language=de&amp;page.navid=to_start_eorder&amp;dest=wexsservlet" data-argus="Shared-A47">Publikations-Plattform</a>
+</li>
+</ul>
+</div>
+</div>
+</div>
+
+<div class="service_block">
+<div class="service__content">
+
+<ul class="service__list sidebar" role="menu" aria-label="Service-Navigation">
+<li role="none">
+<a role="menuitem" class="btn-sidebar-home" data-toggle="tooltip" data-placement="left" href="/pub/de/start" data-argus="Shared-A13" title="Startseite"><i class="fas fa-home"></i></a>
+</li>
+<li role="none">
+<a role="menuitem" class="btn-sidebar-contact" data-toggle="tooltip" data-placement="left" href="/pub/de/kontakt" data-argus="Shared-A14" title="Kontakt"><i class="far fa-envelope"></i></a>
+</li>
+<li role="none">
+<a role="menuitem" class="btn-sidebar-faq" data-toggle="tooltip" data-placement="left" href="/pub/de/faq" data-argus="Shared-A15" title="Fragen &amp; Antworten"><i class="fas fa-question-circle"></i></a>
+</li>
+<li role="none">
+
+</li>
+</ul>
+<div class="sidebar_menu">
+<div class="sidebar__content">
+<button type="button" class="close_button close close-sidebar" aria-label="Schließen"><span aria-hidden="true">×</span></button>
+<div class="sidebar__item contact">
+<div class="header">
+<h3>
+Kontakt
+</h3>
+</div>
+<div class="container">
+<h4>Wir helfen Ihnen weiter</h4><p class="contact-info">Unsere Servicenummer: <strong>0 800 – 1 23 43 39</strong><span>Mo – Fr von 8:00 bis 18:30 Uhr, kostenlos aus dem dt. Festnetz</span></p><p class="contact-info">Aus dem Ausland:<strong>+49 221 – 9 76 68-0</strong><span>kostenpflichtig</span></p>
+<p>Bei Problemen finden Sie wertvolle Hinweise im Bereich <a href="/pub/de/faq" data-argus="Shared-A15">Fragen &amp; Antworten</a>.</p>
+</div>
+</div>
+<div class="sidebar__item faq">
+<div class="header">
+<h3>
+Fragen & Antworten
+</h3>
+</div>
+<div class="container">
+<dl class="fold"><dt>Was ist der Bundesanzeiger?</dt><dd><p>Der Bundesanzeiger ist die zentrale Plattform für amtliche Verkündungen und Bekanntmachungen sowie für rechtlich relevante Unternehmensnachrichten. Nähere Informationen zum geschichtlichen Hintergrund und zu den Aktivitäten des Bundesanzeigers finden Sie auf den Webseiten des Verlags unter <a title="Bundesanzeiger" href="https://www.bundesanzeiger-verlag.de/ueber-uns/" target="_blank">https://www.bundesanzeiger-verlag.de/ueber-uns/</a>.</p></dd><dt>Wo finde ich was?</dt><dd><p>Ein vollständiges Inhaltsverzeichnis des Bundesanzeigers wird Ihnen angezeigt, wenn Sie in der Fußzeile auf „Sitemap“ klicken. Alle Teile und Rubriken des Bundesanzeigers finden Sie unter „So geht’s – Inhalte“ oder über die Suchfunktion.</p></dd><dt>Wie kann ich suchen?</dt><dd><p>Wir bieten eine Volltextsuche und eine erweiterte Suche an. Sie können den gesamten Bundesanzeiger nach bestimmten Begriffen durchsuchen. Eine Volltextsuche über den Veröffentlichungsinhalt ist bei Jahresabschlüssen / Jahresfinanzberichten und Veröffentlichungen nach §§ 264 Abs. 3, 264b HGB nicht möglich. Bei der erweiterten Suche haben Sie die Möglichkeit, die Suche nach bestimmten Kriterien, wie zum Beispiel Veröffentlichungszeitraum oder Bereich, weiter einzuschränken.</p></dd><dt>Wie kann ich optimal drucken?</dt><dd><p>Stellen Sie im Druckmenü das Seitenlayout auf Querformat ein. Sie können Suchergebnisse oder Dokumente über Ihren Browser drucken. Es steht meist eine Druckversion zur Verfügung.</p></dd><dt>Warum kann ich kein Lesezeichen/Bookmark setzen?</dt><dd><p>Wenn Sie auf unseren Seiten suchen, bewegen Sie sich aus Sicherheitsgründen in einer so genannten „Session“. Diese ist 30 Minuten gültig, wenn Sie keine weiteren Eingaben tätigen. Dies gilt auch für ein Lesezeichen, das Sie auf eine gefundene Veröffentlichung setzen. Es wird nach 30 Minuten ungültig.</p></dd></dl>
+<p class="indent_bottom_large"><a class="btn btn-green" href="/pub/de/faq" data-argus="Shared-A81">Alle Fragen und Antworten</a></p>
+<h4>Keine Antwort gefunden?</h4><p class="contact-info">Unsere Servicenummer: <strong>0 800 – 1 23 43 39</strong> <span>Mo – Fr von 8:00 bis 18:30 Uhr, kostenlos aus dem dt. Festnetz</span></p><p class="contact-info">Aus dem Ausland: <strong>+49 221 – 9 76 68-0</strong> <span>kostenpflichtig</span></p>
+</div>
+</div>
+
+</div>
+</div>
+<div class="sidebar__shadow"></div>
+
+
+<ul class="service__list top">
+<li class="language">
+<a class="language_toggle" role="button" id="language__content" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" aria-controls="language__menu" data-display="static" href="">DE</a>
+<div class="dropdown-menu-wrapper">
+<ul id="language__menu" class="dropdown-menu dropdown-menu-right dropdown-menu-md-left
+language__content" aria-labelledby="language__content" role="menu" aria-label="Sprachauswahl">
+<li role="none"><a role="menuitem" href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-header~panel-lang~panel-opt~lang-1" title="Deutsche Sprache wählen" class="active">DE</a></li><li role="none"><a role="menuitem" href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-header~panel-lang~panel-opt~lang-2" title="Englische Sprache wählen" class="">EN</a></li>
+</ul>
+</div>
+</li>
+<li class="gebaerden_sprache"><a href="/pub/de/gebaerden_sprache" data-argus="Shared-A187"><span class="link-text">Gebärdensprache</span></a></li>
+<li class="leichte_sprache"><a href="/pub/de/leichte_sprache" data-argus="Shared-A128"><span class="link-text">Leichte Sprache</span></a></li>
+
+</ul>
+
+</div>
+</div>
+</div>
+</div>
+<div class="logo_block">
+<div class="container">
+<a class="logo" href="/pub/de/start" data-argus="Shared-A4">
+<h1>
+<img src="https://www.bundesanzeiger.de/pub/wicket/resource/org.apache.wicket.Application/img/logo/logo_bundesanzeiger_de-ver-F2177B1006F33565D523CAC92464CD5B.svg" alt="Bundesanzeiger"/>
+
+</h1>
+</a>
+<a href="https://www.bundesanzeiger-verlag.de/" target="_blank" class="logo_banz">
+<h2><img src="https://www.bundesanzeiger.de/pub/wicket/resource/org.apache.wicket.Application/img/logo/logo_bundesanzeiger_verlag-ver-52ED89B343916436850C140F60C6DEB8.svg" alt="Bundesanzeiger Verlag"/></h2>
+</a>
+</div>
+</div>
+
+<div class="menu_block">
+<div class="container">
+<button class="menu__toggle" type="button" id="menu__content" aria-expanded="false" aria-controls="main__menu"><span></span>Menü</button>
+</div>
+<div class="menu__content" aria-labelledby="menu__content" id="main__menu" role="menu" aria-label="Hauptnavigation">
+<button type="button" class="close_button close" aria-label="Menü schließen"><span aria-hidden="true">x</span></button>
+<div class="container">
+<div class="menu__wrapper">
+<div class="row" id="accordionMenu">
+<div class="col-sm-12 col-lg-3">
+<h2 class="menu_headline" type="button" data-toggle="collapse" data-target="#item1" aria-expanded="false" aria-controls="item1">Suche</h2>
+
+
+<ul id="item1" class="collapse menu_sublevels" data-parent="#accordionMenu" role="menu">
+<li role="none">
+<a role="menuitem" href="/pub/de/suche" data-argus="Shared-A17">Alle Bereiche</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/suche-amtlicher-teil" data-argus="Shared-A18">Amtlicher Teil</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/suche-nichtamtlicher-teil" data-argus="Shared-A19">Nichtamtlicher Teil</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/suche-gerichtlicher-teil" data-argus="Shared-A20">Gerichtlicher Teil</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/suche-gesellschaftsbekanntmachungen" data-argus="Shared-A21">Gesellschaftsbekanntmachungen</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/suche-rechnungslegung" data-argus="Shared-A22">Rechnungslegung/Finanzberichte</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/suche-kapitalmarkt" data-argus="Shared-A23">Kapitalmarkt</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/suche-verschiedene-bekanntmachungen" data-argus="Shared-A24">Verschiedene Bekanntmachungen</a>
+</li>
+</ul>
+</div>
+<div class="col-sm-12 col-lg-3">
+<h2 class="menu_headline" type="button" data-toggle="collapse" data-target="#item2" aria-expanded="false" aria-controls="item2">Schnellzugriff</h2>
+
+
+<ul id="item2" class="collapse menu_sublevels" data-parent="#accordionMenu" role="menu">
+<li role="none">
+<strong><a role="menuitem" href="/pub/de/amtlicher-teil" data-argus="Shared-A25">Amtlicher Teil</a></strong>
+</li><li role="none">
+<strong><a role="menuitem" href="/pub/de/fondsdata" data-argus="Shared-A26">Fondsdata</a></strong>
+</li><li role="none">
+<strong><a role="menuitem" href="/pub/de/to_nlp_start" data-argus="Shared-A27">Netto-Leerverkaufspositionen</a></strong>
+</li><li role="none">
+<strong><a role="menuitem" href="/pub/de/shareholder-forum" data-argus="Shared-A44">Aktionärsforum</a></strong>
+</li><li role="none">
+<strong><a role="menuitem" href="/pub/de/restrukturierungsforum" data-argus="Shared-A130">Restrukturierungsforum</a></strong>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/aktuelle" data-argus="Shared-A28">Aktuelle Meldungen</a>
+</li>
+</ul>
+</div>
+<div class="col-sm-12 col-lg-3">
+<h2 class="menu_headline" type="button" data-toggle="collapse" data-target="#item3" aria-expanded="false" aria-controls="item3">So geht’s</h2>
+
+
+<ul id="item3" class="collapse menu_sublevels" data-parent="#accordionMenu" role="menu">
+<li role="none">
+<a role="menuitem" href="/pub/de/howto-inhalte" data-argus="Shared-A29">Inhalte</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/howto-search" data-argus="Shared-A30">Suchen</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/howto-publish" data-argus="Shared-A31">Veröffentlichen</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/howto-hinterlegen" data-argus="Shared-A32">Jahresabschluss hinterlegen</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/howto-newsletter" data-argus="Shared-A33">Newsletter</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/howto-fondsdata" data-argus="Shared-A34">Fondsdata</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/howto-shareholder-forum" data-argus="Shared-A35">Aktionärsforum</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/howto-register" data-argus="Shared-A36">Registrieren</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/howto-info-service" data-argus="Shared-A37">Info-Dienst</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/howto-data-statistics" data-argus="Shared-A38">Daten und Statistiken</a>
+</li>
+</ul>
+</div>
+<div class="col-sm-12 col-lg-3">
+<h2 class="menu_headline" type="button" data-toggle="collapse" data-target="#item4" aria-expanded="false" aria-controls="item4">Service</h2>
+
+
+<ul id="item4" class="collapse menu_sublevels" data-parent="#accordionMenu" role="menu">
+<li role="none">
+<a role="menuitem" href="/reg/de/info-dienst" data-argus="Shared-A39">Info-Dienst</a>
+</li><li role="none">
+<a role="menuitem" href="/reg/de/newsletter" data-argus="Shared-A16">Newsletter</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/faq" data-argus="Shared-A15">Fragen &amp; Antworten</a>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+
+<div class="user_block">
+<div class="container">
+
+<div class="dropdown login_block">
+<button class="login__toggle" type="button" id="login__content" data-toggle="dropdown" data-flip="false" aria-haspopup="true" aria-expanded="false" aria-controls="login__menu">
+<span class="btn-text">Anmelden</span><i class="fas fa-lock"></i>
+
+</button>
+<div class="dropdown-menu dropdown-menu-right login__content" aria-labelledby="login__content" id="login__menu">
+<div class="dropdown-menu-wrapper">
+<div class="login__form">
+
+
+<form id="id4f" method="post" action="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-header~panel-user~panel-login~form~panel-form"><div id="id4f_hf_0" hidden="" class="hidden-fields"></div>
+
+<div class="form-group">
+<input type="text" class="form-control" value="" name="email" id="id22" data-argus="Shared-L10" placeholder="E-Mail-Adresse oder Benutzername"/>
+</div>
+<div class="form-group">
+<input type="password" class="form-control" value="" name="password" id="id23" data-argus="Shared-L11" placeholder="Passwort"/>
+</div>
+<input type="submit" class="btn btn-green btn-extend" name="login-button" id="id50" value="Anmelden" data-argus="Shared-B8"/>
+</form>
+
+
+</div>
+<div class="login__links">
+<ul role="menu">
+<li role="none">
+<strong><a role="menuitem" href="/reg/de/account/registrierung-start" data-argus="Shared-A41">Registrieren</a></strong>
+</li><li role="none">
+<a role="menuitem" href="/reg/de/change_password" data-argus="Shared-A72">Passwort vergessen?</a>
+</li><li role="none">
+<a role="menuitem" href="/reg/de/resend_confirm_mail" data-argus="Shared-A71">Registrierungs-E-Mail erneut zusenden</a>
+</li><li role="none">
+<a role="menuitem" href="https://www.bundesanzeiger.de/pub/de/help?key=Shared-Q1" data-argus="Shared-A73">Hilfe</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/sicherheitshinweise" data-argus="Shared-A11">Sicherheitshinweise</a>
+</li><li role="none">
+
+</li><li role="none">
+
+</li><li role="none">
+
+</li><li role="none">
+
+</li><li role="none">
+
+</li><li role="none">
+
+</li><li role="none">
+
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="menu__shadow"></div>
+
+
+</header>
+<div id="content" class="content">
+
+<section class="breadcrumb">
+
+
+<div class="container">
+<div class="row">
+<ul class="breadcrumb-nav" role="menu" aria-label="Sie befinden sich hier:">
+<li role="none">
+<a role="menuitem" href="https://www.bundesanzeiger.de/pub/de/start" data-argus="S1">Startseite</a>
+</li><li role="none" class="active">
+<a role="menuitem" data-argus="S24" disabled="disabled" class="active" href="#">Suchergebnis</a>
+</li>
+</ul>
+</div>
+</div>
+
+
+</section>
+
+
+<section class="indent_top_small indent_bottom_small">
+<div class="container">
+<div class="row">
+<div class="col-sm-12">
+
+<div class="content-container margin_bottom_large">
+
+<h1>Suchergebnis</h1>
+
+
+
+
+<div id="searchoptions" class="accordion" data-toggle="false">
+<div class="card">
+<div id="searchoptions-headings" class="card-header header-accordion">
+
+<h4><button data-target="#searchoptions-collapse" aria-controls="searchoptions-collapse" name="show-form-button" id="id51" data-argus="B21" class="btn btn-link" type="button" data-toggle="collapse" aria-expanded="false">Suchoptionen</button>
+</h4>
+</div>
+<div class="collapse " id="searchoptions-collapse">
+<div class="card-body">
+
+<div class="search_container all">
+<form class="search-form" id="id26" method="post" action="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-detail~form-search~form"><div id="id26_hf_0" hidden="" class="hidden-fields"></div><div hidden="" class="hidden-fields"><input type="text" tabindex="-1" autocomplete="off"/><input id="id26_hf_1" type="submit" tabindex="-1" name="search-button" /></div>
+<div class="alert alert-primary mb-20">
+
+<p>Eine Volltextsuche über den Veröffentlichungsinhalt ist bei Rechnungslegungsunterlagen und Unternehmensberichten – d. h. bei Veröffentlichungen im Bereich „Rechnungslegung/Finanzberichte“ – nicht möglich.</p><p>Hinterlegte Jahresabschlussunterlagen stehen im <a href="https://www.unternehmensregister.de">Unternehmensregister</a> zur Beauskunftung zur Verfügung.</p>
+</div>
+
+<div class="search-row">
+  <div class="col"><input value="SAP SE" name="fulltext" id="id24" data-argus="L43" type="text" placeholder="Suchbegriff eingeben" class="form-control"/>
+  </div>
+</div>
+<div id="part_search_reset" class="noscript-only">
+<h2>Alle Bereiche</h2>
+<input type="submit" class="btn btn-green btn-cat-select noscript-only" name="reset-button" id="id52" value="Auswahl zurücksetzen" data-argus="B35">
+</div>
+<div class="search-row">
+<div class="col">
+<div id="part_search" class="accordion" data-toggle="false">
+<div class="card">
+<div id="part_search-heading" class="card-header header-accordion">
+
+<h4><button data-target="#part_search-collapse" aria-controls="part_search-collapse" name="accordion-show-area-button" id="id53" data-argus="Shared-A17" class="btn btn-link" type="button" data-toggle="collapse" aria-expanded="false">Alle Bereiche</button>
+</h4>
+</div>
+<div class="collapse" id="part_search-collapse">
+<div class="card-body">
+<div class="row">
+<div class="col">
+
+
+<div id="part_cat_all">
+<div class="custom-control custom-radio">
+<input type="radio" id="id1e-0" name="panelCategories:groupCategories" value="0" checked="checked" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-0">Alle Bereiche</label>
+</div>
+</div>
+<div id="part_cat" class="accordion" data-toggle="false">
+<div class="card">
+<div class="card-header">
+
+<h4><button data-target="#area1" aria-controls="area1" name="panelCategories:groupCategories:accordion-show-area1" id="id54" data-argus="Shared-A18" class="btn btn-link" type="button" data-toggle="collapse" aria-expanded="false">Amtlicher Teil</button>
+</h4>
+</div>
+<div id="area1" class="collapse" data-parent="#part_cat">
+<div class="card-body">
+<div class="row">
+<div class="col">
+<div class="custom-control custom-radio">
+<input type="radio" id="id1e-6" name="panelCategories:groupCategories" value="6" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-6">Verkündungen</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-7" name="panelCategories:groupCategories" value="7" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-7">Bekanntmachungen</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-73" name="panelCategories:groupCategories" value="73" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-73">Ausschreibungen</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-74" name="panelCategories:groupCategories" value="74" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-74">Sonstiges</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-75" name="panelCategories:groupCategories" value="75" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-75">Hinweise</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-93" name="panelCategories:groupCategories" value="93" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-93">Ersatzverkündungen und -bekanntmachungen</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-999991" name="panelCategories:groupCategories" value="999991" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-999991">Alles</label>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="card">
+<div class="card-header">
+
+<h4><button data-target="#area2" aria-controls="area2" name="panelCategories:groupCategories:accordion-show-area2" id="id55" data-argus="Shared-A19" class="btn btn-link" type="button" data-toggle="collapse" aria-expanded="false">Nichtamtlicher Teil</button>
+</h4>
+</div>
+<div id="area2" class="collapse" data-parent="#part_cat">
+<div class="card-body">
+<div class="row">
+<div class="col">
+<div class="custom-control custom-radio">
+<input type="radio" id="id1e-54" name="panelCategories:groupCategories" value="54" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-54">Institutionelle Veröffentlichungen</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-76" name="panelCategories:groupCategories" value="76" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-76">Sonstiges</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-999992" name="panelCategories:groupCategories" value="999992" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-999992">Alles</label>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="card">
+<div class="card-header">
+
+<h4><button data-target="#area5" aria-controls="area5" name="panelCategories:groupCategories:accordion-show-area5" id="id56" data-argus="Shared-A20" class="btn btn-link" type="button" data-toggle="collapse" aria-expanded="false">Gerichtlicher Teil</button>
+</h4>
+</div>
+<div id="area5" class="collapse" data-parent="#part_cat">
+<div class="card-body">
+<div class="row">
+<div class="col">
+<div class="custom-control custom-radio">
+<input type="radio" id="id1e-12" name="panelCategories:groupCategories" value="12" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-12">Aufgebote von Personen in Grundstücks- und Nachlasssachen</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-13" name="panelCategories:groupCategories" value="13" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-13">Aufgebote von Urkunden</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-14" name="panelCategories:groupCategories" value="14" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-14">Ausschlussurteile, Kraftloserklärungen und sonstige Beschlüsse</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-15" name="panelCategories:groupCategories" value="15" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-15">Beiladungen</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-29" name="panelCategories:groupCategories" value="29" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-29">Register nach dem Kapitalanleger-Musterverfahrensgesetz (KapMuG)</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-59" name="panelCategories:groupCategories" value="59" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-59">Konkurse, Gesamtvollstreckungs- und Insolvenzverfahren</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-11" name="panelCategories:groupCategories" value="11" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-11">Öffentliche Zustellungen</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-51" name="panelCategories:groupCategories" value="51" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-51">Register anonymer und pseudonymer Werke</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-87" name="panelCategories:groupCategories" value="87" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-87">Restrukturierungsforum</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-16" name="panelCategories:groupCategories" value="16" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-16">Strafsachen</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-62" name="panelCategories:groupCategories" value="62" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-62">Verschiedenes</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-999995" name="panelCategories:groupCategories" value="999995" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-999995">Alles</label>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="card">
+<div class="card-header">
+
+<h4><button data-target="#area6" aria-controls="area6" name="panelCategories:groupCategories:accordion-show-area6" id="id57" data-argus="Shared-A21" class="btn btn-link" type="button" data-toggle="collapse" aria-expanded="false">Gesellschaftsbekanntmachungen</button>
+</h4>
+</div>
+<div id="area6" class="collapse" data-parent="#part_cat">
+<div class="card-body">
+<div class="row">
+<div class="col">
+<div class="custom-control custom-radio">
+<input type="radio" id="id1e-1" name="panelCategories:groupCategories" value="1" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-1">Aktiengesellschaften (AG, SE)</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-2" name="panelCategories:groupCategories" value="2" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-2">Kommanditgesellschaften auf Aktien (KGaA)</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-3" name="panelCategories:groupCategories" value="3" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-3">Gesellschaften mit beschränkter Haftung (GmbH, UG (haftungsbeschränkt))</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-5" name="panelCategories:groupCategories" value="5" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-5">Personengesellschaften (GbR, eGbR, OHG, KG, PartG, PartGmbB)</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-4" name="panelCategories:groupCategories" value="4" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-4">Genossenschaften (eG, SCE)</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-94" name="panelCategories:groupCategories" value="94" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-94">Europäische wirtschaftliche Interessenvereinigungen (EWIV)</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-34" name="panelCategories:groupCategories" value="34" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-34">Versicherungsvereine auf Gegenseitigkeit (VVaG)</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-35" name="panelCategories:groupCategories" value="35" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-35">Ausländische Gesellschaften</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-30" name="panelCategories:groupCategories" value="30" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-30">Aktionärsforum</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-999996" name="panelCategories:groupCategories" value="999996" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-999996">Alles</label>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="card">
+<div class="card-header">
+
+<h4><button data-target="#area22" aria-controls="area22" name="panelCategories:groupCategories:accordion-show-area22" id="id58" data-argus="Shared-A22" class="btn btn-link" type="button" data-toggle="collapse" aria-expanded="false">Rechnungslegung/Finanzberichte</button>
+</h4>
+</div>
+<div id="area22" class="collapse" data-parent="#part_cat">
+<div class="card-body">
+<div class="row">
+<div class="col">
+<div class="custom-control custom-radio">
+<input type="radio" id="id1e-67" name="panelCategories:groupCategories" value="67" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-67">Jahresabschlüsse</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-69" name="panelCategories:groupCategories" value="69" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-69">Halbjahresfinanzbericht nach WpHG</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-70" name="panelCategories:groupCategories" value="70" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-70">Quartalsfinanzbericht nach WpHG</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-71" name="panelCategories:groupCategories" value="71" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-71">Zwischenmitteilung nach WpHG</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-63" name="panelCategories:groupCategories" value="63" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-63">§§ 264 Abs. 3, 264b HGB (Befreiung)</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-91" name="panelCategories:groupCategories" value="91" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-91">Gesonderter nichtfinanzieller Bericht außerhalb des Lageberichts</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-78" name="panelCategories:groupCategories" value="78" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-78">Rechnungslegungsunterlagen von Krankenkassen und Kassenärztlichen Vereinigungen</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-66" name="panelCategories:groupCategories" value="66" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-66">Hinweis nach WpHG</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-64" name="panelCategories:groupCategories" value="64" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-64">Fehlerbekanntmachungen</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-89" name="panelCategories:groupCategories" value="89" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-89">Zahlungsberichte</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-65" name="panelCategories:groupCategories" value="65" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-65">Hinterlegungsbekanntmachungen (Geschäftsjahre beginnend vor 1.1.2006)</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-68" name="panelCategories:groupCategories" value="68" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-68">Verschiedenes</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-9999922" name="panelCategories:groupCategories" value="9999922" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-9999922">Alles</label>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="card">
+<div class="card-header">
+
+<h4><button data-target="#area7" aria-controls="area7" name="panelCategories:groupCategories:accordion-show-area7" id="id59" data-argus="Shared-A23" class="btn btn-link" type="button" data-toggle="collapse" aria-expanded="false">Kapitalmarkt</button>
+</h4>
+</div>
+<div id="area7" class="collapse" data-parent="#part_cat">
+<div class="card-body">
+<div class="row">
+<div class="col">
+<div class="custom-control custom-radio">
+<input type="radio" id="id1e-18" name="panelCategories:groupCategories" value="18" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-18">Investmentvermögen</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-36" name="panelCategories:groupCategories" value="36" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-36">Besteuerungsgrundlagen</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-90" name="panelCategories:groupCategories" value="90" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-90">Herkunftsstaat</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-56" name="panelCategories:groupCategories" value="56" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-56">Insiderinformationen</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-57" name="panelCategories:groupCategories" value="57" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-57">Eigengeschäfte von Führungskräften</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-58" name="panelCategories:groupCategories" value="58" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-58">Stimmrechtsmitteilungen</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-72" name="panelCategories:groupCategories" value="72" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-72">Leerverkäufe</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-19" name="panelCategories:groupCategories" value="19" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-19">Fondspreise</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-20" name="panelCategories:groupCategories" value="20" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-20">Inventarwerte</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-21" name="panelCategories:groupCategories" value="21" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-21">Aktienkurse</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-61" name="panelCategories:groupCategories" value="61" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-61">Wertpapiere</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-77" name="panelCategories:groupCategories" value="77" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-77">Vermögensanlagen</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-39" name="panelCategories:groupCategories" value="39" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-39">Wertpapiererwerb und Übernahme</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-60" name="panelCategories:groupCategories" value="60" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-60">Hinweise nach Solvabilitätsverordnung</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-79" name="panelCategories:groupCategories" value="79" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-79">Offenlegungen nach VO (EU) 575/2013, VO (EU) 2019/2033</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-999997" name="panelCategories:groupCategories" value="999997" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-999997">Alles</label>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="card">
+<div class="card-header">
+
+<h4><button data-target="#area8" aria-controls="area8" name="panelCategories:groupCategories:accordion-show-area8" id="id5a" data-argus="Shared-A24" class="btn btn-link" type="button" data-toggle="collapse" aria-expanded="false">Verschiedene Bekanntmachungen</button>
+</h4>
+</div>
+<div id="area8" class="collapse" data-parent="#part_cat">
+<div class="card-body">
+<div class="row">
+<div class="col">
+<div class="custom-control custom-radio">
+<input type="radio" id="id1e-40" name="panelCategories:groupCategories" value="40" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-40">Ausschreibungen</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-92" name="panelCategories:groupCategories" value="92" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-92">Berichte nach DSA, DDG, NetzDG</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-41" name="panelCategories:groupCategories" value="41" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-41">Berufsgenossenschaften</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-42" name="panelCategories:groupCategories" value="42" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-42">Krankenkassen (Gesetzliche-, Betriebs- und Innungskassen)</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-43" name="panelCategories:groupCategories" value="43" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-43">Vereine und Verbände</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-44" name="panelCategories:groupCategories" value="44" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-44">Verwertungsgesellschaften</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-26" name="panelCategories:groupCategories" value="26" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-26">Verschiedenes</label>
+</div><div class="custom-control custom-radio">
+<input type="radio" id="id1e-999998" name="panelCategories:groupCategories" value="999998" class="radio custom-control-input"/>
+<label class="custom-control-label" for="id1e-999998">Alles</label>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<input type="submit" class="btn btn-green btn-cat-select noscript-only" name="panelCategories:groupCategories:apply-button" id="id5b" value="Auswahl anwenden" data-argus="B36">
+
+
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="submit-wrapper noscript-only">
+<input type="submit" class="btn btn-green" name="other-options-button" id="id1f" value="Weiter eingrenzen" data-argus="B24"/>
+</div>
+</div>
+</div>
+<div class="search-row">
+
+</div>
+<div class="search-row datepicker">
+<div class="row">
+<div class="col-lg-4">
+<p class="label">Veröffentlichungszeitraum</p>
+</div>
+<div class="col-md-6 col-lg-4">
+
+<div class="form-group">
+  <div id="date-from" class="input-group date">
+    <div class="input-group-prepend">
+      <span class="input-group-text">von</span>
+    </div><input type="text" value="" name="start_date" id="id5c" data-argus="L44" placeholder="tt.mm.jjjj" class="form-control"/>
+    <span class="input-group-addon"><span class="fa fa-calendar-alt"></span></span>
+  </div>
+</div>
+</div>
+<div class="col-md-6 col-lg-4">
+
+<div class="form-group">
+  <div id="date-to" class="input-group date">
+    <div class="input-group-prepend">
+      <span class="input-group-text">bis</span>
+    </div><input type="text" value="" name="end_date" id="id5d" data-argus="L45" placeholder="tt.mm.jjjj" class="form-control"/>
+    <span class="input-group-addon"><span class="fa fa-calendar-alt"></span></span>
+  </div>
+</div>
+</div>
+</div>
+</div>
+<div class="search-row submit">
+<input type="submit" class="btn btn-green" name="search-button" id="id25" value="Suchen" data-argus="B20"/>
+</div>
+</form>
+</div>
+
+</div>
+</div>
+</div>
+</div>
+
+<div id="piwik_info" class="result_info" data-searchterm="SAP SE" data-count="25091">
+<h2>Ergebnisse für Suchbegriff <strong>„SAP SE“</strong></h2>
+</div>
+
+
+<div class="result_filter">
+<p class="label">Suchbereich:</p>
+<div class="dropdown">
+<button id="dropdownMenuButton" name="result-filter-panel:dropdown-show-filter-button" data-argus="B26" class="btn dropdown-toggle" type="button" data-toggle="dropdown" aria-expanded="false" aria-haspopup="true" data-display="static">Alle Bereiche<span class="counter"> (25091 Treffer)</span></button>
+<div class="dropdown-menu" aria-labelledby="dropdownMenuButton">
+<ul class="filter-list">
+<li  class="link-filter-n0 "><a class=" active">Alle Bereiche (25091)</a></li><li id="1" class="link-filter-n1 "><a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-result~filter~panel-filter~list-2" class="">Amtlicher Teil (14)</a></li><li id="5" class="link-filter-n1 "><a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-result~filter~panel-filter~list-3" class="">Gerichtlicher Teil (3)</a></li><li id="6" class="link-filter-n1 "><a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-result~filter~panel-filter~list-4" class="">Gesellschaftsbekanntmachungen (231)</a></li><li id="7" class="link-filter-n1 "><a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-result~filter~panel-filter~list-5" class="">Kapitalmarkt (24695)</a></li><li id="22" class="link-filter-n1 "><a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-result~filter~panel-filter~list-6" class="">Rechnungslegung/Finanzberichte (132)</a></li><li id="8" class="link-filter-n1 "><a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-result~filter~panel-filter~list-7" class="">Verschiedene Bekanntmachungen (16)</a></li>
+</ul>
+</div>
+</div>
+</div>
+<div class="result_filter_btn">
+<ul class="filter-btn-list">
+
+</ul>
+</div>
+
+
+
+<div class="result_pager">
+<div class="page_count">
+<span>1255</span>&nbsp;Seiten
+</div>
+<div class="pager_wrapper">
+<nav aria-label="Pagination">
+<div class="pagination">
+<div class="left">
+<div class="first">
+<a class="page-nav" title="Zur ersten Seite"><i class="fas fa-step-backward"></i></a>
+</div>
+<div class="prev">
+<a class="page-nav" title="Zur vorherigen Seite"><i class="fas fa-angle-left"></i></a>
+</div>
+</div>
+<div class="middle">
+
+<div class="page-item first" ><a class=" active" title="Zur Seite 1">
+1
+</a></div>
+
+<div class="page-item first" ><a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-top~nav-pager-navigation-1-pagination~link" class="" title="Zur Seite 2">
+2
+</a></div>
+
+<div class="page-item first" ><a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-top~nav-pager-navigation-2-pagination~link" class="" title="Zur Seite 3">
+3
+</a></div>
+
+<div class="page-item first" ><a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-top~nav-pager-navigation-3-pagination~link" class="" title="Zur Seite 4">
+4
+</a></div>
+
+<div class="page-item first" ><a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-top~nav-pager-navigation-4-pagination~link" class="" title="Zur Seite 5">
+5
+</a></div>
+
+</div>
+<div class="right">
+<div class="next">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-top~nav-pager-next" class="page-nav" title="Zur nächsten Seite"><i class="fas fa-angle-right"></i></a>
+</div>
+<div class="last">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-top~nav-pager-last" class="page-nav" title="Zur letzten Seite"><i class="fas fa-step-forward"></i></a>
+</div>
+</div>
+</div>
+</nav>
+</div>
+<div class="pager_items">
+<form id="id5f" method="post" action="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-top~nav-form"><div id="id5f_hf_0" hidden="" class="hidden-fields"></div>
+<label id="id60" for="id20">Ergebnisse pro Seite:</label>
+<div class="form-group">
+
+<div class="select-wrapper"><select name="hitsperpage-select" id="id20" data-argus="L16" data-live-search="false" data-live-search-style="contains" data-select-on-tab="true" class="select">
+<option value="argus-HitsPerPage10">10</option>
+<option selected="selected" value="argus-HitsPerPage20">20</option>
+<option value="argus-HitsPerPage30">30</option>
+<option value="argus-HitsPerPage50">50</option>
+<option value="argus-HitsPerPage100">100</option>
+</select>
+</div>
+<button type="submit" class="btn btn-update noscript-only" title="Aktualisieren">
+<i class="fas fa-sync-alt"></i><span class="sr-only">Aktualisieren</span>
+</button>
+</div>
+</form>
+</div>
+</div>
+
+
+<div class="container result_container global-search">
+<div class="row sticky-top result_header">
+<div class="col-md-3">Name&nbsp;<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-sort~name~desc" class="btn btn-sort " title="Absteigend sortieren"><i class="fas fa-angle-down"></i></a>&nbsp;<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-sort~name~asc" class="btn btn-sort " title="Aufsteigend sortieren"><i class="fas fa-angle-up"></i></a></div>
+<div class="col-md-2">Bereich</div>
+<div class="col-md-5">Information&nbsp;<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-sort~info~desc" class="btn btn-sort " title="Absteigend sortieren"><i class="fas fa-angle-down"></i></a>&nbsp;<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-sort~info~asc" class="btn btn-sort " title="Aufsteigend sortieren"><i class="fas fa-angle-up"></i></a></div>
+<div class="col-md-2">V.-Datum&nbsp;<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-sort~date~desc" class="btn btn-sort " title="Absteigend sortieren"><i class="fas fa-angle-down"></i></a>&nbsp;<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-sort~date~asc" class="btn btn-sort " title="Aufsteigend sortieren"><i class="fas fa-angle-up"></i></a></div>
+</div>
+
+
+<div class="row back">
+<div class="col-md-3">
+<div class="first">
+SAP SE
+
+<br/>Walldorf
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="part">
+Gesellschafts-<br/>bekanntmachungen
+</div>
+</div>
+<div class="col-md-5">
+<div class="info">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-rows-0-search~table~row~panel-publication~link">Dividendenbekanntmachung</a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="date">
+06.05.2026
+</div>
+</div>
+</div>
+
+
+
+
+
+
+
+<div class="row">
+<div class="col-md-3">
+<div class="first">
+SAP SE
+
+<br/>Walldorf
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="part">
+Gesellschafts-<br/>bekanntmachungen
+</div>
+</div>
+<div class="col-md-5">
+<div class="info">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-rows-1-search~table~row~panel-publication~link">Bekanntmachung der SAP SE, Walldorf gemäß § 62 Abs. 3 S. 2 Hs. 1 UmwG - Hinweis auf bevorstehende Verschmelzung -</a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="date">
+28.04.2026
+</div>
+</div>
+</div>
+
+
+
+
+
+
+
+<div class="row back">
+<div class="col-md-3">
+<div class="first">
+SAP SE
+
+<br/>Walldorf
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="part">
+Gesellschafts-<br/>bekanntmachungen
+</div>
+</div>
+<div class="col-md-5">
+<div class="info">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-rows-2-search~table~row~panel-publication~link">Einladung zur ordentlichen Hauptversammlung</a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="date">
+25.03.2026
+</div>
+</div>
+</div>
+
+
+
+
+
+
+
+<div class="row">
+<div class="col-md-3">
+<div class="first">
+SAP SE
+
+<br/>Walldorf
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="part">
+Gesellschafts-<br/>bekanntmachungen
+</div>
+</div>
+<div class="col-md-5">
+<div class="info">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-rows-3-search~table~row~panel-publication~link">Hinweis auf bevorstehende Verschmelzung </a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="date">
+27.05.2025
+</div>
+</div>
+</div>
+
+
+
+
+
+
+
+<div class="row back">
+<div class="col-md-3">
+<div class="first">
+SAP SE
+
+<br/>Walldorf
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="part">
+Gesellschafts-<br/>bekanntmachungen
+</div>
+</div>
+<div class="col-md-5">
+<div class="info">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-rows-4-search~table~row~panel-publication~link">Dividendenbekanntmachung</a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="date">
+14.05.2025
+</div>
+</div>
+</div>
+
+
+
+
+
+
+
+<div class="row">
+<div class="col-md-3">
+<div class="first">
+SAP SE
+
+<br/>Walldorf
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="part">
+Gesellschafts-<br/>bekanntmachungen
+</div>
+</div>
+<div class="col-md-5">
+<div class="info">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-rows-5-search~table~row~panel-publication~link">Einladung zur ordentlichen Hauptversammlung</a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="date">
+02.04.2025
+</div>
+</div>
+</div>
+
+
+
+
+
+
+
+<div class="row back">
+<div class="col-md-3">
+<div class="first">
+SAP SE
+
+<br/>Walldorf
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="part">
+Gesellschafts-<br/>bekanntmachungen
+</div>
+</div>
+<div class="col-md-5">
+<div class="info">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-rows-6-search~table~row~panel-publication~link">Dividendenbekanntmachung</a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="date">
+16.05.2024
+</div>
+</div>
+</div>
+
+
+
+
+
+
+
+<div class="row">
+<div class="col-md-3">
+<div class="first">
+SAP SE
+
+<br/>Walldorf
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="part">
+Gesellschafts-<br/>bekanntmachungen
+</div>
+</div>
+<div class="col-md-5">
+<div class="info">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-rows-7-search~table~row~panel-publication~link">Bekanntmachung der SAP SE, Walldorf, gemäß § 62 Abs. 3 S. 2 Hs. 1 UmwG - Hinweis auf bevorstehende Verschmelzung</a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="date">
+30.04.2024
+</div>
+</div>
+</div>
+
+
+
+
+
+
+
+<div class="row back">
+<div class="col-md-3">
+<div class="first">
+SAP SE
+
+<br/>Walldorf
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="part">
+Gesellschafts-<br/>bekanntmachungen
+</div>
+</div>
+<div class="col-md-5">
+<div class="info">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-rows-8-search~table~row~panel-publication~link">Einladung zur ordentlichen Hauptversammlung</a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="date">
+05.04.2024
+</div>
+</div>
+</div>
+
+
+
+
+
+
+
+<div class="row">
+<div class="col-md-3">
+<div class="first">
+SAP SE
+
+<br/>Walldorf
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="part">
+Gesellschafts-<br/>bekanntmachungen
+</div>
+</div>
+<div class="col-md-5">
+<div class="info">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-rows-9-search~table~row~panel-publication~link">Bekanntmachung gemäß § 62 Abs. 3 S. 2 Hs. 1 UmwG - Hinweis auf bevorstehende Verschmelzung -</a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="date">
+05.07.2023
+</div>
+</div>
+</div>
+
+
+
+
+
+
+
+<div class="row back">
+<div class="col-md-3">
+<div class="first">
+SAP SE
+
+<br/>Walldorf
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="part">
+Gesellschafts-<br/>bekanntmachungen
+</div>
+</div>
+<div class="col-md-5">
+<div class="info">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-rows-10-search~table~row~panel-publication~link">Dividendenbekanntmachung</a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="date">
+12.05.2023
+</div>
+</div>
+</div>
+
+
+
+
+
+
+
+<div class="row">
+<div class="col-md-3">
+<div class="first">
+SAP SE
+
+<br/>Walldorf
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="part">
+Gesellschafts-<br/>bekanntmachungen
+</div>
+</div>
+<div class="col-md-5">
+<div class="info">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-rows-11-search~table~row~panel-publication~link">Einladung zur ordentlichen Hauptversammlung</a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="date">
+31.03.2023
+</div>
+</div>
+</div>
+
+
+
+
+
+
+
+<div class="row back">
+<div class="col-md-3">
+<div class="first">
+Bridgewater Associates, LP
+
+<br/>Connecticut
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="part">
+Kapitalmarkt
+</div>
+</div>
+<div class="col-md-5">
+<div class="info">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-rows-12-search~table~row~panel-publication~link">Mitteilung von Netto-Leerverkaufspositionen</a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<br/>SAP SE
+
+
+<br/>DE0007164600
+
+
+
+
+
+
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="date">
+20.10.2022
+</div>
+</div>
+</div>
+
+
+
+
+
+
+
+<div class="row">
+<div class="col-md-3">
+<div class="first">
+Bridgewater Associates, LP
+
+<br/>Connecticut
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="part">
+Kapitalmarkt
+</div>
+</div>
+<div class="col-md-5">
+<div class="info">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-rows-13-search~table~row~panel-publication~link">Mitteilung von Netto-Leerverkaufspositionen</a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<br/>SAP SE
+
+
+<br/>DE0007164600
+
+
+
+
+
+
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="date">
+04.10.2022
+</div>
+</div>
+</div>
+
+
+
+
+
+
+
+<div class="row back">
+<div class="col-md-3">
+<div class="first">
+Bridgewater Associates, LP
+
+<br/>Connecticut
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="part">
+Kapitalmarkt
+</div>
+</div>
+<div class="col-md-5">
+<div class="info">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-rows-14-search~table~row~panel-publication~link">Mitteilung von Netto-Leerverkaufspositionen</a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<br/>SAP SE
+
+
+<br/>DE0007164600
+
+
+
+
+
+
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="date">
+25.07.2022
+</div>
+</div>
+</div>
+
+
+
+
+
+
+
+<div class="row">
+<div class="col-md-3">
+<div class="first">
+Bridgewater Associates, LP
+
+<br/>Connecticut
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="part">
+Kapitalmarkt
+</div>
+</div>
+<div class="col-md-5">
+<div class="info">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-rows-15-search~table~row~panel-publication~link">Mitteilung von Netto-Leerverkaufspositionen</a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<br/>SAP SE
+
+
+<br/>DE0007164600
+
+
+
+
+
+
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="date">
+11.07.2022
+</div>
+</div>
+</div>
+
+
+
+
+
+
+
+<div class="row back">
+<div class="col-md-3">
+<div class="first">
+SAP SE
+
+<br/>Walldorf
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="part">
+Rechnungslegung/<br/>Finanzberichte
+</div>
+</div>
+<div class="col-md-5">
+<div class="info">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-rows-16-search~table~row~panel-publication~link">Jahres- und Konzernabschluss zum Geschäftsjahr vom 01.01.2021 bis zum 31.12.2021</a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<br/><b>Ergänzung der Veröffentlichung vom 06.05.2022</b>
+
+
+
+<div><a href="" class="toggle-link collapsed argus-A43" style="display: none;" id="id48" title="Befreite Unternehmen anzeigen" onclick="$(&#039;#idbf&#039;).show();$(&#039;#id48&#039;).hide();$(&#039;.subsidiary-list16&#039;).show();return false;">Befreite Unternehmen anzeigen</a></div>
+<div><a href="" class="toggle-link argus-A44" style="display: none;" id="idbf" title="Befreite Unternehmen verbergen" onclick="$(&#039;#id48&#039;).show();$(&#039;#idbf&#039;).hide();$(&#039;.subsidiary-list16&#039;).hide();return false;">Befreite Unternehmen verbergen</a></div>
+</div>
+</div>
+<div class="col-md-2">
+<div class="date">
+11.07.2022
+</div>
+</div>
+</div>
+
+
+
+
+
+<div class="row subsidiary_list odd subsidiary-list16">
+<div class="col-md-3"><div class="first">&#160;</div></div>
+<div class="col-md-2"><div class="part">&#160;</div></div>
+<div class="col-md-5"><div class="info">Concur (Germany) GmbH, Frankfurt am Main; Hybris Gesellschaft mit beschränkter Haftung, München; OutlookSoft Deutschland GmbH, Walldorf; SAP Deutschland SE &amp; Co. KG, Walldorf; SAP Erste Beteiligungs - und Vermögensverwaltungs GmbH, Walldorf; SAPHosting Beteiligungs GmbH, St. Leon-Rot; SAP Puerto Rico GmbH, Walldorf; SAP Sechste Beteiligungs- und Vermögensverwaltungs GmbH, Walldorf; SAP Siebte Beteiligungs- und Vermögensverwaltungs GmbH, Walldorf; SAP Ventures Investment GmbH, Walldorf; SAP Zweite Beteiligungs - und Vermögensverwaltungs GmbH, Walldorf</div></div>
+<div class="col-md-2"><div class="date">&#160;</div></div>
+</div>
+
+
+
+<div class="row">
+<div class="col-md-3">
+<div class="first">
+Bridgewater Associates, LP
+
+<br/>Connecticut
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="part">
+Kapitalmarkt
+</div>
+</div>
+<div class="col-md-5">
+<div class="info">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-rows-17-search~table~row~panel-publication~link">Mitteilung von Netto-Leerverkaufspositionen</a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<br/>SAP SE
+
+
+<br/>DE0007164600
+
+
+
+
+
+
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="date">
+08.07.2022
+</div>
+</div>
+</div>
+
+
+
+
+
+
+
+<div class="row back">
+<div class="col-md-3">
+<div class="first">
+Bridgewater Associates, LP
+
+<br/>Connecticut
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="part">
+Kapitalmarkt
+</div>
+</div>
+<div class="col-md-5">
+<div class="info">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-rows-18-search~table~row~panel-publication~link">Mitteilung von Netto-Leerverkaufspositionen</a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<br/>SAP SE
+
+
+<br/>DE0007164600
+
+
+
+
+
+
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="date">
+20.06.2022
+</div>
+</div>
+</div>
+
+
+
+
+
+
+
+<div class="row">
+<div class="col-md-3">
+<div class="first">
+Bridgewater Associates, LP
+
+<br/>Connecticut
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="part">
+Kapitalmarkt
+</div>
+</div>
+<div class="col-md-5">
+<div class="info">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-search~table~panel-rows-19-search~table~row~panel-publication~link">Mitteilung von Netto-Leerverkaufspositionen</a>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<br/>SAP SE
+
+
+<br/>DE0007164600
+
+
+
+
+
+
+
+</div>
+</div>
+<div class="col-md-2">
+<div class="date">
+17.06.2022
+</div>
+</div>
+</div>
+
+
+
+
+
+
+</div>
+
+
+<div class="result_pager bottom">
+<div class="page_count">
+<span>1255</span>&nbsp;Seiten
+</div>
+<div class="pager_wrapper">
+<nav aria-label="Pagination">
+<div class="pagination">
+<div class="left">
+<div class="first">
+<a class="page-nav" title="Zur ersten Seite"><i class="fas fa-step-backward"></i></a>
+</div>
+<div class="prev">
+<a class="page-nav" title="Zur vorherigen Seite"><i class="fas fa-angle-left"></i></a>
+</div>
+</div>
+<div class="middle">
+
+<div class="page-item first" ><a class=" active" title="Zur Seite 1">
+1
+</a></div>
+
+<div class="page-item first" ><a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-bottom~nav-pager-navigation-1-pagination~link" class="" title="Zur Seite 2">
+2
+</a></div>
+
+<div class="page-item first" ><a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-bottom~nav-pager-navigation-2-pagination~link" class="" title="Zur Seite 3">
+3
+</a></div>
+
+<div class="page-item first" ><a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-bottom~nav-pager-navigation-3-pagination~link" class="" title="Zur Seite 4">
+4
+</a></div>
+
+<div class="page-item first" ><a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-bottom~nav-pager-navigation-4-pagination~link" class="" title="Zur Seite 5">
+5
+</a></div>
+
+</div>
+<div class="right">
+<div class="next">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-bottom~nav-pager-next" class="page-nav" title="Zur nächsten Seite"><i class="fas fa-angle-right"></i></a>
+</div>
+<div class="last">
+<a href="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-bottom~nav-pager-last" class="page-nav" title="Zur letzten Seite"><i class="fas fa-step-forward"></i></a>
+</div>
+</div>
+</div>
+</nav>
+</div>
+<div class="pager_items">
+<form id="idd7" method="post" action="https://www.bundesanzeiger.de/pub/de/suchen2?2-1.-bottom~nav-form"><div id="idd7_hf_0" hidden="" class="hidden-fields"></div>
+<label id="idd8" for="id21">Ergebnisse pro Seite:</label>
+<div class="form-group">
+
+<div class="select-wrapper"><select name="hitsperpage-select" id="id21" data-argus="L16" data-live-search="false" data-live-search-style="contains" data-select-on-tab="true" class="select">
+<option value="argus-HitsPerPage10">10</option>
+<option selected="selected" value="argus-HitsPerPage20">20</option>
+<option value="argus-HitsPerPage30">30</option>
+<option value="argus-HitsPerPage50">50</option>
+<option value="argus-HitsPerPage100">100</option>
+</select>
+</div>
+<button type="submit" class="btn btn-update noscript-only" title="Aktualisieren">
+<i class="fas fa-sync-alt"></i><span class="sr-only">Aktualisieren</span>
+</button>
+</div>
+</form>
+</div>
+</div>
+
+
+
+
+
+</div>
+
+
+</div>
+
+</div>
+</div>
+</section>
+
+<div class="modal fade" id="info" tabindex="-1" role="dialog">
+<div class="modal-dialog" role="document">
+<div class="modal-content">
+<div class="modal-header">
+<h5 class="modal-title"></h5>
+<button type="button" class="close" data-dismiss="modal" aria-label="Schließen"><span aria-hidden="true">&times;</span></button>
+</div>
+<div class="modal-body">
+</div>
+</div>
+</div>
+</div>
+
+</div>
+<footer>
+<div class="container">
+<div class="footer-content">
+<ul class="footer-nav" role="menu" aria-label="Fusszeile-Navigation">
+<li role="none">
+<a role="menuitem" href="/pub/de/impressum" data-argus="Shared-A8" id="cc_imprint">Impressum</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/datenschutzerklaerung" data-argus="Shared-A9" id="cc_privacy">Datenschutzerklärung</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/rechtliches" data-argus="Shared-A10">Rechtliches / <abbr title="Allgemeine Geschäftsbedingungen">AGB</abbr></a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/sicherheitshinweise" data-argus="Shared-A11">Sicherheitshinweise</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/sitemap" data-argus="Shared-A12">Sitemap</a>
+</li><li role="none">
+<a role="menuitem" href="/pub/de/accessibility" data-argus="Shared-A188">Barrierefreiheit</a>
+</li>
+<li role="none" class="logo_banz_footer">
+<a role="menuitem" href="https://www.bundesanzeiger-verlag.de" target="_blank">
+Bundesanzeiger Verlag
+</a>
+</li>
+</ul>
+<a href="#" title="nach oben" class="scroll-to-top" aria-label="nach oben" data-toggle="tooltip" data-placement="top"><span class="sr-only">nach oben</span></a>
+</div>
+</div>
+</footer>
+
+
+<div id="cc" style="display:none;">
+<div id="cc_banner">
+<h4>Cookie-Einstellungen</h4><p>Wir setzen Statistik-Cookies ein, um unsere Webseiten optimal für Sie zu gestalten und unsere Plattformen für Sie zu verbessern. Sie können auswählen, ob Sie neben dem Einsatz technisch notwendiger Cookies der Verarbeitung aus statistischen Gründen zustimmen oder ob Sie <b>nur technisch notwendige Cookies</b> zulassen wollen. Weitere Informationen sowie die Möglichkeit, Ihre Auswahl jederzeit zu ändern und erteilte Einwilligung zu widerrufen, finden Sie in unserer <a class="cc_privacy">Datenschutzerklärung</a>.</p><p>Mit einem Klick auf <b>Allen zustimmen</b> willigen Sie in die Verarbeitung zu statistischen Zwecken ein.</p><div class="cc_commands"><button>Nur technisch notwendige Cookies akzeptieren</button><button id="cc_all">Allen zustimmen</button></div><div class="float-left">Cookie-ID: <span class="cc_id"></span></div><div class="float-right"><a class="cc_imprint">Impressum</a></div>
+</div>
+</div>
+</body>
+</html>

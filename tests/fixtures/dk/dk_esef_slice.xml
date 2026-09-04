@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Minimal ifrs-full XBRL instance slice — parser-mechanics test fixture (Task 3).
+  15 facts, DKK, derived from the real Arla/Novo Virk ESEF document structure.
+  Three contexts: one no-dim instant, one no-dim duration, one dimensioned (excluded).
+  Balance gate: Assets (1,000,000) = Equity (600,000) + Liabilities (400,000).
+  LEI scheme follows iso/17442 as in real Virk filings.
+-->
+<xbrli:xbrl
+    xmlns:xbrli="http://www.xbrl.org/2003/instance"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:ifrs-full="https://xbrl.ifrs.org/taxonomy/2024-03-27/ifrs-full"
+    xmlns:xbrldi="http://xbrl.org/2006/xbrldi"
+    xmlns:iso4217="http://www.xbrl.org/2003/iso4217"
+    xmlns:link="http://www.w3.org/1999/xlink"
+    xmlns:xlink="http://www.w3.org/1999/xlink">
+
+  <!-- ================================================================= -->
+  <!-- Contexts                                                            -->
+  <!-- ================================================================= -->
+
+  <!-- ctx_instant: no-dimension, balance-sheet date 2025-12-31 -->
+  <xbrli:context id="ctx_instant">
+    <xbrli:entity>
+      <xbrli:identifier scheme="http://standards.iso.org/iso/17442">529900TESTLEI0000001</xbrli:identifier>
+    </xbrli:entity>
+    <xbrli:period>
+      <xbrli:instant>2025-12-31</xbrli:instant>
+    </xbrli:period>
+  </xbrli:context>
+
+  <!-- ctx_duration: no-dimension, fiscal year 2025-01-01 to 2025-12-31 -->
+  <xbrli:context id="ctx_duration">
+    <xbrli:entity>
+      <xbrli:identifier scheme="http://standards.iso.org/iso/17442">529900TESTLEI0000001</xbrli:identifier>
+    </xbrli:entity>
+    <xbrli:period>
+      <xbrli:startDate>2025-01-01</xbrli:startDate>
+      <xbrli:endDate>2025-12-31</xbrli:endDate>
+    </xbrli:period>
+  </xbrli:context>
+
+  <!-- ctx_dim: dimensioned (ComponentsOfEquityAxis) — must be EXCLUDED by parser -->
+  <xbrli:context id="ctx_dim">
+    <xbrli:entity>
+      <xbrli:identifier scheme="http://standards.iso.org/iso/17442">529900TESTLEI0000001</xbrli:identifier>
+    </xbrli:entity>
+    <xbrli:period>
+      <xbrli:instant>2025-12-31</xbrli:instant>
+    </xbrli:period>
+    <xbrli:scenario>
+      <xbrldi:explicitMember dimension="ifrs-full:ComponentsOfEquityAxis">ifrs-full:IssuedCapitalMember</xbrldi:explicitMember>
+    </xbrli:scenario>
+  </xbrli:context>
+
+  <!-- ================================================================= -->
+  <!-- Units                                                               -->
+  <!-- ================================================================= -->
+
+  <xbrli:unit id="DKK">
+    <xbrli:measure>iso4217:DKK</xbrli:measure>
+  </xbrli:unit>
+
+  <!-- ================================================================= -->
+  <!-- Balance-sheet (instant) facts — Assets = Equity + Liabilities      -->
+  <!-- 1,000,000 = 600,000 + 400,000                                      -->
+  <!-- ================================================================= -->
+
+  <ifrs-full:Assets contextRef="ctx_instant" decimals="0" unitRef="DKK">1000000</ifrs-full:Assets>
+  <ifrs-full:Equity contextRef="ctx_instant" decimals="0" unitRef="DKK">600000</ifrs-full:Equity>
+  <ifrs-full:Liabilities contextRef="ctx_instant" decimals="0" unitRef="DKK">400000</ifrs-full:Liabilities>
+
+  <!-- Borrowings: NoncurrentBorrowings -> long_term_debt; CurrentBorrowings -> short_term_debt -->
+  <ifrs-full:NoncurrentBorrowings contextRef="ctx_instant" decimals="0" unitRef="DKK">300000</ifrs-full:NoncurrentBorrowings>
+  <ifrs-full:CurrentBorrowings contextRef="ctx_instant" decimals="0" unitRef="DKK">100000</ifrs-full:CurrentBorrowings>
+  <ifrs-full:CashAndCashEquivalents contextRef="ctx_instant" decimals="0" unitRef="DKK">50000</ifrs-full:CashAndCashEquivalents>
+
+  <!-- Dimensioned fact (Assets via equity component context) — parser must exclude this -->
+  <ifrs-full:Assets contextRef="ctx_dim" decimals="0" unitRef="DKK">999999</ifrs-full:Assets>
+
+  <!-- ================================================================= -->
+  <!-- Income-statement (duration) facts                                  -->
+  <!-- ================================================================= -->
+
+  <ifrs-full:Revenue contextRef="ctx_duration" decimals="0" unitRef="DKK">2000000</ifrs-full:Revenue>
+  <ifrs-full:CostOfSales contextRef="ctx_duration" decimals="0" unitRef="DKK">1200000</ifrs-full:CostOfSales>
+  <ifrs-full:GrossProfit contextRef="ctx_duration" decimals="0" unitRef="DKK">800000</ifrs-full:GrossProfit>
+  <ifrs-full:ProfitLossFromOperatingActivities contextRef="ctx_duration" decimals="0" unitRef="DKK">265000</ifrs-full:ProfitLossFromOperatingActivities>
+  <ifrs-full:FinanceCosts contextRef="ctx_duration" decimals="0" unitRef="DKK">15000</ifrs-full:FinanceCosts>
+  <ifrs-full:ProfitLossBeforeTax contextRef="ctx_duration" decimals="0" unitRef="DKK">250000</ifrs-full:ProfitLossBeforeTax>
+  <ifrs-full:IncomeTaxExpenseContinuingOperations contextRef="ctx_duration" decimals="0" unitRef="DKK">50000</ifrs-full:IncomeTaxExpenseContinuingOperations>
+  <ifrs-full:ProfitLoss contextRef="ctx_duration" decimals="0" unitRef="DKK">200000</ifrs-full:ProfitLoss>
+
+</xbrli:xbrl>

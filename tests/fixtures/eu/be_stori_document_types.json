@@ -1,0 +1,112 @@
+[
+ {
+  "documentTypeId": "65c7645f-241c-4e11-b573-9537434bd607",
+  "localisedName": "Information périodique",
+  "isGroup": true
+ },
+ {
+  "documentTypeId": "9813c451-9fd4-41ba-ba7d-4e0dda0d3051",
+  "localisedName": "|- Rapport financier annuel",
+  "isGroup": false
+ },
+ {
+  "documentTypeId": "26dd037e-13a3-49db-86c7-8cf4fd18f7ab",
+  "localisedName": "|- Rapport sur paiements aux gouvernements",
+  "isGroup": false
+ },
+ {
+  "documentTypeId": "96f87aad-54ec-4a8f-8961-ad32de1874a7",
+  "localisedName": "|- Communiqué annuel",
+  "isGroup": false
+ },
+ {
+  "documentTypeId": "69dda7b3-bde3-4c1e-9c06-154c411b2c12",
+  "localisedName": "|- Rapport financier semestriel",
+  "isGroup": false
+ },
+ {
+  "documentTypeId": "2e98e4e9-72cb-4dfb-9f00-756c234bd256",
+  "localisedName": "|- Information trimestrielle",
+  "isGroup": false
+ },
+ {
+  "documentTypeId": "f46cba15-0ca3-4232-8d72-a4310e0284c6",
+  "localisedName": "|- Rapport financier trimestriel",
+  "isGroup": false
+ },
+ {
+  "documentTypeId": "f4a393a2-ec4e-4067-85a3-d4f55b065cae",
+  "localisedName": "|- Déclaration intermédiaire",
+  "isGroup": false
+ },
+ {
+  "documentTypeId": "ca2c99b7-2a11-4b20-bfd5-0b25853b1ac0",
+  "localisedName": "|- Rapport de durabilité",
+  "isGroup": false
+ },
+ {
+  "documentTypeId": "098c7788-1588-4de6-a70c-f201527e4dc5",
+  "localisedName": "Information continue",
+  "isGroup": true
+ },
+ {
+  "documentTypeId": "94a3f57a-a108-44cd-aa41-7b612d94184e",
+  "localisedName": "|- Convocation assemblée générale",
+  "isGroup": true
+ },
+ {
+  "documentTypeId": "06e4f4eb-ea2c-4b37-a502-60ce9ea5cba9",
+  "localisedName": "|- Procès-verbal assemblée générale",
+  "isGroup": true
+ },
+ {
+  "documentTypeId": "b96922cc-44d1-417c-8e64-a1f0ba47f4d9",
+  "localisedName": "|- Communiqué de notification de transparence (actions propres)",
+  "isGroup": false
+ },
+ {
+  "documentTypeId": "e6a5a616-5f2f-4075-a56a-c35d60e71eb5",
+  "localisedName": "|- Notice de dividende / coupon",
+  "isGroup": false
+ },
+ {
+  "documentTypeId": "8bc3a23d-fb4d-4ff1-9882-9401805f20fe",
+  "localisedName": "|- Information privilégiée",
+  "isGroup": false
+ },
+ {
+  "documentTypeId": "f2049dc3-1ec4-45b7-bca5-b497aac63ea3",
+  "localisedName": "|- Communiqué de notification de transparence",
+  "isGroup": false
+ },
+ {
+  "documentTypeId": "97d690e4-b9b0-4ec4-a261-ecf276ebf8a2",
+  "localisedName": "|- Communiqué de changement du dénominateur ou des seuils statutaires",
+  "isGroup": false
+ },
+ {
+  "documentTypeId": "75baa660-3dfe-4346-adf8-4d04aec103f9",
+  "localisedName": "|- Rapport spécial établi dans le cadre du capital autorisé",
+  "isGroup": false
+ },
+ {
+  "documentTypeId": "fd1dc80a-b4a6-4878-acbd-362e00f693c9",
+  "localisedName": "|- Communiqué de rachat d'actions propres",
+  "isGroup": false
+ },
+ {
+  "documentTypeId": "4e7daf6a-ba89-447b-b44b-378eba230cb0",
+  "localisedName": "|- Communiqué d'aliénation d'actions propres",
+  "isGroup": false
+ },
+ {
+  "documentTypeId": "ca9b99bd-8d09-49f0-a208-cabdf2d6a0ee",
+  "localisedName": "|- Etat membre d'origine",
+  "isGroup": false
+ },
+ {
+  "documentTypeId": "f3152fd6-b375-4d4c-b5db-eda8c9ea0a9e",
+  "localisedName": "|- Modification des droits des détenteurs de titres",
+  "isGroup": false
+ }
+]

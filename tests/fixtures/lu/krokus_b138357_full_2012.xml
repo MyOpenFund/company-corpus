@@ -1,0 +1,384 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- LU eCDF fixture — real Declarer block stripped from deposit-2012q1 -->
+<!-- CC-BY-SA STATEC/data.public.lu -->
+<STATECCDBDeclarations xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<!-- KROKUS S.A. — CA_BILAN+CA_COMPP, 2012 taxonomy, bonds+bank debt, balanced -->
+<Declarer>
+      <RcsNumber>B138357</RcsNumber>
+      <LegalUnitName>KROKUS S.A.</LegalUnitName>
+      <Declaration language="FR" model="2011V007" type="CA_BILAN">
+        <StartDate>2011-01-01</StartDate>
+        <EndDate>2011-12-31</EndDate>
+        <YearRef>2011</YearRef>
+        <RCSDepositDate>2012-03-05T13:53:30Z</RCSDepositDate>
+        <ID_Doc>282</ID_Doc>
+        <Currency>EUR</Currency>
+        <FormData>
+      <Field dataType="DECIMAL" ecdf="201" id="0_Actif_2010">
+            <Label>TOTAL DU BILAN (ACTIF)</Label>
+            <Data>2182897.55</Data>
+            <PreviousData>2167155.10</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="107" id="2_FraisEtab_2010">
+            <Label>Frais d'établissement</Label>
+            <Data>1535.77</Data>
+            <PreviousData>3071.52</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+        <Field dataType="DECIMAL" ecdf="109" id="2_AI_2010">
+            <Label>Actif immobilisé</Label>
+            <Data>2024043.79</Data>
+            <PreviousData>2039199.39</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="125" id="2_ImmoCorp_2010">
+            <Label>Immobilisations corporelles</Label>
+            <Data>399093.79</Data>
+            <PreviousData>414249.39</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="127" id="2_TerrConst_2010">
+            <Label>Terrains et constructions</Label>
+            <Data>390537.45</Data>
+            <PreviousData>401690.84</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+            <Field dataType="DECIMAL" ecdf="131" id="2_AutInsta_2010">
+            <Label>Autres installations, outillage et mobilier</Label>
+            <Data>8556.34</Data>
+            <PreviousData>12558.55</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+          </Field>
+          <Field dataType="DECIMAL" ecdf="135" id="2_ImmoFin_2010">
+            <Label>Immobilisations financières</Label>
+            <Data>1624950.00</Data>
+            <PreviousData>1624950.00</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="137" id="2_IFPartEntLie_2010">
+            <Label>Parts dans des entreprises liées</Label>
+            <Data>1624950.00</Data>
+            <PreviousData>1624950.00</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+          </Field>
+        </Field>
+        <Field dataType="DECIMAL" ecdf="151" id="2_AC_2010">
+            <Label>Actif circulant</Label>
+            <Data>157317.99</Data>
+            <PreviousData>124884.19</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="163" id="4_Crea_2010">
+            <Label>Créances</Label>
+            <Data>99814.94</Data>
+            <PreviousData>81848.50</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="165" id="4_CreaVente_2010">
+            <Label>Créances résultant de ventes et prestations de services</Label>
+            <Data>12025.00</Data>
+            <PreviousData xsi:nil="true"/>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="167" id="4_CreaVenteMoins_2010">
+            <Label>dont la durée résiduelle est inférieure ou égale à un an</Label>
+            <Data>12025.00</Data>
+            <PreviousData xsi:nil="true"/>
+            <Reference xsi:nil="true"/>
+          </Field>
+            </Field>
+            <Field dataType="DECIMAL" ecdf="183" id="4_AutCrea_2010">
+            <Label>Autres créances</Label>
+            <Data>87789.94</Data>
+            <PreviousData>81848.50</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="185" id="4_AutCreaMoins_2010">
+            <Label>dont la durée résiduelle est inférieure ou égale à un an</Label>
+            <Data>1575.00</Data>
+            <PreviousData xsi:nil="true"/>
+            <Reference xsi:nil="true"/>
+          </Field>
+              <Field dataType="DECIMAL" ecdf="187" id="4_AutCreaPlus_2010">
+            <Label>dont la durée résiduelle est supérieure à un an</Label>
+            <Data>86214.94</Data>
+            <PreviousData>81848.50</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+            </Field>
+          </Field>
+          <Field dataType="DECIMAL" ecdf="197" id="5_FinAvoir_2010">
+            <Label>Avoirs en banques, avoirs en compte de chèques postaux, chèques et en caisse</Label>
+            <Data>57503.05</Data>
+            <PreviousData>43035.69</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+        </Field>
+      </Field>
+      <Field dataType="DECIMAL" ecdf="405" id="0_Passif_2010">
+            <Label>TOTAL DU BILAN (PASSIF)</Label>
+            <Data>2182897.55</Data>
+            <PreviousData>2167155.10</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="301" id="1_CapProp_2010">
+            <Label>Capitaux propres</Label>
+            <Data>296433.86</Data>
+            <PreviousData>272049.70</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="303" id="1_CapSous_2010">
+            <Label>Capital souscrit</Label>
+            <Data>274750.00</Data>
+            <PreviousData>274750.00</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+          <Field dataType="DECIMAL" ecdf="309" id="1_Res_2010">
+            <Label>Réserves</Label>
+            <Data>1239.06</Data>
+            <PreviousData xsi:nil="true"/>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="311" id="1_ResLeg_2010">
+            <Label>Réserve légale</Label>
+            <Data>1239.06</Data>
+            <PreviousData xsi:nil="true"/>
+            <Reference xsi:nil="true"/>
+          </Field>
+          </Field>
+          <Field dataType="DECIMAL" ecdf="319" id="1_ResultRep_2010">
+            <Label>Résultats reportés</Label>
+            <Data>-3939.36</Data>
+            <PreviousData>-27481.49</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+          <Field dataType="DECIMAL" ecdf="321" id="1_ResultEx_2010">
+            <Label>Résultat de l'exercice</Label>
+            <Data>24384.16</Data>
+            <PreviousData>24781.19</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+        </Field>
+        <Field dataType="DECIMAL" ecdf="331" id="1_Provis_2010">
+            <Label>Provisions</Label>
+            <Data>11034.81</Data>
+            <PreviousData>2891.20</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="335" id="1_ProvisImp_2010">
+            <Label>Provisions pour impôts</Label>
+            <Data>11034.81</Data>
+            <PreviousData>2891.20</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+        </Field>
+        <Field dataType="DECIMAL" ecdf="339" id="1_DettNonSub_2010">
+            <Label>Dettes non subordonnées</Label>
+            <Data>1875428.88</Data>
+            <PreviousData>1892214.20</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="341" id="1_EmpObl_2010">
+            <Label>Emprunts obligataires</Label>
+            <Data>1426382.27</Data>
+            <PreviousData>1426382.27</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="343" id="1_EmpOblConv_2010">
+            <Label>Emprunts convertibles</Label>
+            <Data>1426382.27</Data>
+            <PreviousData>1426382.27</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="347" id="1_EmpOblConvPlus_2010">
+            <Label>dont la durée résiduelle est supérieure à un an</Label>
+            <Data>1426382.27</Data>
+            <PreviousData>1426382.27</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+            </Field>
+          </Field>
+          <Field dataType="DECIMAL" ecdf="355" id="1_DettEtblCred_2010">
+            <Label>Dettes envers des établissements de crédit</Label>
+            <Data>150054.25</Data>
+            <PreviousData>146107.31</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="359" id="1_DettEtblCredPlus_2010">
+            <Label>dont la durée résiduelle est supérieure à un an</Label>
+            <Data>150054.25</Data>
+            <PreviousData>146107.31</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+          </Field>
+          <Field dataType="DECIMAL" ecdf="367" id="4_DettAchat_2010">
+            <Label>Dettes sur achats et prestations de services</Label>
+            <Data>2592.36</Data>
+            <PreviousData>21076.42</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="369" id="4_DettAchatMoins_2010">
+            <Label>dont la durée résiduelle est inférieure ou égale à un an</Label>
+            <Data>2592.36</Data>
+            <PreviousData>21076.42</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+          </Field>
+          <Field dataType="DECIMAL" ecdf="379" id="4_DettEntLie_2010">
+            <Label>Dettes envers des entreprises liées</Label>
+            <Data>296400.00</Data>
+            <PreviousData>296400.00</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="381" id="4_DettEntLieMoins_2010">
+            <Label>dont la durée résiduelle est inférieure ou égale à un an</Label>
+            <Data>11400.00</Data>
+            <PreviousData>11400.00</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+            <Field dataType="DECIMAL" ecdf="383" id="4_DettEntLiePlus_2010">
+            <Label>dont la durée résiduelle est supérieure à un an</Label>
+            <Data>285000.00</Data>
+            <PreviousData>285000.00</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+          </Field>
+        </Field>
+      </Field>
+    </FormData>
+      </Declaration>
+      <Declaration language="FR" model="2011V007" type="CA_COMPP">
+        <StartDate>2011-01-01</StartDate>
+        <EndDate>2011-12-31</EndDate>
+        <YearRef>2011</YearRef>
+        <RCSDepositDate>2012-03-05T13:53:30Z</RCSDepositDate>
+        <ID_Doc>283</ID_Doc>
+        <Currency>EUR</Currency>
+        <FormData>
+      <Field dataType="DECIMAL" ecdf="641" id="6_TotalCharges_2010">
+            <Label>TOTAL CHARGES</Label>
+            <Data>255023.84</Data>
+            <PreviousData>232728.80</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="601" id="6_MarchMatPrem_2010">
+            <Label>Consommation de marchandises et de matières premières et consommables</Label>
+            <Data>6266.76</Data>
+            <PreviousData>3786.84</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+        <Field dataType="DECIMAL" ecdf="603" id="6_AutExt_2010">
+            <Label>Autres charges externes</Label>
+            <Data>48963.51</Data>
+            <PreviousData>48185.61</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+        <Field dataType="DECIMAL" ecdf="605" id="6_Perso_2010">
+            <Label>Frais de personnel</Label>
+            <Data>45534.48</Data>
+            <PreviousData>36097.92</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="607" id="6_PersoSalTrait_2010">
+            <Label>Salaires et traitements</Label>
+            <Data>45534.48</Data>
+            <PreviousData>36097.92</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+        </Field>
+        <Field dataType="DECIMAL" ecdf="615" id="6_CorrVal_2010">
+            <Label>Corrections de valeur</Label>
+            <Data>17748.35</Data>
+            <PreviousData>16930.34</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="617" id="6_CorrValFraisEtabIICII_2010">
+            <Label>sur frais d'établissement et sur immobilisations corporelles et incorporelles</Label>
+            <Data>17748.35</Data>
+            <PreviousData>16930.34</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+        </Field>
+        <Field dataType="DECIMAL" ecdf="621" id="6_AutExpl_2010">
+            <Label>Autres charges d'exploitation</Label>
+            <Data>3902.81</Data>
+            <PreviousData>393.00</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+        <Field dataType="DECIMAL" ecdf="627" id="6_IntCharFin_2010">
+            <Label>Intérêts et autres charges financières</Label>
+            <Data>98218.94</Data>
+            <PreviousData>97652.66</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="629" id="6_IntCharFinEntLie_2010">
+            <Label>concernant des entreprises liées</Label>
+            <Data>11400.00</Data>
+            <PreviousData>11400.00</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+          <Field dataType="DECIMAL" ecdf="631" id="6_IntCharFinAut_2010">
+            <Label>autres intérêts et charges</Label>
+            <Data>86818.94</Data>
+            <PreviousData>86252.66</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+        </Field>
+        <Field dataType="DECIMAL" ecdf="633" id="6_Except_2010">
+            <Label>Charges exceptionnelles</Label>
+            <Data>1737.22</Data>
+            <PreviousData>1340.08</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+        <Field dataType="DECIMAL" ecdf="635" id="6_ImpResult_2010">
+            <Label>Impôts sur le résultat</Label>
+            <Data>8143.61</Data>
+            <PreviousData>2891.20</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+        <Field dataType="DECIMAL" ecdf="637" id="6_AutImp_2010">
+            <Label>Autres impôts ne figurant pas sous le poste ci-dessus</Label>
+            <Data>124.00</Data>
+            <PreviousData>669.96</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+        <Field dataType="DECIMAL" ecdf="639" id="7_ResultExGain_2010">
+            <Label>Profit de l'exercice</Label>
+            <Data>24384.16</Data>
+            <PreviousData>24781.19</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+      </Field>
+      <Field dataType="DECIMAL" ecdf="737" id="7_TotalProduits_2010">
+            <Label>TOTAL PRODUITS</Label>
+            <Data>255023.84</Data>
+            <PreviousData>232728.80</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="701" id="7_Chida_2010">
+            <Label>Montant net du chiffre d'affaires</Label>
+            <Data>150200.00</Data>
+            <PreviousData>147396.00</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+        <Field dataType="DECIMAL" ecdf="713" id="7_AutExpl_2010">
+            <Label>Autres produits d'exploitation</Label>
+            <Data>18014.84</Data>
+            <PreviousData>11797.92</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+        <Field dataType="DECIMAL" ecdf="715" id="7_ProdIF_2010">
+            <Label>Produits des immobilisations financières</Label>
+            <Data>85000.00</Data>
+            <PreviousData>70000.00</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="719" id="7_ProdIFAutPart_2010">
+            <Label>autres produits de participations</Label>
+            <Data>85000.00</Data>
+            <PreviousData>70000.00</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+        </Field>
+        <Field dataType="DECIMAL" ecdf="727" id="7_AutIntProdFin_2010">
+            <Label>Autres intérêts et autres produits financiers</Label>
+            <Data>1809.00</Data>
+            <PreviousData>1483.44</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="731" id="7_AutIntProdFinAut_2010">
+            <Label>autres intérêts et produits financiers</Label>
+            <Data>1809.00</Data>
+            <PreviousData>1483.44</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+        </Field>
+        <Field dataType="DECIMAL" ecdf="735" id="6_ResultExPerte_2010">
+            <Label>Perte de l'exercice</Label>
+            <Data>0.00</Data>
+            <PreviousData>0.00</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+      </Field>
+    </FormData>
+      </Declaration>
+    </Declarer>
+</STATECCDBDeclarations>

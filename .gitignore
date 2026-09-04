@@ -1,0 +1,38 @@
+# Raw corpus (large, regenerable) — only manifests/indices/reports are committed
+data/raw/
+data/**/raw/
+
+# Per-issuer XBRL financials (large, regenerable via `xbrl`)
+data/financials/
+
+# Input identifier files (credit-index exports etc.; often large/proprietary)
+*.xlsx
+
+# Render caches / headless-browser profiles
+.chrome-profile-*/
+*.pdf.tmp
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.env
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+
+# Local-only process notes are never published.
+docs/superpowers/
+.superpowers/

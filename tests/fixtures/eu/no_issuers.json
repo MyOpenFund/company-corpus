@@ -1,0 +1,52 @@
+{
+  "header": {
+    "OB_REQUEST_ID": "7f5e8e62-dcd5-43d5-9c49-1ff3c55a09a0",
+    "result.val": 0,
+    "http.code": 200,
+    "result.text": "OK"
+  },
+  "data": {
+    "issuers": [
+      {
+        "issuerId": 1772,
+        "id": "DNB",
+        "symbol": "DNB",
+        "issuerSign": "DNB",
+        "name": "DNB Bank ASA",
+        "isActive": 1
+      },
+      {
+        "issuerId": 1309,
+        "id": "EQNR",
+        "symbol": "EQNR",
+        "issuerSign": "EQNR",
+        "name": "Equinor ASA",
+        "isActive": 1
+      },
+      {
+        "issuerId": 5063,
+        "id": "MOWI",
+        "symbol": "MOWI",
+        "issuerSign": "MOWI",
+        "name": "Mowi ASA",
+        "isActive": 1
+      },
+      {
+        "issuerId": 1107,
+        "id": "ORK",
+        "symbol": "ORK",
+        "issuerSign": "ORK",
+        "name": "Orkla ASA",
+        "isActive": 1
+      },
+      {
+        "issuerId": 7760,
+        "id": "YAR",
+        "symbol": "YAR",
+        "issuerSign": "YAR",
+        "name": "Yara International ASA",
+        "isActive": 1
+      }
+    ]
+  }
+}

@@ -1,0 +1,98 @@
+report_id;tabel;elemendi_label;elemendi_nimetus;vaartus
+3361693;Kasumi jaotamise ettepanek;Eelmiste perioodide jaotamata kasum (kahjum);RetainedEarningsLossConsolidated;3191858.0
+3361693;Konsolideerimata bilanss;Eelmiste perioodide jaotamata kasum (kahjum);RetainedEarningsLoss;3659383.0
+3361693;Konsolideerimata bilanss;Käibevarad;CurrentAssets;4405310.0
+3361693;Konsolideerimata bilanss;Lühiajalised kohustised;CurrentLiabilities;1891693.0
+3361693;Konsolideerimata bilanss;Omakapital;Equity;4007533.0
+3361693;Konsolideerimata bilanss;Osakapital nimiväärtuses;IssuedCapital;10224.0
+3361693;Konsolideerimata bilanss;Pikaajalised kohustised;NonCurrentLiabilities;53423.0
+3361693;Konsolideerimata bilanss;Põhivarad;NonCurrentAssets;1547339.0
+3361693;Konsolideerimata bilanss;Raha;CashAndCashEquivalents;11463.0
+3361693;Konsolideerimata bilanss;Varad;Assets;5952649.0
+3361693;Konsolideerimata kasumiaruanne (skeem 1);Aruandeaasta kasum (kahjum);TotalAnnualPeriodProfitLoss;336904.0
+3361693;Konsolideerimata kasumiaruanne (skeem 1);Kasum (kahjum) enne tulumaksustamist;TotalProfitLossBeforeTax;336904.0
+3361693;Konsolideerimata kasumiaruanne (skeem 1);Müügitulu;Revenue;10475906.0
+3361693;Konsolideerimata kasumiaruanne (skeem 1);Põhivarade kulum ja väärtuse langus;DepreciationAndImpairmentLossReversal;-100735.0
+3361693;Konsolideerimata kasumiaruanne (skeem 1);Tööjõukulud;EmployeeExpense;-1614840.0
+3361693;Konsolideerimata kasumiaruanne (skeem 1);Ärikasum (kahjum);TotalProfitLoss;314967.0
+3361693;Konsolideerimata rahavoogude aruanne kaudsel meetodil;Põhivarade kulum ja väärtuse langus;DepreciationAndImpairmentLossReversalNeg;100735.0
+3361693;Konsolideerimata rahavoogude aruanne kaudsel meetodil;Ärikasum (kahjum);TotalProfitLoss;314967.0
+3361693;Konsolideeritud bilanss;Eelmiste perioodide jaotamata kasum (kahjum);RetainedEarningsLossConsolidated;3191858.0
+3361693;Konsolideeritud bilanss;Käibevarad;CurrentAssetsConsolidated;5197299.0
+3361693;Konsolideeritud bilanss;Lühiajalised kohustised;CurrentLiabilitiesConsolidated;2097293.0
+3361693;Konsolideeritud bilanss;Omakapital;EquityConsolidated;3474556.0
+3361693;Konsolideeritud bilanss;Osakapital nimiväärtuses;IssuedCapitalConsolidated;10224.0
+3361693;Konsolideeritud bilanss;Pikaajalised kohustised;NonCurrentLiabilitiesConsolidated;53423.0
+3361693;Konsolideeritud bilanss;Põhivarad;NonCurrentAssetsConsolidated;427973.0
+3361693;Konsolideeritud bilanss;Raha;CashAndCashEquivalentsConsolidated;407074.0
+3361693;Konsolideeritud bilanss;Varad;AssetsConsolidated;5625272.0
+3361693;Konsolideeritud kasumiaruanne skeem 1;Aruandeaasta kasum (kahjum);TotalAnnualPeriodProfitLossConsolidated;271452.0
+3361693;Konsolideeritud kasumiaruanne skeem 1;Kasum (kahjum) enne tulumaksustamist;TotalProfitLossBeforeTaxConsolidated;286197.0
+3361693;Konsolideeritud kasumiaruanne skeem 1;Müügitulu;RevenueConsolidated;13354477.0
+3361693;Konsolideeritud kasumiaruanne skeem 1;Põhivarade kulum ja väärtuse langus;DepreciationAndImpairmentLossReversalConsolidated;-107545.0
+3361693;Konsolideeritud kasumiaruanne skeem 1;Tööjõukulud;EmployeeExpenseConsolidated;-2047704.0
+3361693;Konsolideeritud kasumiaruanne skeem 1;Ärikasum (kahjum);TotalProfitLossConsolidated;362928.0
+3361693;Konsolideeritud rahavoogude aruanne kaudsel meetodil;Põhivarade kulum ja väärtuse langus;DepreciationAndImpairmentLossReversalNegConsolidated;107545.0
+3361693;Konsolideeritud rahavoogude aruanne kaudsel meetodil;Ärikasum (kahjum);TotalProfitLossConsolidated;362928.0
+3361693;Lisa: Tööjõukulud;Tööjõukulud;LaborExpenseConsolidated;2047704.0
+3361693;Lisa: Tööjõukulud;Töötajate keskmine arv taandatuna täistööajale;AverageNumberOfEmployeesInFullTimeEquivalentUnitsConsolidated;74.0
+3361693;PDF;Töötajate keskmine arv taandatuna täistööajale;;55
+3398045;Bilanss;Eelmiste perioodide jaotamata kasum (kahjum);RetainedEarningsLoss;14684999.0
+3398045;Bilanss;Käibevarad;CurrentAssets;3389788.0
+3398045;Bilanss;Lühiajalised kohustised;CurrentLiabilities;834066.0
+3398045;Bilanss;Omakapital;Equity;17368544.0
+3398045;Bilanss;Osakapital nimiväärtuses;IssuedCapital;42000.0
+3398045;Bilanss;Pikaajalised kohustised;NonCurrentLiabilities;28031.0
+3398045;Bilanss;Põhivarad;NonCurrentAssets;14840853.0
+3398045;Bilanss;Raha;CashAndCashEquivalents;1854497.0
+3398045;Bilanss;Varad;Assets;18230641.0
+3398045;Kasumiaruanne skeem 1;Aruandeaasta kasum (kahjum);TotalAnnualPeriodProfitLoss;2637345.0
+3398045;Kasumiaruanne skeem 1;Kasum (kahjum) enne tulumaksustamist;TotalProfitLossBeforeTax;2919396.0
+3398045;Kasumiaruanne skeem 1;Müügitulu;Revenue;7307861.0
+3398045;Kasumiaruanne skeem 1;Põhivarade kulum ja väärtuse langus;DepreciationAndImpairmentLossReversal;-133047.0
+3398045;Kasumiaruanne skeem 1;Tööjõukulud;EmployeeExpense;-2489189.0
+3398045;Kasumiaruanne skeem 1;Ärikasum (kahjum);TotalProfitLoss;1268711.0
+3398045;Kasumi jaotamise ettepanek;Eelmiste perioodide jaotamata kasum (kahjum);RetainedEarningsLoss;14684999.0
+3398045;Lisa: Tööjõukulud;Tööjõukulud;LaborExpense;2489189.0
+3398045;Lisa: Tööjõukulud;Töötajate keskmine arv taandatuna täistööajale;AverageNumberOfEmployeesInFullTimeEquivalentUnits;63.0
+3398045;Rahavoogude aruanne kaudsel meetodil;Põhivarade kulum ja väärtuse langus;DepreciationAndImpairmentLossReversalNeg;133047.0
+3398045;Rahavoogude aruanne kaudsel meetodil;Ärikasum (kahjum);TotalProfitLoss;1268711.0
+3464392;Kasumi jaotamise ettepanek;Eelmiste perioodide jaotamata kasum (kahjum);RetainedEarningsLossConsolidated;7836805.0
+3464392;Kasumi jaotamise otsus;Eelmiste perioodide jaotamata kasum (kahjum);RetainedEarningsLossConsolidated;7836805.0
+3464392;Konsolideerimata bilanss;Eelmiste perioodide jaotamata kasum (kahjum);RetainedEarningsLoss;7836805.0
+3464392;Konsolideerimata bilanss;Käibevarad;CurrentAssets;10864527.0
+3464392;Konsolideerimata bilanss;Lühiajalised kohustised;CurrentLiabilities;4318387.0
+3464392;Konsolideerimata bilanss;Omakapital;Equity;9641616.0
+3464392;Konsolideerimata bilanss;Osakapital nimiväärtuses;IssuedCapital;105000.0
+3464392;Konsolideerimata bilanss;Pikaajalised kohustised;NonCurrentLiabilities;210204.0
+3464392;Konsolideerimata bilanss;Põhivarad;NonCurrentAssets;3305680.0
+3464392;Konsolideerimata bilanss;Raha;CashAndCashEquivalents;2634629.0
+3464392;Konsolideerimata bilanss;Varad;Assets;14170207.0
+3464392;Konsolideerimata kasumiaruanne (skeem 1);Aruandeaasta kasum (kahjum);TotalAnnualPeriodProfitLoss;1689311.0
+3464392;Konsolideerimata kasumiaruanne (skeem 1);Kasum (kahjum) enne tulumaksustamist;TotalProfitLossBeforeTax;1773926.0
+3464392;Konsolideerimata kasumiaruanne (skeem 1);Müügitulu;Revenue;32515406.0
+3464392;Konsolideerimata kasumiaruanne (skeem 1);Põhivarade kulum ja väärtuse langus;DepreciationAndImpairmentLossReversal;-278681.0
+3464392;Konsolideerimata kasumiaruanne (skeem 1);Tööjõukulud;EmployeeExpense;-1335928.0
+3464392;Konsolideerimata kasumiaruanne (skeem 1);Ärikasum (kahjum);TotalProfitLoss;1644864.0
+3464392;Konsolideerimata rahavoogude aruanne kaudsel meetodil;Põhivarade kulum ja väärtuse langus;DepreciationAndImpairmentLossReversalNeg;278681.0
+3464392;Konsolideerimata rahavoogude aruanne kaudsel meetodil;Ärikasum (kahjum);TotalProfitLoss;1644864.0
+3464392;Konsolideeritud bilanss;Eelmiste perioodide jaotamata kasum (kahjum);RetainedEarningsLossConsolidated;7836805.0
+3464392;Konsolideeritud bilanss;Käibevarad;CurrentAssetsConsolidated;11090763.0
+3464392;Konsolideeritud bilanss;Lühiajalised kohustised;CurrentLiabilitiesConsolidated;4330700.0
+3464392;Konsolideeritud bilanss;Omakapital;EquityConsolidated;9641616.0
+3464392;Konsolideeritud bilanss;Osakapital nimiväärtuses;IssuedCapitalConsolidated;105000.0
+3464392;Konsolideeritud bilanss;Pikaajalised kohustised;NonCurrentLiabilitiesConsolidated;210204.0
+3464392;Konsolideeritud bilanss;Põhivarad;NonCurrentAssetsConsolidated;3091757.0
+3464392;Konsolideeritud bilanss;Raha;CashAndCashEquivalentsConsolidated;2726467.0
+3464392;Konsolideeritud bilanss;Varad;AssetsConsolidated;14182520.0
+3464392;Konsolideeritud kasumiaruanne skeem 1;Aruandeaasta kasum (kahjum);TotalAnnualPeriodProfitLossConsolidated;1689311.0
+3464392;Konsolideeritud kasumiaruanne skeem 1;Kasum (kahjum) enne tulumaksustamist;TotalProfitLossBeforeTaxConsolidated;1773926.0
+3464392;Konsolideeritud kasumiaruanne skeem 1;Müügitulu;RevenueConsolidated;32293165.0
+3464392;Konsolideeritud kasumiaruanne skeem 1;Põhivarade kulum ja väärtuse langus;DepreciationAndImpairmentLossReversalConsolidated;-278681.0
+3464392;Konsolideeritud kasumiaruanne skeem 1;Tööjõukulud;EmployeeExpenseConsolidated;-1350864.0
+3464392;Konsolideeritud kasumiaruanne skeem 1;Ärikasum (kahjum);TotalProfitLossConsolidated;1660376.0
+3464392;Konsolideeritud rahavoogude aruanne kaudsel meetodil;Põhivarade kulum ja väärtuse langus;DepreciationAndImpairmentLossReversalNegConsolidated;278681.0
+3464392;Konsolideeritud rahavoogude aruanne kaudsel meetodil;Ärikasum (kahjum);TotalProfitLossConsolidated;1660376.0
+3464392;Lisa: Tööjõukulud;Tööjõukulud;LaborExpenseConsolidated;1350864.0
+3464392;Lisa: Tööjõukulud;Töötajate keskmine arv taandatuna täistööajale;AverageNumberOfEmployeesInFullTimeEquivalentUnitsConsolidated;21.0
+3464392;PDF;Töötajate keskmine arv taandatuna täistööajale;;19

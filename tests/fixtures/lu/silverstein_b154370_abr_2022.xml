@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- LU eCDF fixture — real Declarer block stripped from deposit-2022q1 -->
+<!-- CC-BY-SA STATEC/data.public.lu -->
+<STATECCDBDeclarations xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<!-- Silverstein CEE Holdings — CA_BILANABR+CA_COMPPABR, 2022 taxonomy, abridged -->
+<Declarer>
+      <RcsNumber>B154370</RcsNumber>
+      <LegalUnitName>Silverstein CEE Holdings S.à r.l.</LegalUnitName>
+      <Declaration language="FR" model="2" type="CA_BILANABR">
+        <StartDate>2020-01-01</StartDate>
+        <EndDate>2020-12-31</EndDate>
+        <YearRef>2020</YearRef>
+        <RCSDepositDate>2021-12-31T10:09:15Z</RCSDepositDate>
+        <ID_Doc>2781041</ID_Doc>
+        <Currency>EUR</Currency>
+        <FormData>
+      <Field dataType="DECIMAL" ecdf="201" id="0_Actif_2010">
+            <Label>TOTAL DU BILAN (ACTIF)</Label>
+            <Data>1386627.13</Data>
+            <PreviousData>3085785.34</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="109" id="2_AI_2010">
+            <Label>Actif immobilisé</Label>
+            <Data>182594.34</Data>
+            <PreviousData>182594.34</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="135" id="2_ImmoFin_2020">
+            <Label>Immobilisations financières</Label>
+            <Data>182594.34</Data>
+            <PreviousData>182594.34</PreviousData>
+            <Reference>3</Reference>
+          </Field>
+        </Field>
+        <Field dataType="DECIMAL" ecdf="151" id="2_AC_2010">
+            <Label>Actif circulant</Label>
+            <Data>1204032.79</Data>
+            <PreviousData>2903191.00</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="163" id="4_Crea_2010">
+            <Label>Créances</Label>
+            <Data>1199580.46</Data>
+            <PreviousData>2138872.23</PreviousData>
+            <Reference>4</Reference>
+          <Field dataType="DECIMAL" ecdf="203" id="4_CreaMoins_2010">
+            <Label>dont la durée résiduelle est inférieure ou égale à  un an</Label>
+            <Data>39874.43</Data>
+            <PreviousData>6946.33</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+            <Field dataType="DECIMAL" ecdf="205" id="4_CreaPlus_2010">
+            <Label>dont la durée résiduelle est supérieure à  un a</Label>
+            <Data>1159706.03</Data>
+            <PreviousData>2131925.90</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+          </Field>
+          <Field dataType="DECIMAL" ecdf="197" id="5_FinAvoir_2010">
+            <Label>Avoirs en banques, avoirs en compte de chèques postaux, chèques et en caisse</Label>
+            <Data>4452.33</Data>
+            <PreviousData>764318.77</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+        </Field>
+      </Field>
+      <Field dataType="DECIMAL" ecdf="405" id="0_Passif_2010">
+            <Label>TOTAL DU BILAN (CAPITAUX PROPRES ET PASSIF)</Label>
+            <Data>1386627.13</Data>
+            <PreviousData>3085785.34</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="301" id="1_CapProp_2010">
+            <Label>Capitaux propres</Label>
+            <Data>794133.18</Data>
+            <PreviousData>838362.88</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="303" id="1_CapSous_2010">
+            <Label>Capital souscrit</Label>
+            <Data>1028250.00</Data>
+            <PreviousData>1028250.00</PreviousData>
+            <Reference>6</Reference>
+          </Field>
+          <Field dataType="DECIMAL" ecdf="309" id="1_Res_2016">
+            <Label>Réserves</Label>
+            <Data>2642.39</Data>
+            <PreviousData>2642.39</PreviousData>
+            <Reference>7,8</Reference>
+          </Field>
+          <Field dataType="DECIMAL" ecdf="319" id="1_ResultRep_2010">
+            <Label>Résultats reportés</Label>
+            <Data>-192529.51</Data>
+            <PreviousData>-112420.41</PreviousData>
+            <Reference>8</Reference>
+          </Field>
+          <Field dataType="DECIMAL" ecdf="321" id="8_ResultEx_2020">
+            <Label>Résultat de l'exercice</Label>
+            <Data>-44229.70</Data>
+            <PreviousData>-80109.10</PreviousData>
+            <Reference>8</Reference>
+          </Field>
+        </Field>
+        <Field dataType="DECIMAL" ecdf="435" id="1_Dett_2016">
+            <Label>Dettes</Label>
+            <Data>592493.95</Data>
+            <PreviousData>2247422.46</PreviousData>
+            <Reference>9</Reference>
+          <Field dataType="DECIMAL" ecdf="453" id="1_DettMoins_2016">
+            <Label>dont la durée résiduelle est inférieure ou égale à  un an</Label>
+            <Data>592493.95</Data>
+            <PreviousData>2247422.46</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+        </Field>
+      </Field>
+    </FormData>
+      </Declaration>
+      <Declaration language="FR" model="2" type="CA_COMPPABR">
+        <StartDate>2020-01-01</StartDate>
+        <EndDate>2020-12-31</EndDate>
+        <YearRef>2020</YearRef>
+        <RCSDepositDate>2021-12-31T10:09:15Z</RCSDepositDate>
+        <ID_Doc>2781043</ID_Doc>
+        <Currency>EUR</Currency>
+        <FormData>
+      <Field dataType="DECIMAL" ecdf="651" id="8_ResultBrut_2016">
+            <Label>Résultat brut</Label>
+            <Data>-67346.13</Data>
+            <PreviousData>-87460.45</PreviousData>
+            <Reference>10</Reference>
+          </Field>
+      <Field dataType="DECIMAL" ecdf="727" id="7_AutIntProdFin_2016">
+            <Label>Autres intérêts et autres produits financiers</Label>
+            <Data>27921.60</Data>
+            <PreviousData>2225818.70</PreviousData>
+            <Reference>13</Reference>
+          <Field dataType="DECIMAL" ecdf="729" id="7_AutIntProdFinEntLie_2016">
+            <Label>provenant d'entreprises liées</Label>
+            <Data>27921.60</Data>
+            <PreviousData>189540.04</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+      </Field>
+      <Field dataType="DECIMAL" ecdf="627" id="6_IntCharFin_2016">
+            <Label>Intérêts et autres charges financières</Label>
+            <Data>-181.67</Data>
+            <PreviousData>-183895.19</PreviousData>
+            <Reference xsi:nil="true"/>
+          <Field dataType="DECIMAL" ecdf="631" id="6_IntCharFinAut_2016">
+            <Label>autres intérêts et charges financières</Label>
+            <Data>-181.67</Data>
+            <PreviousData>-1088.89</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+      </Field>
+      <Field dataType="DECIMAL" ecdf="635" id="6_ImpResult_2010">
+            <Label>Impôts sur le résultat</Label>
+            <Data>191.50</Data>
+            <PreviousData>6752.00</PreviousData>
+            <Reference>14</Reference>
+          </Field>
+      <Field dataType="DECIMAL" ecdf="667" id="8_ResultAprImp_2016">
+            <Label>Résultat après impôts sur le résultat</Label>
+            <Data>-39414.70</Data>
+            <PreviousData>-75294.10</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+      <Field dataType="DECIMAL" ecdf="637" id="6_AutImp_2010">
+            <Label>Autres impôts ne figurant pas sous les postes 1. à 16.</Label>
+            <Data>-4815.00</Data>
+            <PreviousData>-4815.00</PreviousData>
+            <Reference>14</Reference>
+          </Field>
+      <Field dataType="DECIMAL" ecdf="669" id="8_ResultEx_2020">
+            <Label>Résultat de l'exercice</Label>
+            <Data>-44229.70</Data>
+            <PreviousData>-80109.10</PreviousData>
+            <Reference xsi:nil="true"/>
+          </Field>
+    </FormData>
+      </Declaration>
+    </Declarer>
+</STATECCDBDeclarations>

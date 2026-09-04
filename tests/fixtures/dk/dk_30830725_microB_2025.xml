@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- personal fields (names, addresses, contact details) redacted from the recorded capture -->
+<xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance"
+            xmlns="http://www.w3.org/1999/xhtml"
+            xmlns:arr="http://xbrl.dcca.dk/arr"
+            xmlns:dst="http://xbrl.dcca.dk/dst"
+            xmlns:ixt="http://www.xbrl.org/inlineXBRL/transformation/2010-04-20"
+            xmlns:cmn="http://xbrl.dcca.dk/cmn"
+            xmlns:sob="http://xbrl.dcca.dk/sob"
+            xmlns:lnk="http://www.xbrl.org/2003/linkbase"
+            xmlns:iso4217="http://www.xbrl.org/2003/iso4217"
+            xmlns:xbrldt="http://xbrl.org/2005/xbrldt"
+            xmlns:basis="http://xbrl.dcca.dk/Regnskab-Basis"
+            xmlns:ifrs="http://xbrl.iasb.org/taxonomy/2009-04-01/ifrs"
+            xmlns:ix="http://www.xbrl.org/2008/inlineXBRL"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xmlns:mrv="http://xbrl.dcca.dk/mrv"
+            xmlns:ref="http://www.xbrl.org/2006/ref"
+            xmlns:fsa="http://xbrl.dcca.dk/fsa"
+            xmlns:xbrldi="http://xbrl.org/2006/xbrldi"
+            xmlns:gsd="http://xbrl.dcca.dk/gsd"
+            xmlns:xlink="http://www.w3.org/1999/xlink">
+   <lnk:schemaRef xlink:href="http://archprod.service.eogs.dk/taxonomy/20251001/entryDanishGAAPBalanceSheetAccountFormIncomeStatementByNatureIncludingManagementsReviewStatisticsAndTax20251001.xsd"
+                  xlink:type="simple"/>
+   <xbrli:context id="c0">
+      <xbrli:entity>
+         <xbrli:identifier scheme="http://www.dcca.dk/cvr">30830725</xbrli:identifier>
+      </xbrli:entity>
+      <xbrli:period>
+         <xbrli:startDate>2024-10-01</xbrli:startDate>
+         <xbrli:endDate>2025-09-30</xbrli:endDate>
+      </xbrli:period>
+   </xbrli:context>
+   <xbrli:context id="c1">
+      <xbrli:entity>
+         <xbrli:identifier scheme="http://www.dcca.dk/cvr">30830725</xbrli:identifier>
+      </xbrli:entity>
+      <xbrli:period>
+         <xbrli:startDate>2024-10-01</xbrli:startDate>
+         <xbrli:endDate>2025-09-30</xbrli:endDate>
+      </xbrli:period>
+      <xbrli:scenario>
+         <xbrldi:typedMember dimension="cmn:IdentificationOfMemberOfExecutiveBoardDimension">
+            <cmn:memberOfBoardIdentifier>0</cmn:memberOfBoardIdentifier>
+         </xbrldi:typedMember>
+      </xbrli:scenario>
+   </xbrli:context>
+   <xbrli:context id="c2">
+      <xbrli:entity>
+         <xbrli:identifier scheme="http://www.dcca.dk/cvr">30830725</xbrli:identifier>
+      </xbrli:entity>
+      <xbrli:period>
+         <xbrli:startDate>2024-10-01</xbrli:startDate>
+         <xbrli:endDate>2025-09-30</xbrli:endDate>
+      </xbrli:period>
+      <xbrli:scenario>
+         <xbrldi:typedMember dimension="cmn:IdentificationOfMemberOfExecutiveBoardDimension">
+            <cmn:memberOfBoardIdentifier>1</cmn:memberOfBoardIdentifier>
+         </xbrldi:typedMember>
+      </xbrli:scenario>
+   </xbrli:context>
+   <xbrli:context id="c3">
+      <xbrli:entity>
+         <xbrli:identifier scheme="http://www.dcca.dk/cvr">30830725</xbrli:identifier>
+      </xbrli:entity>
+      <xbrli:period>
+         <xbrli:startDate>2023-10-01</xbrli:startDate>
+         <xbrli:endDate>2024-09-30</xbrli:endDate>
+      </xbrli:period>
+   </xbrli:context>
+   <xbrli:context id="c4">
+      <xbrli:entity>
+         <xbrli:identifier scheme="http://www.dcca.dk/cvr">30830725</xbrli:identifier>
+      </xbrli:entity>
+      <xbrli:period>
+         <xbrli:instant>2025-09-30</xbrli:instant>
+      </xbrli:period>
+   </xbrli:context>
+   <xbrli:context id="c5">
+      <xbrli:entity>
+         <xbrli:identifier scheme="http://www.dcca.dk/cvr">30830725</xbrli:identifier>
+      </xbrli:entity>
+      <xbrli:period>
+         <xbrli:instant>2024-09-30</xbrli:instant>
+      </xbrli:period>
+   </xbrli:context>
+   <xbrli:unit id="u0">
+      <xbrli:measure>iso4217:DKK</xbrli:measure>
+   </xbrli:unit>
+   <gsd:InformationOnTypeOfSubmittedReport basis:version="13.60.1" contextRef="c0" xml:lang="da">Årsrapport</gsd:InformationOnTypeOfSubmittedReport>
+   <gsd:DateOfGeneralMeeting contextRef="c0">2026-04-01</gsd:DateOfGeneralMeeting>
+   <gsd:NameAndSurnameOfChairmanOfGeneralMeeting contextRef="c0" xml:lang="da">REDACTED</gsd:NameAndSurnameOfChairmanOfGeneralMeeting>
+   <gsd:NameOfReportingEntity contextRef="c0" xml:lang="da">NIPE FINANS ApS</gsd:NameOfReportingEntity>
+   <gsd:AddressOfReportingEntityStreetName contextRef="c0" xml:lang="da">REDACTED</gsd:AddressOfReportingEntityStreetName>
+   <gsd:AddressOfReportingEntityStreetBuildingIdentifier contextRef="c0" xml:lang="da">REDACTED</gsd:AddressOfReportingEntityStreetBuildingIdentifier>
+   <gsd:AddressOfReportingEntityPostCodeIdentifier contextRef="c0" xml:lang="da">REDACTED</gsd:AddressOfReportingEntityPostCodeIdentifier>
+   <gsd:AddressOfReportingEntityDistrictName contextRef="c0" xml:lang="da">REDACTED</gsd:AddressOfReportingEntityDistrictName>
+   <gsd:IdentificationNumberCvrOfReportingEntity contextRef="c0" xml:lang="da">30830725</gsd:IdentificationNumberCvrOfReportingEntity>
+   <gsd:ReportingPeriodStartDate contextRef="c0">2024-10-01</gsd:ReportingPeriodStartDate>
+   <gsd:ReportingPeriodEndDate contextRef="c0">2025-09-30</gsd:ReportingPeriodEndDate>
+   <sob:StatementByExecutiveAndSupervisoryBoards contextRef="c0" xml:lang="da">&lt;p xmlns="http://www.w3.org/1999/xhtml"&gt;Ledelsen har dags dato behandlet og godkendt årsrapporten for regnskabsperioden 01. oktober 2024 - 30. september 2025 for NIPE FINANS ApS.
+&lt;br/&gt;
+&lt;br/&gt; Årsrapporten aflægges i overensstemmelse med årsregnskabsloven.
+&lt;br/&gt;
+&lt;br/&gt; Det er ledelsens opfattelse, at årsregnskabet giver et retvisende billede af virksomhedens aktiver, passiver og finansielle stilling samt af resultatet.
+&lt;br/&gt;
+&lt;br/&gt; Årsrapporten indstilles til generalforsamlingens godkendelse.&lt;/p&gt;</sob:StatementByExecutiveAndSupervisoryBoards>
+   <sob:ConfirmationThatFinancialStatementsAreExemptedFromAuditing contextRef="c0" xml:lang="da">Ledelsen anser betingelserne for at udelade revision for opfyldt.</sob:ConfirmationThatFinancialStatementsAreExemptedFromAuditing>
+   <sob:PlaceOfSignatureOfStatement contextRef="c0" xml:lang="da">Gjern</sob:PlaceOfSignatureOfStatement>
+   <sob:DateOfApprovalOfAnnualReport contextRef="c0">2026-03-31</sob:DateOfApprovalOfAnnualReport>
+   <cmn:NameAndSurnameOfMemberOfExecutiveBoard contextRef="c1" xml:lang="da">REDACTED</cmn:NameAndSurnameOfMemberOfExecutiveBoard>
+   <cmn:NameAndSurnameOfMemberOfExecutiveBoard contextRef="c2" xml:lang="da">REDACTED</cmn:NameAndSurnameOfMemberOfExecutiveBoard>
+   <mrv:ManagementsReview contextRef="c0" xml:lang="da">&lt;p xmlns="http://www.w3.org/1999/xhtml" style="margin-left: 1.5pt;"&gt;
+&lt;strong&gt;Selskabets væsentligste aktiviteter&lt;/strong&gt;&lt;/p&gt;
+&lt;p xmlns="http://www.w3.org/1999/xhtml" style="margin-left: 1.5pt;"&gt;Selskabets hovedaktivitet består af investering i værdipapirer.&lt;/p&gt;
+&lt;p xmlns="http://www.w3.org/1999/xhtml" style="margin-left: 1.5pt;"&gt; &lt;/p&gt;
+&lt;p xmlns="http://www.w3.org/1999/xhtml" style="margin-left: 1.5pt;"&gt;
+&lt;strong&gt;Udviklingen i selskabets aktiviteter og økonomiske forhold&lt;/strong&gt;&lt;/p&gt;
+&lt;p xmlns="http://www.w3.org/1999/xhtml" style="margin-left: 1.5pt;"&gt;Der er ikke sket væsentlige ændringer i selskabets aktivitetsområder eller økonomiske forhold i regnskabsåret.&lt;/p&gt;
+&lt;p xmlns="http://www.w3.org/1999/xhtml" style="margin-left: 1.5pt;"&gt; &lt;/p&gt;
+&lt;p xmlns="http://www.w3.org/1999/xhtml" style="margin-left: 1.5pt;"&gt;
+&lt;strong&gt;Betydningsfulde hændelser indtruffet efter statusdag&lt;/strong&gt;&lt;/p&gt;
+&lt;p xmlns="http://www.w3.org/1999/xhtml" style="margin-left: 1.5pt;"&gt;Der er efter regnskabsårets afslutning ikke indtruffet begivenheder, som væsentligt vil kunne påvirke selskabets finansielle stilling.&lt;/p&gt;</mrv:ManagementsReview>
+   <fsa:GrossProfitLoss contextRef="c0" decimals="0" unitRef="u0">-300</fsa:GrossProfitLoss>
+   <fsa:GrossProfitLoss contextRef="c3" decimals="0" unitRef="u0">0</fsa:GrossProfitLoss>
+   <fsa:ProfitLossFromOrdinaryOperatingActivities contextRef="c0" decimals="0" unitRef="u0">-300</fsa:ProfitLossFromOrdinaryOperatingActivities>
+   <fsa:ProfitLossFromOrdinaryOperatingActivities contextRef="c3" decimals="0" unitRef="u0">0</fsa:ProfitLossFromOrdinaryOperatingActivities>
+   <fsa:RestOfOtherFinanceExpenses contextRef="c3" decimals="0" unitRef="u0">0</fsa:RestOfOtherFinanceExpenses>
+   <fsa:ProfitLossFromOrdinaryActivitiesBeforeTax contextRef="c0" decimals="0" unitRef="u0">-300</fsa:ProfitLossFromOrdinaryActivitiesBeforeTax>
+   <fsa:ProfitLossFromOrdinaryActivitiesBeforeTax contextRef="c3" decimals="0" unitRef="u0">0</fsa:ProfitLossFromOrdinaryActivitiesBeforeTax>
+   <fsa:ProfitLoss contextRef="c0" decimals="0" unitRef="u0">-300</fsa:ProfitLoss>
+   <fsa:ProfitLoss contextRef="c3" decimals="0" unitRef="u0">0</fsa:ProfitLoss>
+   <fsa:TransferredToFromRetainedEarnings contextRef="c0" decimals="0" unitRef="u0">-300</fsa:TransferredToFromRetainedEarnings>
+   <fsa:ProfitLoss contextRef="c0" decimals="0" unitRef="u0">-300</fsa:ProfitLoss>
+   <fsa:ProfitLoss contextRef="c3" decimals="0" unitRef="u0">0</fsa:ProfitLoss>
+   <fsa:OtherShorttermInvestments contextRef="c4" decimals="0" unitRef="u0">5000</fsa:OtherShorttermInvestments>
+   <fsa:OtherShorttermInvestments contextRef="c5" decimals="0" unitRef="u0">5000</fsa:OtherShorttermInvestments>
+   <fsa:ShorttermInvestments contextRef="c4" decimals="0" unitRef="u0">5000</fsa:ShorttermInvestments>
+   <fsa:ShorttermInvestments contextRef="c5" decimals="0" unitRef="u0">5000</fsa:ShorttermInvestments>
+   <fsa:CashAndCashEquivalents contextRef="c4" decimals="0" unitRef="u0">1744</fsa:CashAndCashEquivalents>
+   <fsa:CashAndCashEquivalents contextRef="c5" decimals="0" unitRef="u0">2044</fsa:CashAndCashEquivalents>
+   <fsa:CurrentAssets contextRef="c4" decimals="0" unitRef="u0">6744</fsa:CurrentAssets>
+   <fsa:CurrentAssets contextRef="c5" decimals="0" unitRef="u0">7044</fsa:CurrentAssets>
+   <fsa:Assets contextRef="c4" decimals="0" unitRef="u0">6744</fsa:Assets>
+   <fsa:Assets contextRef="c5" decimals="0" unitRef="u0">7044</fsa:Assets>
+   <fsa:ContributedCapital contextRef="c4" decimals="0" unitRef="u0">125000</fsa:ContributedCapital>
+   <fsa:ContributedCapital contextRef="c5" decimals="0" unitRef="u0">125000</fsa:ContributedCapital>
+   <fsa:RetainedEarnings contextRef="c4" decimals="0" unitRef="u0">-710256</fsa:RetainedEarnings>
+   <fsa:RetainedEarnings contextRef="c5" decimals="0" unitRef="u0">-709956</fsa:RetainedEarnings>
+   <fsa:Equity contextRef="c4" decimals="0" unitRef="u0">-585256</fsa:Equity>
+   <fsa:Equity contextRef="c5" decimals="0" unitRef="u0">-584956</fsa:Equity>
+   <fsa:ShorttermPayablesToAssociates contextRef="c4" decimals="0" unitRef="u0">577000</fsa:ShorttermPayablesToAssociates>
+   <fsa:ShorttermPayablesToAssociates contextRef="c5" decimals="0" unitRef="u0">577000</fsa:ShorttermPayablesToAssociates>
+   <fsa:ShorttermPayablesToShareholdersAndManagement contextRef="c4" decimals="0" unitRef="u0">15000</fsa:ShorttermPayablesToShareholdersAndManagement>
+   <fsa:ShorttermPayablesToShareholdersAndManagement contextRef="c5" decimals="0" unitRef="u0">15000</fsa:ShorttermPayablesToShareholdersAndManagement>
+   <fsa:ShorttermLiabilitiesOtherThanProvisions contextRef="c4" decimals="0" unitRef="u0">592000</fsa:ShorttermLiabilitiesOtherThanProvisions>
+   <fsa:ShorttermLiabilitiesOtherThanProvisions contextRef="c5" decimals="0" unitRef="u0">592000</fsa:ShorttermLiabilitiesOtherThanProvisions>
+   <fsa:LiabilitiesOtherThanProvisions contextRef="c4" decimals="0" unitRef="u0">592000</fsa:LiabilitiesOtherThanProvisions>
+   <fsa:LiabilitiesOtherThanProvisions contextRef="c5" decimals="0" unitRef="u0">592000</fsa:LiabilitiesOtherThanProvisions>
+   <fsa:LiabilitiesAndEquity contextRef="c4" decimals="0" unitRef="u0">6744</fsa:LiabilitiesAndEquity>
+   <fsa:LiabilitiesAndEquity contextRef="c5" decimals="0" unitRef="u0">7044</fsa:LiabilitiesAndEquity>
+   <fsa:DisclosureOfApplicationOfExceptionsForMicroUndertakings contextRef="c0" xml:lang="da">
+    
+        &lt;div xmlns="http://www.w3.org/1999/xhtml" style="margin-bottom: 10px;"&gt;
+            Mikrovirksomheden anvender undtagelsen om at give oplysning om anvendt regnskabspraksis
+        &lt;/div&gt;
+    
+    
+
+    
+    
+        &lt;div xmlns="http://www.w3.org/1999/xhtml" style="margin-bottom: 10px;"&gt;
+            Mikrovirksomheden anvender undtagelsen om at give oplysning om det gennemsnitlige antal heltidsbeskæftigede i regnskabsåret
+        &lt;/div&gt;
+    
+</fsa:DisclosureOfApplicationOfExceptionsForMicroUndertakings>
+   <sob:TheReportingEntityAppliesTheExceptionConcerningOptingOutOfTheStatementByManagementEtc contextRef="c0" xml:lang="da">false</sob:TheReportingEntityAppliesTheExceptionConcerningOptingOutOfTheStatementByManagementEtc>
+   <fsa:ClassOfReportingEntity contextRef="c0" xml:lang="da">Regnskabsklasse B, mikrovirksomhed</fsa:ClassOfReportingEntity>
+   <fsa:TheCompanyHasPresentedTheAnnualReportEtcWithReferenceToTheDanishFinancialStatementsAct78aConcerningTheExceptionForReportingClassCMediumsizeSubsidiariesWhichChoosesToPresentTheAnnualReportEtcAccordingToReportingClassB contextRef="c0" xml:lang="da">false</fsa:TheCompanyHasPresentedTheAnnualReportEtcWithReferenceToTheDanishFinancialStatementsAct78aConcerningTheExceptionForReportingClassCMediumsizeSubsidiariesWhichChoosesToPresentTheAnnualReportEtcAccordingToReportingClassB>
+   <fsa:SelectedElementsFromReportingClassC contextRef="c0" xml:lang="da">false</fsa:SelectedElementsFromReportingClassC>
+   <fsa:AccountingPoliciesAreUnchangedFromPreviousPeriod contextRef="c0" xml:lang="da">true</fsa:AccountingPoliciesAreUnchangedFromPreviousPeriod>
+   <gsd:ToolForPreparingTheXBRLInstanceDocument contextRef="c0" xml:lang="da">Erhvervsstyrelsen Regnskab Basis</gsd:ToolForPreparingTheXBRLInstanceDocument>
+   <gsd:PredingReportingPeriodEndDate contextRef="c0">2024-09-30</gsd:PredingReportingPeriodEndDate>
+   <gsd:PrecedingReportingPeriodStartDate contextRef="c0">2023-10-01</gsd:PrecedingReportingPeriodStartDate>
+   <cmn:TypeOfAuditorAssistance contextRef="c0" xml:lang="da">Ingen bistand</cmn:TypeOfAuditorAssistance>
+   <gsd:NameOfSubmittingEnterprise contextRef="c0" xml:lang="da">REDACTED</gsd:NameOfSubmittingEnterprise>
+   <gsd:AddressOfSubmittingEnterpriseStreetAndNumber contextRef="c0" xml:lang="da">REDACTED</gsd:AddressOfSubmittingEnterpriseStreetAndNumber>
+   <gsd:AddressOfSubmittingEnterprisePostcodeAndTown contextRef="c0" xml:lang="da">REDACTED</gsd:AddressOfSubmittingEnterprisePostcodeAndTown>
+   <fsa:TheMicroUndertakingAppliesTheExceptionConcerningFilingInformationAboutAccountingPolicies contextRef="c0" xml:lang="da">true</fsa:TheMicroUndertakingAppliesTheExceptionConcerningFilingInformationAboutAccountingPolicies>
+   <fsa:TheMicroUndertakingAppliesTheExceptionConcerningFilingInformationAboutLiabilitiesDueForPaymentMoreThanFiveYearsAfterTheBalanceSheetDate contextRef="c0" xml:lang="da">false</fsa:TheMicroUndertakingAppliesTheExceptionConcerningFilingInformationAboutLiabilitiesDueForPaymentMoreThanFiveYearsAfterTheBalanceSheetDate>
+   <fsa:TheMicroUndertakingAppliesTheExceptionConcerningFilingInformationAboutCertainSpecialItems contextRef="c0" xml:lang="da">false</fsa:TheMicroUndertakingAppliesTheExceptionConcerningFilingInformationAboutCertainSpecialItems>
+   <fsa:TheMicroUndertakingAppliesTheExceptionConcerningFilingInformationAboutNumberOfEmployees contextRef="c0" xml:lang="da">true</fsa:TheMicroUndertakingAppliesTheExceptionConcerningFilingInformationAboutNumberOfEmployees>
+</xbrli:xbrl>
