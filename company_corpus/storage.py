@@ -81,6 +81,81 @@ def _jsonl(rows: Iterable[dict]) -> str:
     return "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)
 
 
+#: Natural key of a financials row *within* one entity's file: the period, its
+#: frequency, the source that reported it, and the register's company /
+#: consolidated basis. The entity is the file, so it is not part of the key.
+#: This is the table's schema, not a tunable.
+FINANCIALS_GROUP_KEY: tuple[str, ...] = ("source", "period_end", "frequency", "basis")
+
+#: Natural key of an ownership row: the SEC accession. One filing is one
+#: indivisible parse -- a Form 4 may legitimately carry two byte-identical
+#: transaction lines, which a finer key would silently dedupe.
+OWNERSHIP_GROUP_KEY: tuple[str, ...] = ("accession",)
+
+
+class ShrinkGuardError(RuntimeError):
+    """A write would drop more of a table than ``no_shrink_fraction`` allows."""
+
+
+def group_key(fields: tuple[str, ...]):
+    """Return a key function reading ``fields`` off a row, in order."""
+
+    def _key(row: dict) -> tuple:
+        return tuple(row.get(f) for f in fields)
+
+    return _key
+
+
+def merge_rows(existing: list[dict], incoming: list[dict], *, key) -> list[dict]:
+    """Group-replace merge: the incoming batch replaces whole natural-key groups.
+
+    A group the batch mentions is replaced by the batch's version of it, so a
+    concept an issuer stopped reporting disappears with its period instead of
+    surviving as a stale row from an older vintage. A group the batch does NOT
+    mention is carried forward untouched, so a run narrowed by ``--years``,
+    ``--ciks`` or ``--limit`` can no longer delete history: ``xbrl --years 2024``
+    used to replace an issuer's whole table with 2024 (DI-C3), and a transient
+    5xx on one register call used to erode a year per night (Rob-C8).
+
+    Order is stable: stored groups keep their position, new groups are appended
+    in the order the batch produced them.
+    """
+    order: list[tuple] = []
+    groups: dict[tuple, list[dict]] = {}
+    for row in existing:
+        k = key(row)
+        if k not in groups:
+            groups[k] = []
+            order.append(k)
+        groups[k].append(row)
+    replacement: dict[tuple, list[dict]] = {}
+    for row in incoming:
+        k = key(row)
+        if k not in replacement:
+            replacement[k] = []
+            if k not in groups:
+                order.append(k)
+        replacement[k].append(row)
+    groups.update(replacement)
+    return [row for k in order for row in groups[k]]
+
+
+def _check_no_shrink(path: Path, before: set, after: set, *, fraction: float) -> None:
+    """Refuse a write that loses more of a table than ``fraction`` allows.
+
+    A merged write is monotone, so this can only fire under ``--replace`` --
+    which is exactly the operation whose purpose is destruction and therefore
+    the one that deserves a confirmation.
+    """
+    if len(after) >= len(before):
+        return
+    lost = len(before) - len(after)
+    if lost > len(before) * fraction:
+        raise ShrinkGuardError(
+            f"{path}: refusing to drop {lost} of {len(before)} record group(s) "
+            f"(no_shrink_fraction={fraction}). Re-run with --allow-shrink to force.")
+
+
 @dataclass
 class SaveStats:
     """Outcome of merging a batch of records into a manifest."""
@@ -422,16 +497,54 @@ class Storage:
         _atomic_write_text(path, blob)
         return self._rel(path), hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
+    # ---- the read-merge-write table core ----
+    def _read_table(self, path: Path) -> list[dict]:
+        """Read a JSONL table. An unparseable line is skipped with a warning --
+        the same tolerance ``load_manifest`` has -- rather than aborting a merge
+        and thereby turning one bad line into a full-table replacement."""
+        if not path.exists():
+            return []
+        rows: list[dict] = []
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                warnings.warn(f"{path}:{lineno}: skipping unparseable table row ({exc})",
+                              stacklevel=2)
+        return rows
+
+    def _write_table(self, path: Path, rows: Iterable[dict], *, key) -> Path:
+        """Read-merge-write one JSONL table, atomically, with the no-shrink guard.
+
+        ``Config.replace_tables`` (the CLI's ``--replace``) restores the old
+        wholesale-replacement behaviour; the guard then refuses a write that
+        drops more than ``Config.no_shrink_fraction`` of the table's groups.
+        """
+        rows = list(rows)
+        existing = self._read_table(path)
+        merged = rows if self.config.replace_tables else merge_rows(existing, rows, key=key)
+        _check_no_shrink(path, {key(r) for r in existing}, {key(r) for r in merged},
+                         fraction=self.config.no_shrink_fraction)
+        _atomic_write_text(path, _jsonl(merged))
+        return path
+
     def _write_financials_table(
         self, ident: str, rows: Iterable[dict], *, subdir: Path
     ) -> str:
-        """Atomically write a per-entity financials JSONL table ``<subdir>/<ident>.jsonl``.
+        """Merge a per-entity financials JSONL table into ``<subdir>/<ident>.jsonl``.
 
         Shared core for the SEC/EU/register writers below: they differ only by the
-        target subdirectory (and how ``ident`` is normalized by the caller).
+        target subdirectory (and how ``ident`` is normalized by the caller). The
+        write is a group-replace merge on :data:`FINANCIALS_GROUP_KEY`, so a run
+        narrowed by ``--years`` / ``--ciks`` / ``--limit`` -- or one that lost a
+        register call to a transient 5xx -- updates the periods it saw and leaves
+        the rest of the issuer's history where it was (DI-C3, Rob-C8).
         """
-        path = subdir / f"{ident}.jsonl"
-        _atomic_write_text(path, _jsonl(rows))
+        path = self._write_table(subdir / f"{ident}.jsonl", rows,
+                                 key=group_key(FINANCIALS_GROUP_KEY))
         return self._rel(path)
 
     def write_financials_table(self, cik: str, rows: Iterable[dict]) -> str:
@@ -475,10 +588,16 @@ class Storage:
         record.text_path = self._rel(txt)
 
     def write_ownership_table(self, cik: str, rows: Iterable[dict]) -> str:
-        """Write the normalized ownership rows data/ownership/<cik>.jsonl."""
+        """Merge the normalized ownership rows into data/ownership/<cik>.jsonl.
+
+        Grouped by :data:`OWNERSHIP_GROUP_KEY` (the accession), so a re-parsed
+        filing replaces its own rows wholesale while every other filing already
+        in the table survives -- an ``ownership --limit 2`` smoke test used to
+        leave the issuer with two filings' worth of holdings (Rob-C8).
+        """
         cik = normalize_cik(cik)
-        path = self.config.ownership_dir / f"{cik}.jsonl"
-        _atomic_write_text(path, _jsonl(rows))
+        path = self._write_table(self.config.ownership_dir / f"{cik}.jsonl", rows,
+                                 key=group_key(OWNERSHIP_GROUP_KEY))
         return self._rel(path)
 
     # ---- discovery errors ----

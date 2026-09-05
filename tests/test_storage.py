@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 from datetime import date
 
 import pytest
 
+from company_corpus.config import Config
 from company_corpus.models import FilingRecord
 from company_corpus.storage import Storage
 from company_corpus.taxonomy import FormType
@@ -123,3 +125,46 @@ def test_identical_rediscovery_counts_unchanged_not_updated(config):
     st.save_records([_rec(local_path="raw/a.txt", sha256="abc")], dry_run=False)
     stats = st.save_records([_rec()], dry_run=False)
     assert (stats.updated, stats.unchanged) == (0, 1)
+
+
+# ---- the read-merge-write table core (chantier 3, task 5) ----
+
+def _fin_row(period_end: str, concept: str, value: int) -> dict:
+    return {"entity_id": "0000320193", "source": "sec", "period_end": period_end,
+            "frequency": "annual", "basis": None, "kind": "reported",
+            "concept": concept, "value": value, "unit": "USD"}
+
+
+def test_a_corrupt_stored_line_is_skipped_not_fatal(config):
+    """One truncated line must not turn a merge into a full-table replacement."""
+    st = Storage(config)
+    st.write_financials_table("320193", [_fin_row("2019-12-31", "assets", 1)])
+    path = config.financials_dir / "0000320193.jsonl"
+    path.write_text(path.read_text(encoding="utf-8") + '{"entity_id": "032019\n',
+                    encoding="utf-8")
+    with pytest.warns(UserWarning, match="unparseable table row"):
+        st.write_financials_table("320193", [_fin_row("2020-12-31", "assets", 2)])
+    rows = [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
+    assert [r["period_end"] for r in rows] == ["2019-12-31", "2020-12-31"]
+
+
+def test_a_batch_repeating_a_group_keeps_both_of_its_rows(config):
+    """Two rows sharing a natural key inside ONE batch are one group, not a dedupe."""
+    st = Storage(config)
+    st.write_financials_table("320193", [_fin_row("2021-12-31", "assets", 1),
+                                         _fin_row("2021-12-31", "assets", 1)])
+    path = config.financials_dir / "0000320193.jsonl"
+    rows = [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
+    assert len(rows) == 2
+
+
+def test_the_shrink_guard_tolerates_the_configured_fraction(config):
+    """no_shrink_fraction is a knob, not a boolean: 0.5 lets a half-table go."""
+    st = Storage(config)
+    st.write_financials_table("320193", [_fin_row("2019-12-31", "assets", 1),
+                                         _fin_row("2020-12-31", "assets", 2)])
+    lenient = Storage(Config(data_dir=config.data_dir, replace_tables=True,
+                             no_shrink_fraction=0.5))
+    lenient.write_financials_table("320193", [_fin_row("2020-12-31", "assets", 2)])
+    path = config.financials_dir / "0000320193.jsonl"
+    assert len(path.read_text(encoding="utf-8").splitlines()) == 1

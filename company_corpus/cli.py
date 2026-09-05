@@ -324,6 +324,27 @@ def _add_period_flags(p: argparse.ArgumentParser) -> None:
     p.add_argument("--until", default=None, help="end date filter (YYYY-MM-DD)")
 
 
+def _add_table_write_flags(p: argparse.ArgumentParser, *, partial_write: bool = False) -> None:
+    """Add the escape hatches out of the group-replace table merge.
+
+    The merge is the default because a narrowed re-run used to delete the
+    periods it did not look at (DI-C3 / Rob-C8). ``--replace`` gets the old
+    destructive write back for an operator who genuinely wants to rebuild a
+    table from scratch, and ``--allow-shrink`` confirms the loss the no-shrink
+    guard would otherwise refuse. ``--allow-partial-write`` is offered only by
+    the commands whose ``--limit`` narrows the rows they emit.
+    """
+    p.add_argument("--replace", action="store_true",
+                   help="replace each table wholesale instead of merging into it "
+                        "(destructive: drops periods this run did not produce)")
+    p.add_argument("--allow-shrink", action="store_true", dest="allow_shrink",
+                   help="with --replace: accept a write that drops stored record groups")
+    if partial_write:
+        p.add_argument("--allow-partial-write", action="store_true", dest="allow_partial_write",
+                       help="accept --limit with --write (a partial run's coverage file "
+                            "reports on a subset of the universe)")
+
+
 #: Flags that mean "this invocation writes into the corpus". Only writers take
 #: the corpus lock; a read-only command must never block on a running crawl.
 _WRITING_FLAGS = ("write", "download")
@@ -362,7 +383,41 @@ def _config(args: argparse.Namespace) -> Config:
         kw["contact"] = args.contact
     if getattr(args, "insecure", False):
         kw["verify_tls"] = False
+    # Table-writing commands only: --replace restores the pre-chantier-3
+    # wholesale replacement, --allow-shrink lifts the no-shrink guard that
+    # replacement then trips (see Storage._write_table).
+    if getattr(args, "replace", False):
+        kw["replace_tables"] = True
+    if getattr(args, "allow_shrink", False):
+        kw["no_shrink_fraction"] = 1.0
     return Config(**kw)
+
+
+#: Commands whose ``--limit`` narrows what a TABLE producer emits (as opposed to
+#: capping downloads against an already-merged manifest).
+_LIMIT_NARROWS_A_TABLE = ("ownership", "register-financials")
+
+
+def _check_limit_guard(args: argparse.Namespace) -> None:
+    """``--limit`` narrows a table producer's output.
+
+    With the merge core in place a limited run can no longer delete history, so
+    the ``--write`` refusal is defence in depth -- but a limited run still
+    writes a coverage file claiming a status for a subset of the universe, and
+    under ``--replace`` it is once again the Rob-C8 truncation (an operator
+    smoke test with ``--limit 2`` used to destroy two fiscal years). Only the
+    non-replacing case has an override.
+    """
+    if getattr(args, "limit", None) is None:
+        return
+    if getattr(args, "replace", False):
+        print("error: --limit cannot be combined with --replace", file=sys.stderr)
+        raise SystemExit(2)
+    if (args.cmd in _LIMIT_NARROWS_A_TABLE and getattr(args, "write", False)
+            and not getattr(args, "allow_partial_write", False)):
+        print("error: --limit with --write narrows a table producer; pass "
+              "--allow-partial-write to accept a partial run", file=sys.stderr)
+        raise SystemExit(2)
 
 
 def _ciks_for(args: argparse.Namespace, config: Config) -> list[str]:
@@ -975,6 +1030,7 @@ def _print_reg_result(rep: dict, args: argparse.Namespace) -> None:
 
 
 def _cmd_register_financials(args: argparse.Namespace) -> int:
+    _check_limit_guard(args)
     cfg = _config(args)
     if getattr(args, "limit", None) is not None and not (
         getattr(args, "ch_bulk", None)
@@ -1078,6 +1134,7 @@ def _cmd_register_financials(args: argparse.Namespace) -> int:
 
 
 def _cmd_ownership(args: argparse.Namespace) -> int:
+    _check_limit_guard(args)
     cfg = _config(args)
     ciks = _ciks_for(args, cfg)
     scope = parse_scope(args.forms) if args.forms else None
@@ -1344,6 +1401,7 @@ def build_parser() -> argparse.ArgumentParser:
     xb.add_argument("--years", default=None,
                     help="keep periods whose fiscal year is in this range, e.g. 2015-2025 or 2024")
     xb.add_argument("--write", action="store_true", help="persist summaries+facts (else dry-run)")
+    _add_table_write_flags(xb)
     xb.set_defaults(func=_cmd_xbrl)
 
     euf = sub.add_parser("eu-financials",
@@ -1354,6 +1412,7 @@ def build_parser() -> argparse.ArgumentParser:
     euf.add_argument("--write", action="store_true", help="persist tables (else dry-run)")
     euf.add_argument("--arelle", action="store_true",
                      help="also parse local ESEF .zip packages with Arelle (Tier B; needs the eu-financials extra)")
+    _add_table_write_flags(euf)
     euf.set_defaults(func=_cmd_eu_financials)
 
     eua = sub.add_parser("eu-acquire",
@@ -1409,6 +1468,7 @@ def build_parser() -> argparse.ArgumentParser:
     rf.add_argument("--limit", type=int, default=None,
                     help="cap number of entities/reports processed (--ch-bulk, --ee-file, --ee-year)")
     rf.add_argument("--write", action="store_true", help="persist tables (else dry-run)")
+    _add_table_write_flags(rf, partial_write=True)
     rf.set_defaults(func=_cmd_register_financials)
 
     ow = sub.add_parser("ownership", help="download+structure ownership filings (family E)")
@@ -1420,6 +1480,7 @@ def build_parser() -> argparse.ArgumentParser:
     ow.add_argument("--write", action="store_true", help="download+persist summaries (else dry-run)")
     ow.add_argument("--overwrite", action="store_true", help="re-download already-stored filings")
     ow.add_argument("--limit", type=int, default=None, help="cap number of new downloads")
+    _add_table_write_flags(ow, partial_write=True)
     ow.set_defaults(func=_cmd_ownership)
 
     ri = sub.add_parser("rag-items", help="preview SourceItems the RAG would ingest")

@@ -615,8 +615,12 @@ def test_cli_ch_bulk_with_write(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cli, "build_ch_financials", fake_build)
 
+    # --limit with --write is a partial producer run: it must be acknowledged
+    # (see cli._check_limit_guard), because its coverage file reports a status
+    # for only part of the bulk file.
     args = cli.build_parser().parse_args(
-        ["register-financials", "--ch-bulk", str(zip_path), "--write", "--limit", "5"])
+        ["register-financials", "--ch-bulk", str(zip_path), "--write", "--limit", "5",
+         "--allow-partial-write"])
     rc = args.func(args)
     assert rc == 0
     assert captured["write"] is True

@@ -438,3 +438,67 @@ def test_name_tier_fetch_failure_degrades_gracefully(monkeypatch, tmp_path, caps
     assert "cik-lookup fetch failed" in err, (
         f"stderr should mention the failure reason; got: {err!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# --limit narrows a table producer (chantier 3, task 5)
+# ---------------------------------------------------------------------------
+
+def _reg_args(*extra: str):
+    from company_corpus import cli
+    return cli.build_parser().parse_args(
+        ["register-financials", "--ee-year", "2022", *extra])
+
+
+def test_limit_with_write_is_refused_by_default(capsys):
+    """A limited producer run writes a coverage file for a subset of the universe."""
+    args = _reg_args("--write", "--limit", "2")
+    with pytest.raises(SystemExit) as excinfo:
+        args.func(args)
+    assert excinfo.value.code == 2
+    assert "--allow-partial-write" in capsys.readouterr().err
+
+
+def test_limit_with_write_runs_under_allow_partial_write(monkeypatch, tmp_path, capsys):
+    from company_corpus import cli
+
+    captured = {}
+
+    def fake_build(*a, **kw):
+        captured.update(kw)
+        return {"entities": 1, "with_financials": 1, "no_financials": 0,
+                "unbalanced": 0, "errors": 0, "periods": 1, "paths": [],
+                "coverage_path": None}
+
+    monkeypatch.setattr(cli, "build_ee_financials", fake_build)
+    args = cli.build_parser().parse_args(
+        ["--data-dir", str(tmp_path), "register-financials", "--ee-year", "2022",
+         "--write", "--limit", "2", "--allow-partial-write"])
+    assert args.func(args) == 0
+    assert captured["limit"] == 2
+
+
+def test_limit_with_replace_is_always_refused(capsys):
+    """--replace + --limit is the Rob-C8 truncation; there is no override."""
+    args = _reg_args("--write", "--limit", "2", "--replace", "--allow-partial-write")
+    with pytest.raises(SystemExit) as excinfo:
+        args.func(args)
+    assert excinfo.value.code == 2
+    assert "--limit cannot be combined with --replace" in capsys.readouterr().err
+
+
+def test_allow_shrink_lifts_the_no_shrink_fraction():
+    from company_corpus import cli
+
+    args = cli.build_parser().parse_args(
+        ["xbrl", "--ciks", "320193", "--write", "--replace", "--allow-shrink"])
+    cfg = cli._config(args)
+    assert (cfg.replace_tables, cfg.no_shrink_fraction) == (True, 1.0)
+
+
+def test_table_flags_default_to_the_merging_config():
+    from company_corpus import cli
+
+    args = cli.build_parser().parse_args(["xbrl", "--ciks", "320193", "--write"])
+    cfg = cli._config(args)
+    assert (cfg.replace_tables, cfg.no_shrink_fraction) == (False, 0.0)

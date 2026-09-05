@@ -222,6 +222,27 @@ data/
 The manifest is the entry point — every line carries the exact file paths, so you
 never decode a hash or browse `raw/` by hand.
 
+**The four table writers merge; they do not replace.** `financials/`,
+`financials_eu/`, `financials_register/` and `ownership/` are written through one
+read-merge-write core (`Storage._write_table`), keyed on each table's natural
+group: `(source, period_end, frequency, basis)` for a financials row, the SEC
+`accession` for an ownership row. A run replaces the groups it produced and
+carries every other group forward untouched, so a re-run narrowed by `--years`,
+`--ciks` or `--limit` — or one that lost a register call to a transient 5xx —
+updates what it saw instead of truncating an issuer's history. The group, not the
+row, is the unit: a concept an issuer stopped reporting disappears with its
+period rather than surviving as a stale row from an older vintage, and two
+legitimately identical Form 4 transaction lines both survive.
+
+`--replace` restores the old wholesale replacement on `xbrl`, `ownership`,
+`eu-financials` and `register-financials`. It then trips a no-shrink guard, which
+refuses a write dropping more than `Config.no_shrink_fraction` (default `0.0`) of
+a table's stored groups; `--allow-shrink` raises that to 1.0. `--limit` may never
+be combined with `--replace`, and on the two commands whose `--limit` narrows the
+rows they emit (`ownership`, `register-financials`) combining it with `--write`
+requires `--allow-partial-write`, since a capped run's coverage report describes
+only the slice it processed.
+
 ---
 
 ## 4. The corpus lifecycle
