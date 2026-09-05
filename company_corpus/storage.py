@@ -237,10 +237,22 @@ class Storage:
         also what a wiped record (DI-C1) or a legacy row lacks (DI-M10). A
         pointer aimed at bytes that are no longer on disk counts too -- since
         DI-C1 made the pointers sticky, a dangling one can never clear itself.
+
+        "Complete" therefore means: a hash is stamped and *every SET pointer
+        exists*. An UNSET pointer is not incompleteness -- a legacy row whose
+        ``text_path`` is None is complete and must not be re-worked every night.
+        The hash is deliberately NOT recomputed from the bytes on disk: every
+        write this tool makes is atomic (``_atomic_write_text``), so a truncated
+        file cannot come from the tool, and re-hashing every stored submission
+        would turn a metadata check into a full corpus re-read.
+
+        ``record.local_path`` is not checked: the only caller sets it from a
+        ``sub_path`` it has just seen on disk, so that pointer is live by
+        construction.
         """
         if not record.sha256:
             return True
-        for rel in (record.local_path, record.primary_path, record.text_path):
+        for rel in (record.primary_path, record.text_path):
             if rel and not (self.config.data_dir / rel).exists():
                 return True
         return False
@@ -263,7 +275,9 @@ class Storage:
         if not raw.strip():
             # A truncated or interrupted transfer. Adopting it would stamp the
             # hash of nothing on the record and declare the document done.
-            raise ValueError("stored submission is empty")
+            raise ValueError(
+                "stored submission is empty (re-download with --overwrite)"
+            )
 
         sha256 = hashlib.sha256(raw.encode("utf-8", "replace")).hexdigest()
         primary = select_primary(
@@ -281,6 +295,21 @@ class Storage:
             text_path = dest_dir / f"{record.doc_id}.txt"
             _atomic_write_text(text_path, clean_text(primary.text, primary.filename))
             text_rel = self._rel(text_path)
+
+        if not primary_rel:
+            # No primary came out of these bytes, and the record still points at
+            # a derived file that is not on disk. Stamping the hash here would
+            # call the document repaired while leaving the dangling pointer in
+            # place (it is sticky since DI-C1, so clearing it would not help
+            # either): `_needs_repair` fires again next run and the same
+            # document is reported as `repaired` every night, inflating
+            # `docs_new` forever. Only a re-fetch can settle it.
+            for rel in (record.primary_path, record.text_path):
+                if rel and not (self.config.data_dir / rel).exists():
+                    raise ValueError(
+                        "submission yields no primary document but the record "
+                        f"points at missing {rel}; re-download with --overwrite"
+                    )
 
         record.sha256 = sha256
         if primary_rel:
@@ -305,6 +334,11 @@ class Storage:
         Idempotent *and* convergent: an existing submission is skipped only when
         the derived artefacts are actually there, otherwise it is repaired from
         the bytes already on disk -- no network, no ``--overwrite`` (Rob-C4).
+
+        A stored submission that is empty, or that yields no primary while the
+        record still points at a missing artefact, cannot be settled from disk:
+        it is returned as an ``error`` (never a repeating ``repaired``) and its
+        remedy is in the error text -- re-download it with ``--overwrite``.
         """
         dest_dir = self.raw_dir_for(record)
         sub_path = dest_dir / f"{record.doc_id}.submission.txt"

@@ -1289,7 +1289,9 @@ def build_parser() -> argparse.ArgumentParser:
     di.add_argument("--write", action="store_true", help="persist manifests (else dry-run)")
     di.add_argument("--download", action="store_true", help="also download+decompose (implies --write)")
     di.add_argument("--overwrite", action="store_true", help="re-download already-stored filings")
-    di.add_argument("--limit", type=int, default=None, help="cap number of new downloads")
+    di.add_argument("--limit", type=int, default=None,
+                    help="cap number of new downloads (repairs are not capped: they "
+                         "cost no network; reported as repaired=)")
     di.set_defaults(func=_cmd_discover)
 
     dl = sub.add_parser("download", help="download+decompose filings from existing manifests")
@@ -1300,7 +1302,9 @@ def build_parser() -> argparse.ArgumentParser:
     _add_period_flags(dl)
     dl.add_argument("--write", action="store_true", help="persist files+manifest (else dry-run)")
     dl.add_argument("--overwrite", action="store_true", help="re-download already-stored filings")
-    dl.add_argument("--limit", type=int, default=None, help="cap number of new downloads")
+    dl.add_argument("--limit", type=int, default=None,
+                    help="cap number of new downloads (repairs are not capped: they "
+                         "cost no network; reported as repaired=)")
     dl.set_defaults(func=_cmd_download)
 
     rp = sub.add_parser("report", help="completeness matrix (issuer x form x year)")

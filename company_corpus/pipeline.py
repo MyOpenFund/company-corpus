@@ -163,8 +163,15 @@ def download_universe(
 
     Reads each issuer's manifest, fetches the complete submission for each record
     (optionally filtered by ``scope`` and a year/date window), decomposes it, and
-    persists the updated record. ``limit`` caps the number of *new* downloads
-    across the run. Idempotent: already-downloaded filings are skipped.
+    persists the updated record. Idempotent: already-downloaded filings are
+    skipped.
+
+    ``limit`` caps the number of *new downloads* across the run and nothing
+    else: repairs are not capped by ``--limit`` (they cost no network -- they
+    re-derive artefacts from bytes already on disk), so a limited run still
+    converges every half-processed document it walks past.
+    ``DownloadReport.repaired`` reports them, and they stay counted in
+    ``docs_new`` because a repair adopts bytes that were previously unusable.
     """
     config = config or Config()
     fetcher = fetcher or Fetcher(config)
@@ -183,6 +190,9 @@ def download_universe(
 
         touched = []
         for rec in records:
+            # Only `downloaded` is weighed against the limit: a repair costs no
+            # network, so capping it would leave documents half-processed for no
+            # gain (see the docstring).
             if limit is not None and report.downloaded >= limit:
                 break
             res = storage.fetch_and_store(rec, fetcher, dry_run=dry_run, overwrite=overwrite)

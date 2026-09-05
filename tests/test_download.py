@@ -216,6 +216,32 @@ def test_a_decomposition_failure_writes_no_half_record(make_fetcher, config, mon
     assert st.fetch_and_store(rec, _Boom(), dry_run=False).status == "error"
 
 
+def test_a_primary_less_submission_is_an_error_not_a_repeating_repair(
+    apple_fetcher, config, monkeypatch
+):
+    """Adversarial: the primary is off disk AND the submission yields no primary.
+
+    Stamping the hash and calling that a "repair" left the dangling pointer in
+    place (it is sticky since DI-C1, so clearing it would not help either):
+    ``_needs_repair`` fired again on the very next pass, and every nightly run
+    reported the same document as ``repaired``, inflating ``docs_new`` forever.
+    A document that cannot be re-derived from its own bytes is an error.
+    """
+    st = Storage(config)
+    rec = _apple_10k()
+    st.fetch_and_store(rec, apple_fetcher, dry_run=False)
+    (config.data_dir / rec.primary_path).unlink()
+    monkeypatch.setattr("company_corpus.storage.select_primary", lambda *a, **k: None)
+    rec.sha256 = "stale"  # a re-stamp would overwrite this sentinel
+
+    for _ in range(2):  # the second pass must not have "fixed" anything
+        res = st.fetch_and_store(rec, _Boom(), dry_run=False)
+        assert res.status == "error"
+        assert "no primary document" in res.error
+        assert "re-download with --overwrite" in res.error
+        assert rec.sha256 == "stale"
+
+
 def test_download_universe_counts_a_repair(apple_fetcher, config):
     st = Storage(config)
     st.save_records([_apple_10k()], dry_run=False)
