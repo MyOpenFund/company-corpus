@@ -161,13 +161,18 @@ the field-by-field reference and the per-command "unit of useful work" table.
 One JSON line per filing in `data/manifest/<cik>.jsonl`. Its identity is
 **date-independent**: `doc_id = sha1("<cik>|<form-code>|<accession>")[:16]`, so
 re-discovering a filing after a date correction never duplicates it. Family **F**
-(XBRL period summaries) appends `|<period_of_report>` to that basis
+(XBRL period summaries) appends `|<period_of_report>|<frequency>` to that basis
 (`models.DOC_ID_PERIOD_KEYED_FAMILIES`): those records are synthetic
-pseudo-filings that share one accession across a filing's comparative years.
+pseudo-filings that share one accession across a filing's comparative years, and
+a *period* there is the pair (end date, frequency) — one 10-K tags the Q4
+three-month duration alongside the twelve-month one, both ending the same day.
+Family-F artefacts produced before this change are named by the old basis: they
+are orphaned and must be regenerated with `xbrl --write`.
 
 Key fields: `cik`, `form_type` (a `FormType`), `sec_form`, `accession`, `company`
 (point-in-time) + `company_current`, `entity_id`, `filing_date`,
-`period_of_report`, `primary_doc_url`, `submission_url`, `provenance`
+`period_of_report`, `frequency` (period-keyed families only),
+`primary_doc_url`, `submission_url`, `provenance`
 (`edgar_index | edgar_fts | edgar_submissions | wayback`), and on-disk pointers
 `local_path` / `primary_path` / `text_path` / `pdf_path`. `to_row()`/`from_row()`
 round-trip it to JSONL.

@@ -12,7 +12,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 
-from .config import Config
+from .config import Config, normalize_cik
 from .entity import EntityRegistry
 from .financials import normalized_rows, render_summary_html
 from .http import Fetcher
@@ -318,9 +318,12 @@ def fetch_financials(
     ``render_universe`` / ``rag.iter_items`` handle PDF + ingestion). The summaries
     feed the RAG; the raw JSON preserves exhaustivity.
 
-    Raises :class:`IdentityCollisionError` if two of an issuer's period summaries
-    compute the same ``doc_id``: that would overwrite one period's summary with
-    another's, so it fails loudly rather than being deduped away (DI-C2).
+    If two of an issuer's period summaries compute the same ``doc_id`` -- which
+    would overwrite one period's summary with another's -- THAT issuer is skipped
+    without writing anything and recorded as an error item in the report, rather
+    than being deduped away silently (DI-C2) or aborting the whole run: the other
+    issuers still produce, and the exit-code doctrine
+    (:meth:`runreport.RunReport.finish`) decides what the run is worth.
     """
     config = config or Config()
     fetcher = fetcher or Fetcher(config)
@@ -345,7 +348,7 @@ def fetch_financials(
                 title=f"{ps.company} — {ps.period_label} financial summary",
                 company=ps.company, company_current=ps.company_current,
                 filing_date=ps.publication_date, period_of_report=ps.period_end,
-                provenance="edgar_xbrl",
+                frequency=ps.frequency, provenance="edgar_xbrl",
             )
             records.append(rec)
             rows.extend(normalized_rows(cik, ps))
@@ -355,13 +358,14 @@ def fetch_financials(
         # sharing an id silently overwrite one fiscal year with another (DI-C2).
         # The previous code wrote each summary inside the loop above, which
         # destroyed the artefact before any check could see the clash.
-        ids = [r.doc_id for r in records]
-        if len(set(ids)) != len(ids):
-            duplicates = sorted({i for i in ids if ids.count(i) > 1})
-            raise IdentityCollisionError(
-                f"{cik}: {len(ids) - len(set(ids))} colliding doc_id(s) among "
-                f"{len(ids)} period summaries ({duplicates[:5]}). A collision "
-                f"silently overwrites a fiscal year's summary and must fail loudly.")
+        try:
+            _assert_unique_doc_ids(cik, records)
+        except IdentityCollisionError as exc:
+            # Fail loud, write nothing -- for THIS issuer only. A corrupt issuer
+            # must not cost the run its other issuers' work.
+            report.errors.append({"source": "edgar_xbrl", "context": normalize_cik(cik),
+                                  "doc_ids": exc.doc_ids, "error": str(exc)})
+            continue
 
         report.periods += len(records)
         if not dry_run:
@@ -375,6 +379,23 @@ def fetch_financials(
     if not dry_run and report.errors:
         storage.record_errors(report.errors, run_id=run_id)
     return report
+
+
+def _assert_unique_doc_ids(cik: str, records: Sequence[FilingRecord]) -> None:
+    """Raise :class:`IdentityCollisionError` if two records share a ``doc_id``.
+
+    A shared id means one record's artefact overwrites the other's on disk and
+    its manifest row, so the clash must never be deduped away silently (DI-C2).
+    """
+    ids = [r.doc_id for r in records]
+    if len(set(ids)) == len(ids):
+        return
+    duplicates = sorted({i for i in ids if ids.count(i) > 1})
+    raise IdentityCollisionError(
+        f"{normalize_cik(cik)}: {len(ids) - len(set(ids))} colliding doc_id(s) among "
+        f"{len(ids)} period summaries ({duplicates[:5]}). A collision "
+        f"silently overwrites a fiscal year's summary and must fail loudly.",
+        doc_ids=duplicates)
 
 
 def _summary_text(ps) -> str:
