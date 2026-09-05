@@ -28,6 +28,17 @@ def _default_contact() -> str:
     return os.environ.get("COMPANY_CORPUS_CONTACT", "")
 
 
+#: Manifest fields only the download and render phases can produce. A discovery
+#: record leaves them empty by construction, so the manifest merge carries the
+#: stored value forward instead of letting a second ``discover --write`` erase
+#: every download pointer and hash the corpus already had (DI-C1). Not a
+#: generic "carry forward anything empty": a name legitimately corrected to ""
+#: or a withdrawn ``period_of_report`` must still be clearable.
+STICKY_MANIFEST_FIELDS: tuple[str, ...] = (
+    "local_path", "sha256", "primary_path", "text_path", "pdf_path",
+)
+
+
 @dataclass
 class Config:
     """Paths, networking, and politeness knobs for a corpus run."""
@@ -46,6 +57,13 @@ class Config:
     store_full_submission: bool = True  # keep the complete-submission .txt
     store_primary_doc: bool = True      # decompose + keep the primary document
     store_clean_text: bool = True       # extract RAG-ready plaintext
+
+    # Convergence behaviour (chantier 3).
+    sticky_manifest_fields: tuple[str, ...] = STICKY_MANIFEST_FIELDS
+    replace_tables: bool = False      # True = a run's rows replace the table wholesale
+    no_shrink_fraction: float = 0.0   # largest fraction of a table's groups a write may drop
+    lock_wait_seconds: float = 0.0    # 0.0 = a second writer fails immediately
+    max_path_component_length: int = 128  # longest real identifier is a 20-char LEI
 
     def __post_init__(self) -> None:
         if isinstance(self.data_dir, str):

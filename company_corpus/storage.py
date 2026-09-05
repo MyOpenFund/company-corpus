@@ -123,6 +123,22 @@ class Storage:
             total += self._save_cik(cik, recs, dry_run=dry_run)
         return total
 
+    def _carry_sticky(self, prior: FilingRecord, rec: FilingRecord) -> None:
+        """Fill the incoming record's empty artefact pointers from the stored one.
+
+        ``EdgarSubmissions.discover`` builds a fresh record on every run with
+        ``local_path``/``sha256``/``primary_path``/``text_path``/``pdf_path``
+        unset -- those are only ever written by ``fetch_and_store`` and
+        ``render_record``. The merge used to REPLACE the stored record with that
+        fresh one, so a second ``discover --write`` orphaned every downloaded
+        byte and destroyed the corpus's hash chain (DI-C1). Only *empty*
+        incoming fields are filled, so a run that genuinely re-derives an
+        artefact still wins.
+        """
+        for name in self.config.sticky_manifest_fields:
+            if not getattr(rec, name, None) and getattr(prior, name, None):
+                setattr(rec, name, getattr(prior, name))
+
     def _save_cik(
         self, cik: str, records: list[FilingRecord], *, dry_run: bool
     ) -> SaveStats:
@@ -136,9 +152,14 @@ class Storage:
                 stats.added += 1
                 changed = True
             elif prior.to_row() != rec.to_row():
-                existing[rec.doc_id] = rec
-                stats.updated += 1
-                changed = True
+                self._carry_sticky(prior, rec)
+                if prior.to_row() != rec.to_row():
+                    existing[rec.doc_id] = rec
+                    stats.updated += 1
+                    changed = True
+                else:
+                    # Nothing but the pointers differed: not an update.
+                    stats.unchanged += 1
             else:
                 stats.unchanged += 1
 

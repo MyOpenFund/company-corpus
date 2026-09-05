@@ -92,3 +92,34 @@ def test_load_manifest_skips_corrupt_line(config):
         loaded = st.load_manifest("320193")
     # The two valid rows survive; only the corrupt one is dropped.
     assert len(loaded) == 2
+
+
+def test_rediscovery_preserves_download_pointers(config):
+    st = Storage(config)
+    stored = _rec(local_path="raw/a.txt", sha256="abc", primary_path="raw/a.htm",
+                  text_path="raw/a.txt", pdf_path="raw/a.pdf")
+    st.save_records([stored], dry_run=False)
+    # A fresh discovery record: same doc_id, every pointer empty by construction.
+    stats = st.save_records([_rec(title="corrected")], dry_run=False)
+    kept = next(iter(st.load_manifest("320193").values()))
+    assert (kept.local_path, kept.sha256, kept.primary_path, kept.text_path,
+            kept.pdf_path) == ("raw/a.txt", "abc", "raw/a.htm", "raw/a.txt", "raw/a.pdf")
+    assert kept.title == "corrected"
+    assert stats.updated == 1
+
+
+def test_sticky_carry_forward_does_not_mask_a_real_change(config):
+    st = Storage(config)
+    st.save_records([_rec(local_path="raw/a.txt", sha256="abc")], dry_run=False)
+    # A record that re-derives an artefact must WIN; sticky only fills blanks.
+    st.save_records([_rec(local_path="raw/b.txt", sha256="")], dry_run=False)
+    kept = next(iter(st.load_manifest("320193").values()))
+    assert kept.local_path == "raw/b.txt"
+    assert kept.sha256 == "abc"
+
+
+def test_identical_rediscovery_counts_unchanged_not_updated(config):
+    st = Storage(config)
+    st.save_records([_rec(local_path="raw/a.txt", sha256="abc")], dry_run=False)
+    stats = st.save_records([_rec()], dry_run=False)
+    assert (stats.updated, stats.unchanged) == (0, 1)
