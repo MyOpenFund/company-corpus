@@ -1,6 +1,9 @@
 from datetime import date
 from pathlib import Path
 import json
+import os
+import stat
+
 from company_corpus.config import Config
 from company_corpus.eu.documents import Document
 from company_corpus.eu.download import download_document
@@ -41,6 +44,32 @@ def test_atomic_download_no_truncated_file_on_failure(tmp_path):
     assert not part.exists(), ".part temp file must be cleaned up on failure"
     # The manifest must record the error so the failure is visible
     assert len(man["files"]) == 1 and "error" in man["files"][0]
+
+
+def test_downloaded_files_stay_readable_by_the_other_accounts(tmp_path, monkeypatch):
+    """The staging file is a mkstemp (0o600) inode the download only truncates.
+
+    Whatever mode it carries is the mode the raw byte lands with, so it must be
+    the one a plain open() would have produced -- otherwise the RAG ingester and
+    the NAS share consumers cannot read a single downloaded document.
+    """
+    monkeypatch.setattr("company_corpus.storage._UMASK", 0o022)
+    cfg = Config(data_dir=tmp_path / "data", contact="t@e.com")
+    doc = Document(doc_id="perm-1", lei="L3", country="DE", doc_type="annual_report",
+                   period_end=date(2023, 12, 31), published_ts="2024-03-01", discovered_ts="x",
+                   language="de", source="filings.xbrl.org",
+                   files=[{"name": "a.zip", "url": "http://x/a.zip", "kind": "package_url"},
+                          {"name": "inline.txt", "content": "bytes", "kind": "report"}],
+                   native_meta={})
+    previous = os.umask(0o022)
+    try:
+        download_document(doc, fetcher=_DLFetcher(), config=cfg)
+    finally:
+        os.umask(previous)
+    base = cfg.raw_dir / "L3" / "ESEF-AR" / "2023" / "perm-1"
+    for name in ("a.zip", "inline.txt"):
+        mode = stat.S_IMODE((base / name).stat().st_mode)
+        assert mode & 0o044, f"{name} is {oct(mode)}: other accounts cannot read it"
 
 
 def test_download_writes_all_files_and_manifest(tmp_path):

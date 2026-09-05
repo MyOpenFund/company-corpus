@@ -151,6 +151,22 @@ def test_a_writing_run_refuses_to_start_while_the_lock_is_held(tmp_path, monkeyp
     assert "download" in rep["fatal"]
 
 
+def test_a_universe_write_refuses_to_start_while_the_lock_is_held(tmp_path, monkeypatch, capsys):
+    """`build-universe --write` rewrites data/universe/*.jsonl: it is a writer too."""
+    def fake_cmd_build_universe(args):
+        raise AssertionError("build-universe must not run while another writer holds the lock")
+
+    monkeypatch.setattr(cli, "_cmd_build_universe", fake_cmd_build_universe)
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(tmp_path))
+    cfg = Config(data_dir=tmp_path)
+    with corpus_lock(cfg, purpose="discover"):
+        rc = cli.main(["--data-dir", str(tmp_path), "build-universe",
+                       "--tickers", "AAPL", "--write"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "discover" in err and str(lock_path(cfg)) in err
+
+
 def test_a_read_only_run_ignores_a_held_lock(tmp_path, monkeypatch):
     """A dry run writes nothing, so it must never block on a running crawl."""
     def fake_cmd_discover(args):

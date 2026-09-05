@@ -26,6 +26,7 @@ render-pdf            sec        rendered+would+skipped+
 xbrl                  sec        issuers processed            period summaries        companyfacts errors
 ownership             sec        issuers processed            insider+13F+passthrough ownership errors
                                                               + would_download (dry)
+build-universe        sec        identifiers submitted        issuers resolved        (none: see below)
 enrich-openfigi       sec        identifiers submitted        identifiers mapped      (none: see below)
 eu-financials         xbrlorg    entities resolved            period summaries        ``out["errors"]``
 eu-acquire            per        entities dispatched to       documents kept from     that backend's
@@ -43,6 +44,14 @@ Three deliberate choices:
   a dry run with errors and zero candidates is ``degraded`` — never a green
   "nothing to do". ``download`` is the one exception: its producer has no
   would-download counter, so a dry-run download reports ``docs_new=0``.
+* **``build-universe`` counts resolutions, never files.** It is in this set for
+  the corpus lock (it rewrites ``data/universe/*.jsonl``, which every later
+  command reads as authoritative) and for the trail; its useful work is an issuer
+  resolved to a CIK. An identifier that resolves to nothing is *not* an error —
+  a delisted index member is deliberately kept with ``cik=""`` — so
+  ``docs_failed`` stays 0 and an all-unresolved input file is a clean "nothing
+  new" that still exits 0, as it always has. The shortfall stays visible as
+  ``docs_seen - docs_new`` and in the command's own stderr notes.
 * **``enrich-openfigi`` is recorded under ``sec``.** OpenFIGI is a mapping
   service, not a document authority, so it gets no code of its own (``one code
   per real-world regulatory authority``, see :mod:`company_corpus.source_codes`);
@@ -114,7 +123,7 @@ from .source_codes import source_code_for
 from .sources.cik_lookup import fetch_cik_lookup, parse_cik_lookup
 from .sources.edgar_fts import EdgarFTS
 from .sources.edgar_index import EdgarFullIndex
-from .storage import Storage
+from .storage import Storage, _atomic_write_text, _jsonl as _jsonl_text
 from .taxonomy import FULL_SCOPE, parse_scope
 from .universe import (
     Issuer,
@@ -141,7 +150,7 @@ from .universe import (
 REPORTING_CMDS = {
     "discover", "discover-index", "download", "render-pdf", "xbrl",
     "ownership", "enrich-openfigi", "eu-financials", "register-financials",
-    "eu-acquire",
+    "eu-acquire", "build-universe",
 }
 
 
@@ -461,6 +470,22 @@ def _name_tier(args, cfg, fetcher):
     return parse_cik_lookup(text), load_name_cache(ledger_path), ledger_path
 
 
+def _feed_universe_report(args: argparse.Namespace, issuers, unresolved) -> None:
+    """Fold a build-universe leg into the run report.
+
+    ``docs_new`` is the issuers carrying a CIK -- the unit of useful work here is
+    a resolved issuer, not a written file, so a dry run is counted like the other
+    dry runs (what it *would* persist). ``docs_failed`` stays 0 on purpose: an
+    input that resolves to nothing is a documented, recorded outcome of this
+    command (a delisted member is kept with ``cik=""``), not an upstream failure,
+    and treating it as one would degrade every historical index build. The count
+    is still visible as ``docs_seen - docs_new``, and on stderr.
+    """
+    resolved = sum(1 for it in issuers if getattr(it, "cik", ""))
+    _feed_report(getattr(args, "report", None), "sec",
+                 seen=len(issuers) + len(list(unresolved or ())), new=resolved)
+
+
 def _cmd_build_universe(args: argparse.Namespace) -> int:
     cfg = _config(args)
     fetcher = Fetcher(cfg)
@@ -503,9 +528,7 @@ def _cmd_build_universe(args: argparse.Namespace) -> int:
             crows = 0
             if changes:
                 cpath = uni.path(name).with_name(f"{name}_changes.jsonl")
-                with cpath.open("w", encoding="utf-8") as fh:
-                    for ch in changes:
-                        fh.write(json.dumps(ch, ensure_ascii=False) + "\n")
+                _atomic_write_text(cpath, _jsonl_text(changes))
                 crows = len(changes)
             print(f"wrote {len(issuers)} issuers ({mode}) -> {path}"
                   + (f"; {crows} dated changes -> {cpath}" if crows else ""))
@@ -514,9 +537,11 @@ def _cmd_build_universe(args: argparse.Namespace) -> int:
             print(f"[dry-run] S&P 500 {mode}: {len(issuers)} members "
                   f"({resolved} with CIK, {len(issuers) - resolved} unresolved), "
                   f"{len(changes)} dated changes. Re-run with --write to persist.")
+        _feed_universe_report(args, issuers, unresolved)
         return 0
 
     issuers: list = []
+    unresolved: list = []
     if args.tickers:
         tickers = [t for t in args.tickers.split(",") if t.strip()]
         resolved, unresolved = resolve_tickers(tickers, fetcher)
@@ -529,6 +554,7 @@ def _cmd_build_universe(args: argparse.Namespace) -> int:
         issuers.extend(resolve_ciks([c for c in args.ciks.split(",") if c.strip()], fetcher))
     if not issuers:
         raise SystemExit("error: provide --tickers and/or --ciks")
+    _feed_universe_report(args, issuers, unresolved)
     if args.write:
         path = Universe(cfg).save(args.name, issuers)
         print(f"wrote {len(issuers)} issuers -> {path}")
@@ -607,14 +633,13 @@ def _build_universe_from_file(args: argparse.Namespace, cfg, fetcher) -> int:
         msg = f"wrote {len(issuers)} issuers -> {path}"
         if collisions:
             cpath = uni.path(args.name).with_name(f"{args.name}_collisions.jsonl")
-            with cpath.open("w", encoding="utf-8") as fh:
-                for c in collisions:
-                    fh.write(json.dumps(c, ensure_ascii=False) + "\n")
+            _atomic_write_text(cpath, _jsonl_text(collisions))
             msg += f"; {len(collisions)} collisions -> {cpath}"
         print(msg)
     else:
         print(f"[dry-run] {len(issuers)} issuers for universe '{args.name}' "
               f"({len(collisions)} collisions held out). Re-run with --write to persist.")
+    _feed_universe_report(args, issuers, unresolved)
     return 0
 
 

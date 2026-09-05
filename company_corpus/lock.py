@@ -12,9 +12,16 @@ state that can occur on a local filesystem, and a timeout would only give us a
 way to break a *live* lock. Caveat for a networked data directory: ``flock`` is
 honoured over NFSv4, and over NFSv3 only with ``local_lock``; the corpus is
 single-host today.
+
+SMB/CIFS (the usual NAS export) is NOT supported: ``flock`` there is either
+refused outright or emulated per-client, so it cannot serialise two hosts. The
+lock is in any case *advisory* -- it stops two company-corpus runs, never an
+unrelated process editing the same files. The corpus must therefore be written
+from ONE host; other hosts may read it.
 """
 from __future__ import annotations
 
+import errno
 import fcntl
 import json
 import os
@@ -27,6 +34,17 @@ from pathlib import Path
 from .config import Config
 
 LOCK_FILENAME = ".corpus.lock"
+
+#: How long to sleep between attempts while waiting for a held lock. Short
+#: enough that a freed lock is picked up without a human noticing the delay,
+#: long enough that a long wait costs a few thousand syscalls rather than a core.
+LOCK_POLL_SECONDS = 0.05
+
+#: The only errnos that mean "someone else holds it". Everything else out of
+#: ``flock`` is a filesystem that cannot lock at all (ENOTSUP/EOPNOTSUPP on
+#: SMB, ENOLCK when the kernel's lock table is full, EINVAL on some NFS
+#: mounts) -- a condition no amount of waiting can resolve.
+_CONTENDED_ERRNOS = frozenset({errno.EAGAIN, errno.EWOULDBLOCK, errno.EACCES})
 
 
 class CorpusLocked(RuntimeError):
@@ -66,21 +84,39 @@ def corpus_lock(config: Config, *, purpose: str):
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
-            except OSError:
+            except OSError as exc:
+                if exc.errno not in _CONTENDED_ERRNOS:
+                    # Not contention: the filesystem cannot lock. Waiting would
+                    # never succeed, and reporting it as a busy corpus would hide
+                    # a data directory on which single-writer does not hold.
+                    raise OSError(
+                        exc.errno,
+                        f"cannot take the corpus lock on {path}: {exc.strerror} — "
+                        f"is {path.parent} on a filesystem that supports flock?",
+                    ) from exc
                 if time.monotonic() >= deadline:
                     raise CorpusLocked(
                         f"another company-corpus run holds {path} ({_holder(path)})"
                     ) from None
-                time.sleep(0.05)
-        os.ftruncate(fd, 0)
-        os.lseek(fd, 0, os.SEEK_SET)
-        os.write(fd, json.dumps({
+                time.sleep(LOCK_POLL_SECONDS)
+        # Serialise first, then truncate + write in one syscall: the window in
+        # which the file is empty (and _holder() tells a contender "holder
+        # unknown") is one write wide, not a gethostname + json.dumps wide.
+        record = json.dumps({
             "pid": os.getpid(), "host": socket.gethostname(), "purpose": purpose,
             "started": datetime.now(timezone.utc).isoformat(),
-        }).encode("utf-8"))
+        }).encode("utf-8")
+        os.ftruncate(fd, 0)
+        os.lseek(fd, 0, os.SEEK_SET)
+        os.write(fd, record)
         yield path
     finally:
         try:
             fcntl.flock(fd, fcntl.LOCK_UN)
+        except OSError:
+            # Closing the fd releases the lock anyway, and a filesystem that
+            # refused the lock refuses the unlock too -- that must not mask
+            # whatever we are already unwinding with.
+            pass
         finally:
             os.close(fd)

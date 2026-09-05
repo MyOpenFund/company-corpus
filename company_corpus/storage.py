@@ -25,6 +25,34 @@ from .models import FilingRecord
 from .submission import filename_from_url, parse_submission, select_primary
 
 
+def _read_umask() -> int:
+    """The process umask, read once at import.
+
+    ``os.umask`` is a set-and-return call with no getter, so the only way to read
+    the mask is to set it and put it back. That two-step is not atomic, so it is
+    done here at import time -- before this process has spawned any thread that
+    could create a file while the mask is momentarily 0o077.
+    """
+    value = os.umask(0o077)
+    os.umask(value)
+    return value
+
+
+_UMASK = _read_umask()
+
+
+def data_file_mode() -> int:
+    """The permissions a corpus file must end up with.
+
+    ``tempfile.mkstemp`` hardcodes 0o600 (it is built for secrets), so an atomic
+    write through it produced manifests, tables, extracts and raw downloads that
+    only the crawling account could read -- the RAG ingester and the NAS share
+    consumers run as other accounts. Reapply what a plain ``open()`` would have
+    given: 0o666 masked by the umask, i.e. the operator's own policy.
+    """
+    return 0o666 & ~_UMASK
+
+
 def _atomic_write_text(path: Path, data: str) -> None:
     """Write ``data`` to ``path`` atomically: a UNIQUE tmp sibling + ``os.replace``.
 
@@ -40,6 +68,9 @@ def _atomic_write_text(path: Path, data: str) -> None:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(data)
+            # Undo mkstemp's 0o600 before the rename, so the destination is never
+            # visible under its final name with owner-only permissions.
+            os.fchmod(fd, data_file_mode())
         os.replace(tmp, path)  # atomic on the same filesystem (tmp is a sibling)
     except BaseException:
         tmp.unlink(missing_ok=True)

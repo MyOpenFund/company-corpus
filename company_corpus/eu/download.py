@@ -12,6 +12,7 @@ import tempfile
 from pathlib import Path
 
 from ..config import Config
+from ..storage import data_file_mode
 from .documents import DOC_FAMILY, Document
 
 
@@ -46,6 +47,11 @@ def download_document(doc: Document, *, fetcher, config: Config) -> dict:
                 # loser died with FileNotFoundError (DI-I1 / Rob-I9).
                 fd, tmp_name = tempfile.mkstemp(dir=dest.parent,
                                                 prefix=f"{dest.name}.", suffix=".part")
+                # mkstemp hardcodes 0o600. Both writers below reopen this same
+                # inode in "wb" (truncate, not recreate), so the mode set here is
+                # the mode the finished raw file keeps -- and a raw corpus the
+                # ingester's account cannot read is useless.
+                os.fchmod(fd, data_file_mode())
                 os.close(fd)
                 tmp = Path(tmp_name)
                 try:
@@ -60,10 +66,13 @@ def download_document(doc: Document, *, fetcher, config: Config) -> dict:
                     else:
                         fetcher.download(f["url"], tmp)
                     os.replace(tmp, dest)
-                except Exception:
+                except BaseException:
+                    # BaseException, as in storage._atomic_write_text: a Ctrl-C or
+                    # a SystemExit mid-download must not leave the staging file
+                    # behind either.
                     try:
                         tmp.unlink(missing_ok=True)
-                    except Exception:  # noqa: BLE001
+                    except OSError:
                         pass
                     raise
             sha = _sha256_file(dest)

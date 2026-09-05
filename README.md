@@ -93,10 +93,10 @@ never exit `0`.
 
 ### `data/runs.jsonl`
 
-Every work command — `discover`, `discover-index`, `download`, `render-pdf`,
-`xbrl`, `ownership`, `enrich-openfigi`, `eu-financials`, `eu-acquire`,
-`register-financials` — appends one JSON line (atomic `O_APPEND` write) before
-returning:
+Every work command — `build-universe`, `discover`, `discover-index`, `download`,
+`render-pdf`, `xbrl`, `ownership`, `enrich-openfigi`, `eu-financials`,
+`eu-acquire`, `register-financials` — appends one JSON line (atomic `O_APPEND`
+write) before returning:
 
 ```json
 {"run_id": "...", "tool": "company-corpus", "command": "discover",
@@ -127,6 +127,7 @@ a green "nothing to do":
 
 | command | source | docs_new (useful work) |
 |---|---|---|
+| `build-universe` | sec | issuers resolved to a CIK (an unresolved identifier ≠ error) |
 | `discover` (`--download`) | sec | records added (+ files downloaded); both legs fold into the one `sec` row, so exit 3 needs both legs empty and either leg failing |
 | `discover-index` | sec | records added |
 | `download` | sec | files downloaded |
@@ -140,6 +141,27 @@ a green "nothing to do":
 
 Full detail (every column, plus the three deliberate policy choices behind
 this table) is documented in the `cli.py` module docstring.
+
+### One writer at a time
+
+A run that writes (`--write`, or `discover --download`) takes an exclusive
+`flock` on `data/.corpus.lock` for its whole duration; a second writer refuses
+to start and names the holder (pid, host, command, start time) instead of
+interleaving read-modify-rewrite passes over the same manifests. Read-only runs
+never take, wait for, or create the lock. `Config.lock_wait_seconds` (default
+`0.0`; library callers only) turns the refusal into a bounded wait. There is no
+stale-lock timeout: the kernel drops the lock when the holder dies.
+
+Two caveats. The lock is **advisory** — it stops another company-corpus run, not
+an unrelated process editing the same files — and it needs a filesystem that
+implements `flock`: **SMB/CIFS does not**, and a data directory on such a mount
+now fails immediately with a message naming it, rather than pretending the
+corpus is busy. Write the corpus from **one host**; other hosts may read it.
+
+Files land with the permissions your umask implies (`0666 & ~umask`, so `0644`
+under the usual `022`), not the `0600` that the atomic-write temp file is
+created with — the corpus is meant to be readable by the ingester and by share
+consumers running as other accounts.
 
 ### Logging
 
