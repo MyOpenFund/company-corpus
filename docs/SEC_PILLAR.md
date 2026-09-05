@@ -56,7 +56,10 @@ contains the exact file paths.
 - **`<year>`** — filing year (`filing_date`).
 - **`<doc_id>`** — `sha1(cik | code | accession)` truncated to 16 hex. **Stable**
   (date corrections don't change it) and unique per filing; the shared stem of all
-  that filing's files.
+  that filing's files. Family **F** (XBRL period summaries) is the one exception:
+  its basis is `sha1(cik | code | accession | period_of_report)`, because a 10-K
+  reports the current year *and* its comparatives under a single accession, so the
+  accession alone would collapse two or three fiscal years onto one id.
 
 ### Files for one filing (shared `<doc_id>`)
 

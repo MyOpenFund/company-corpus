@@ -4,7 +4,10 @@ Parallels ``cb_corpus.models.DocRecord``. A :class:`FilingRecord` is the unit of
 the per-issuer manifest. Its ``doc_id`` is a stable, date-independent hash keyed
 on ``cik | form_type | accession`` so that re-runs are idempotent and metadata
 corrections (e.g. a refined ``filing_date``) never change a document's identity
-or force a re-download.
+or force a re-download. The families listed in
+:data:`DOC_ID_PERIOD_KEYED_FAMILIES` add the reported period to that basis,
+because their records are synthetic pseudo-filings that share one accession
+across several periods.
 """
 
 from __future__ import annotations
@@ -15,6 +18,21 @@ from datetime import date
 
 from .config import normalize_cik
 from .taxonomy import FormType, by_code
+
+#: Taxonomy families whose ``doc_id`` also keys on ``period_of_report``.
+#: Family F (XBRL period summaries) is a SYNTHETIC pseudo-filing: its
+#: ``accession`` is the accession of the filing that first reported the period,
+#: and one 10-K reports the current year AND its comparatives, so the accession
+#: alone collapses two or three fiscal years onto one id -- measured at 19 % of
+#: all periods across 40 real issuers (DI-C2). ``accession`` itself keeps the
+#: real EDGAR value: it is provenance, and the vault contract reads it.
+#: Adding a family here CHANGES identity for that family; never do it for a
+#: family with artefacts already on disk.
+DOC_ID_PERIOD_KEYED_FAMILIES: frozenset[str] = frozenset({"F"})
+
+
+class IdentityCollisionError(RuntimeError):
+    """Two records of one issuer computed the same ``doc_id``."""
 
 
 @dataclass
@@ -55,8 +73,15 @@ class FilingRecord:
 
     @property
     def doc_id(self) -> str:
-        """Stable 16-char hex id keyed on cik|form|accession (date-independent)."""
+        """Stable 16-char hex id keyed on cik|form|accession (date-independent).
+
+        For :data:`DOC_ID_PERIOD_KEYED_FAMILIES` the period the record covers is
+        part of the basis -- see that constant.
+        """
         basis = f"{self.cik}|{self.form_type.code}|{self.accession}"
+        if self.form_type.family in DOC_ID_PERIOD_KEYED_FAMILIES:
+            period = self.period_of_report.isoformat() if self.period_of_report else ""
+            basis = f"{basis}|{period}"
         return hashlib.sha1(basis.encode("utf-8")).hexdigest()[:16]
 
     @property

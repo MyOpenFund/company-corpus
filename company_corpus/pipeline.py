@@ -16,7 +16,7 @@ from .config import Config
 from .entity import EntityRegistry
 from .financials import normalized_rows, render_summary_html
 from .http import Fetcher
-from .models import FilingRecord
+from .models import FilingRecord, IdentityCollisionError
 from .ownership import (
     find_ownership_doc,
     form345_rows,
@@ -317,6 +317,10 @@ def fetch_financials(
     a normalized facts table, and an HTML summary per period (so the existing
     ``render_universe`` / ``rag.iter_items`` handle PDF + ingestion). The summaries
     feed the RAG; the raw JSON preserves exhaustivity.
+
+    Raises :class:`IdentityCollisionError` if two of an issuer's period summaries
+    compute the same ``doc_id``: that would overwrite one period's summary with
+    another's, so it fails loudly rather than being deduped away (DI-C2).
     """
     config = config or Config()
     fetcher = fetcher or Fetcher(config)
@@ -343,14 +347,27 @@ def fetch_financials(
                 filing_date=ps.publication_date, period_of_report=ps.period_end,
                 provenance="edgar_xbrl",
             )
-            if not dry_run:
-                storage.write_financial_summary(rec, render_summary_html(ps),
-                                                _summary_text(ps))
             records.append(rec)
             rows.extend(normalized_rows(cik, ps))
 
+        # Identity is checked BEFORE anything is written: the summaries are named
+        # by doc_id on disk and keyed by doc_id in the manifest, so two records
+        # sharing an id silently overwrite one fiscal year with another (DI-C2).
+        # The previous code wrote each summary inside the loop above, which
+        # destroyed the artefact before any check could see the clash.
+        ids = [r.doc_id for r in records]
+        if len(set(ids)) != len(ids):
+            duplicates = sorted({i for i in ids if ids.count(i) > 1})
+            raise IdentityCollisionError(
+                f"{cik}: {len(ids) - len(set(ids))} colliding doc_id(s) among "
+                f"{len(ids)} period summaries ({duplicates[:5]}). A collision "
+                f"silently overwrites a fiscal year's summary and must fail loudly.")
+
         report.periods += len(records)
         if not dry_run:
+            for rec, ps in zip(records, summaries, strict=True):
+                storage.write_financial_summary(rec, render_summary_html(ps),
+                                                _summary_text(ps))
             storage.store_companyfacts(cik, facts)
             storage.write_financials_table(cik, rows)
         report.stats += storage.save_records(records, dry_run=dry_run)

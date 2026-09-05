@@ -160,7 +160,10 @@ the field-by-field reference and the per-command "unit of useful work" table.
 
 One JSON line per filing in `data/manifest/<cik>.jsonl`. Its identity is
 **date-independent**: `doc_id = sha1("<cik>|<form-code>|<accession>")[:16]`, so
-re-discovering a filing after a date correction never duplicates it.
+re-discovering a filing after a date correction never duplicates it. Family **F**
+(XBRL period summaries) appends `|<period_of_report>` to that basis
+(`models.DOC_ID_PERIOD_KEYED_FAMILIES`): those records are synthetic
+pseudo-filings that share one accession across a filing's comparative years.
 
 Key fields: `cik`, `form_type` (a `FormType`), `sec_form`, `accession`, `company`
 (point-in-time) + `company_current`, `entity_id`, `filing_date`,

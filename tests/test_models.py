@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from company_corpus.models import FilingRecord
+from company_corpus.models import DOC_ID_PERIOD_KEYED_FAMILIES, FilingRecord
 from company_corpus.taxonomy import FormType
 
 
@@ -58,3 +58,21 @@ def test_to_row_and_back_roundtrip():
 def test_form_type_accepts_code_string():
     rec = _record(form_type="B1")
     assert rec.form_type is FormType.B1
+
+
+def test_doc_id_ignores_the_period_outside_the_period_keyed_families():
+    # Only family F keys on the period; every other family's id must stay
+    # date-independent so a corrected period_of_report never renames artefacts.
+    a = _record(period_of_report=date(2024, 9, 28))
+    b = _record(period_of_report=None)
+    assert a.doc_id == b.doc_id
+
+
+def test_doc_id_keys_on_the_period_for_the_period_keyed_families():
+    # Family F pseudo-filings share one accession across a filing's comparatives
+    # (DI-C2), so the period is part of their identity.
+    common = dict(cik="320193", form_type=FormType.F1, sec_form="10-K/XBRL",
+                  accession="0000320193-24-000123")
+    assert FormType.F1.family in DOC_ID_PERIOD_KEYED_FAMILIES
+    assert (FilingRecord(**common, period_of_report=date(2024, 9, 28)).doc_id
+            != FilingRecord(**common, period_of_report=date(2023, 9, 30)).doc_id)
