@@ -732,13 +732,14 @@ def _cmd_discover(args: argparse.Namespace) -> int:
             dry_run=False, overwrite=args.overwrite, limit=args.limit, config=cfg,
             run_id=_run_id(args),
         )
-        print(f"download — got={dl.downloaded} skipped={dl.skipped} errors={dl.errors} "
-              f"bytes={dl.bytes:,}")
+        print(f"download — got={dl.downloaded} repaired={dl.repaired} "
+              f"skipped={dl.skipped} errors={dl.errors} bytes={dl.bytes:,}")
         # The download leg folds into the same `sec` source: both legs of a
-        # `discover --download` run are work on SEC documents.
+        # `discover --download` run are work on SEC documents. A repair adopts
+        # bytes that were previously unusable, so it counts as new work.
         _feed_report(getattr(args, "report", None), "sec",
-                     seen=dl.downloaded + dl.skipped + dl.empty + dl.errors,
-                     new=dl.downloaded, failed=dl.errors, errors=dl.error_items)
+                     seen=dl.downloaded + dl.repaired + dl.skipped + dl.empty + dl.errors,
+                     new=dl.downloaded + dl.repaired, failed=dl.errors, errors=dl.error_items)
     return 0
 
 
@@ -754,15 +755,18 @@ def _cmd_download(args: argparse.Namespace) -> int:
         run_id=_run_id(args),
     )
     mode = "DRY-RUN (nothing written)" if dry_run else "WROTE"
-    print(f"download [{mode}] — got={dl.downloaded} skipped={dl.skipped} "
-          f"empty={dl.empty} errors={dl.errors} bytes={dl.bytes:,}")
+    # `repaired` is the adoption signal an operator needs: those documents were
+    # already on disk but unusable, and no byte was re-fetched to recover them.
+    repaired = dl.would_repair if dry_run else dl.repaired
+    print(f"download [{mode}] — got={dl.downloaded} repaired={repaired} "
+          f"skipped={dl.skipped} empty={dl.empty} errors={dl.errors} bytes={dl.bytes:,}")
     if dl.error_items:
         print(f"  errors logged: {len(dl.error_items)} (see discovery_errors.jsonl)")
     # No would-download counter exists, so a dry run legitimately reports
     # docs_new=0 (documented in the module docstring).
     _feed_report(getattr(args, "report", None), "sec",
-                 seen=dl.downloaded + dl.skipped + dl.empty + dl.errors,
-                 new=dl.downloaded, failed=dl.errors, errors=dl.error_items)
+                 seen=dl.downloaded + dl.repaired + dl.skipped + dl.empty + dl.errors,
+                 new=dl.downloaded + dl.repaired, failed=dl.errors, errors=dl.error_items)
     return 0
 
 

@@ -134,6 +134,8 @@ class DownloadReport:
     """Aggregate outcome of a download run."""
 
     downloaded: int = 0
+    repaired: int = 0        # half-processed documents re-derived from disk
+    would_repair: int = 0    # dry run: documents that WOULD be repaired
     skipped: int = 0
     empty: int = 0
     errors: int = 0
@@ -188,6 +190,10 @@ def download_universe(
             if res.status == "downloaded":
                 report.downloaded += 1
                 report.bytes += res.bytes
+            elif res.status == "repaired":
+                report.repaired += 1
+            elif res.status == "would-repair":
+                report.would_repair += 1
             elif res.status == "skipped":
                 report.skipped += 1
             elif res.status == "error":
@@ -420,6 +426,8 @@ class OwnershipReport:
     issuers: int = 0
     downloaded: int = 0
     would_download: int = 0   # dry run: filings that WOULD be downloaded
+    repaired: int = 0         # half-processed submissions re-derived from disk
+    would_repair: int = 0     # dry run: submissions that WOULD be repaired
     parsed_insider: int = 0   # E1 Form 3/4/5
     parsed_13f: int = 0       # E2 13F-HR
     passthrough: int = 0      # E3 SC 13D/G (narrative, generic text)
@@ -490,6 +498,10 @@ def process_ownership(
                 report.downloaded += 1
             elif res.status == "would-download":
                 report.would_download += 1
+            elif res.status == "repaired":
+                report.repaired += 1
+            elif res.status == "would-repair":
+                report.would_repair += 1
             if dry_run or not rec.local_path:
                 continue
 

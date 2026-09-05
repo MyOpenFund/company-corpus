@@ -103,7 +103,8 @@ class DownloadResult:
     """Outcome of fetching + decomposing a single filing."""
 
     doc_id: str
-    status: str  # downloaded | skipped | would-download | empty | error
+    # downloaded | repaired | skipped | would-download | would-repair | empty | error
+    status: str
     bytes: int = 0
     error: str | None = None
 
@@ -224,6 +225,68 @@ class Storage:
     def _rel(self, path: Path) -> str:
         return str(path.relative_to(self.config.data_dir))
 
+    def _needs_repair(self, record: FilingRecord) -> bool:
+        """Is a stored submission only half-processed?
+
+        The skip test used to be ``sub_path.exists()`` alone, so an interrupt
+        (SIGTERM, OOM, disk-full) between writing the submission and saving the
+        manifest left the document permanently stuck: no primary, no cleaned
+        text, no hash, invisible to ``rag.iter_items`` forever, recoverable only
+        by re-downloading every byte with ``--overwrite`` (Rob-C4). A missing
+        ``sha256`` is the marker: it is set by every complete pass, and it is
+        also what a wiped record (DI-C1) or a legacy row lacks (DI-M10). A
+        pointer aimed at bytes that are no longer on disk counts too -- since
+        DI-C1 made the pointers sticky, a dangling one can never clear itself.
+        """
+        if not record.sha256:
+            return True
+        for rel in (record.local_path, record.primary_path, record.text_path):
+            if rel and not (self.config.data_dir / rel).exists():
+                return True
+        return False
+
+    def _decompose(self, record: FilingRecord, raw: str, dest_dir: Path) -> None:
+        """Hash the submission and write the primary + cleaned-text artefacts.
+
+        Shared by the download and the repair paths, and -- unlike the inline
+        version it replaces -- always called from INSIDE the caller's ``try``:
+        one malformed submission used to abort the whole nightly download run
+        mid-issuer, which is precisely how a half-processed document is created
+        (Rob-C4).
+
+        The record is mutated only once every byte is parsed and written. The
+        old inline version stamped ``sha256`` before parsing, so a parse that
+        blew up left a record that ``_needs_repair`` would call complete --
+        stuck forever, because DI-C1 made the pointers sticky and a later save
+        can no longer clear them.
+        """
+        if not raw.strip():
+            # A truncated or interrupted transfer. Adopting it would stamp the
+            # hash of nothing on the record and declare the document done.
+            raise ValueError("stored submission is empty")
+
+        sha256 = hashlib.sha256(raw.encode("utf-8", "replace")).hexdigest()
+        primary = select_primary(
+            parse_submission(raw),
+            primary_filename=filename_from_url(record.primary_doc_url),
+            sec_form=record.sec_form,
+        )
+        primary_rel = text_rel = None
+        if primary and primary.text:
+            ext = Path(primary.filename).suffix or ".txt"
+            primary_path = dest_dir / f"{record.doc_id}.primary{ext}"
+            _atomic_write_text(primary_path, primary.text)
+            primary_rel = self._rel(primary_path)
+
+            text_path = dest_dir / f"{record.doc_id}.txt"
+            _atomic_write_text(text_path, clean_text(primary.text, primary.filename))
+            text_rel = self._rel(text_path)
+
+        record.sha256 = sha256
+        if primary_rel:
+            record.primary_path = primary_rel
+            record.text_path = text_rel
+
     def fetch_and_store(
         self,
         record: FilingRecord,
@@ -237,15 +300,29 @@ class Storage:
         Writes three layered artifacts under ``data/raw/<cik>/<form>/<year>/``:
         the full submission (``.submission.txt``), the decomposed primary
         document (``.primary<ext>``), and cleaned text (``.txt``). Mutates
-        ``record`` with the resulting paths + sha256. Idempotent: an existing
-        submission is skipped unless ``overwrite`` is set.
+        ``record`` with the resulting paths + sha256.
+
+        Idempotent *and* convergent: an existing submission is skipped only when
+        the derived artefacts are actually there, otherwise it is repaired from
+        the bytes already on disk -- no network, no ``--overwrite`` (Rob-C4).
         """
         dest_dir = self.raw_dir_for(record)
         sub_path = dest_dir / f"{record.doc_id}.submission.txt"
 
         if sub_path.exists() and not overwrite:
             record.local_path = self._rel(sub_path)
-            return DownloadResult(record.doc_id, "skipped")
+            if not self._needs_repair(record):
+                return DownloadResult(record.doc_id, "skipped")
+            if dry_run:
+                return DownloadResult(record.doc_id, "would-repair")
+            try:
+                raw = sub_path.read_text(encoding="utf-8")
+                self._decompose(record, raw, dest_dir)
+            except Exception as exc:  # noqa: BLE001
+                return DownloadResult(record.doc_id, "error",
+                                      error=f"repairing stored submission: {exc}")
+            return DownloadResult(record.doc_id, "repaired")
+
         if dry_run:
             return DownloadResult(record.doc_id, "would-download")
         if not record.submission_url:
@@ -253,28 +330,12 @@ class Storage:
 
         try:
             raw = fetcher.get_text(record.submission_url)
+            data = raw.encode("utf-8", "replace")
+            _atomic_write_text(sub_path, raw)
+            record.local_path = self._rel(sub_path)
+            self._decompose(record, raw, dest_dir)
         except Exception as exc:  # noqa: BLE001
             return DownloadResult(record.doc_id, "error", error=str(exc))
-
-        data = raw.encode("utf-8", "replace")
-        _atomic_write_text(sub_path, raw)
-        record.local_path = self._rel(sub_path)
-        record.sha256 = hashlib.sha256(data).hexdigest()
-
-        primary = select_primary(
-            parse_submission(raw),
-            primary_filename=filename_from_url(record.primary_doc_url),
-            sec_form=record.sec_form,
-        )
-        if primary and primary.text:
-            ext = Path(primary.filename).suffix or ".txt"
-            primary_path = dest_dir / f"{record.doc_id}.primary{ext}"
-            _atomic_write_text(primary_path, primary.text)
-            record.primary_path = self._rel(primary_path)
-
-            text_path = dest_dir / f"{record.doc_id}.txt"
-            _atomic_write_text(text_path, clean_text(primary.text, primary.filename))
-            record.text_path = self._rel(text_path)
 
         return DownloadResult(record.doc_id, "downloaded", bytes=len(data))
 
