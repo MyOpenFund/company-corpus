@@ -261,3 +261,80 @@ def test_merge_is_stable_in_order():
                         [_row("2020-12-31", "a", 2), _row("2019-12-31", "a", 9)],
                         key=_KEY)
     assert [r["period_end"] for r in merged] == ["2019-12-31", "2021-12-31", "2020-12-31"]
+
+
+# ---------------------------------------------------------------------------
+# The three coverage writers share the same merge core: last night's evidence
+# must survive tonight's run over a slice of the universe (Rob-I14).
+# ---------------------------------------------------------------------------
+def test_coverage_of_untouched_entities_survives(config):
+    st = Storage(config)
+    path = config.reports_dir / "register_coverage_brreg.jsonl"
+    st.write_coverage(path, [{"orgnr": "111111111", "status": "ok", "periods": 3},
+                             {"orgnr": "222222222", "status": "ok", "periods": 2}])
+    st.write_coverage(path, [{"orgnr": "222222222", "status": "source-error",
+                              "error": "boom"}])
+    rows = _read(path)
+    assert [(r["orgnr"], r["status"]) for r in rows] == [
+        ("111111111", "ok"), ("222222222", "source-error")]
+
+
+def test_coverage_write_is_atomic(config, monkeypatch):
+    st = Storage(config)
+    path = config.reports_dir / "eu_coverage.jsonl"
+    st.write_coverage(path, [{"lei": "L1", "gap": "none"}])
+    monkeypatch.setattr("company_corpus.storage.os.replace",
+                        lambda *a: (_ for _ in ()).throw(OSError("disk full")))
+    with pytest.raises(OSError):
+        st.write_coverage(path, [{"lei": "L2", "gap": "none"}])
+    assert _read(path) == [{"lei": "L1", "gap": "none"}]
+
+
+def test_a_narrower_coverage_run_is_refused_only_under_replace(config):
+    """Covering fewer entities is a normal incremental run, not a loss --
+    unless the operator asked for the rebuild that destroys the rest."""
+    path = config.reports_dir / "register_coverage_brreg.jsonl"
+    st = Storage(config)
+    st.write_coverage(path, [{"orgnr": "111111111", "status": "ok"},
+                             {"orgnr": "222222222", "status": "ok"}])
+    st.write_coverage(path, [{"orgnr": "222222222", "status": "ok"}])
+    assert len(_read(path)) == 2
+
+    replacing = Storage(Config(data_dir=config.data_dir, replace_tables=True))
+    with pytest.raises(ShrinkGuardError) as excinfo:
+        replacing.write_coverage(path, [{"orgnr": "222222222", "status": "ok"}])
+    assert "--replace --allow-shrink" in str(excinfo.value)
+    assert len(_read(path)) == 2
+
+    forcing = Storage(Config(data_dir=config.data_dir, replace_tables=True,
+                             no_shrink_fraction=1.0))
+    forcing.write_coverage(path, [{"orgnr": "222222222", "status": "ok"}])
+    assert [r["orgnr"] for r in _read(path)] == ["222222222"]
+
+
+def test_a_coverage_row_without_an_identifier_still_has_a_key(config):
+    """An unresolved spec never got an identifier: `name` keys it, and a row
+    with nothing at all falls back to its own content rather than colliding
+    with every other identifier-less row in the file."""
+    path = config.reports_dir / "register_coverage_brreg.jsonl"
+    st = Storage(config)
+    st.write_coverage(path, [
+        {"orgnr": None, "lei": None, "name": "Acme AS", "status": "unresolved"},
+        {"orgnr": None, "lei": None, "status": "unresolved"},
+        {"orgnr": None, "lei": None, "status": "no-financials"}])
+    st.write_coverage(path, [
+        {"orgnr": None, "lei": None, "name": "Acme AS", "status": "ok"}])
+    assert [r["status"] for r in _read(path)] == [
+        "ok", "unresolved", "no-financials"]
+
+
+def test_a_resolved_entity_replaces_its_own_unresolved_row(config):
+    """The LEI keys the row before the register id is known, so the entity's
+    row is updated in place instead of doubling once GLEIF resolves it."""
+    path = config.reports_dir / "register_coverage_brreg.jsonl"
+    st = Storage(config)
+    st.write_coverage(path, [{"orgnr": None, "lei": "L" * 20, "status": "unresolved"}])
+    st.write_coverage(path, [{"orgnr": "111111111", "lei": "L" * 20,
+                              "status": "ok", "periods": 2}])
+    rows = _read(path)
+    assert [(r["orgnr"], r["status"]) for r in rows] == [("111111111", "ok")]

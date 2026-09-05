@@ -9,14 +9,13 @@ NO-FALSE-DATA gate ordering.
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
 from datetime import date, datetime, timezone
 
 from ..config import Config
 from ..financials import PeriodSummary, make_row_base, rows_from_base, stamp_leverage_basis
-from ..storage import Storage, _atomic_write_text
+from ..storage import Storage
 
 log = logging.getLogger(__name__)
 
@@ -312,11 +311,15 @@ def _finalise_coverage(
     ``source`` is the coverage-file suffix (e.g. ``"brreg"``, ``"erst"``), which is
     not always the same as the row ``source`` tag — DK writes a single
     ``register_coverage_erst.jsonl`` for both ``erst-fsa`` and ``erst-ifrs`` rows.
+
+    The file is MERGED, not truncated (:meth:`Storage.write_coverage`): the old
+    wholesale rewrite meant a run narrowed by ``--limit`` or by the operator's
+    choice of entity ids erased the coverage of every entity it did not visit,
+    so "was ok yesterday, source-error today" could not be seen (Rob-I14).
     """
     if write:
-        cov_path = config.data_dir / "reports" / f"register_coverage_{source}.jsonl"
-        _atomic_write_text(
-            cov_path, "\n".join(json.dumps(c, default=str) for c in coverage))
+        cov_path = config.reports_dir / f"register_coverage_{source}.jsonl"
+        Storage(config).write_coverage(cov_path, coverage)
         out["coverage_path"] = str(cov_path)
     else:
         out["coverage_path"] = None

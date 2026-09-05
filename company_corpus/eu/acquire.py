@@ -10,6 +10,7 @@ import json
 import logging
 
 from ..config import Config
+from ..storage import Storage
 from .dispatcher import merge_documents
 from .download import download_document
 from .entities import Entity, resolve_entities
@@ -246,9 +247,12 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True,
     cov = reconcile(entities, kept_docs, discover_failures)
     cov_path = None
     if write:
-        cov_path = config.data_dir / "reports" / "eu_coverage.jsonl"
-        cov_path.parent.mkdir(parents=True, exist_ok=True)
-        cov_path.write_text("\n".join(json.dumps(r, default=str) for r in cov))
+        cov_path = config.reports_dir / "eu_coverage.jsonl"
+        # Merged and atomic (Rob-I14): the plain, non-atomic ``write_text`` this
+        # replaces truncated the file to the entities of the current run, so an
+        # incremental acquire over a slice of the universe destroyed the gap
+        # evidence for everything outside that slice.
+        Storage(config).write_coverage(cov_path, cov)
 
     return {"entities": len(entities), "unresolved": unresolved,
             "unresolved_specs": unresolved_specs,

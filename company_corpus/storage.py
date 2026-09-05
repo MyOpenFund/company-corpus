@@ -93,6 +93,34 @@ FINANCIALS_GROUP_KEY: tuple[str, ...] = ("source", "period_end", "frequency", "b
 OWNERSHIP_GROUP_KEY: tuple[str, ...] = ("accession",)
 
 
+#: Fields that identify a coverage row, most specific first. Each producer names
+#: its subject differently (`orgnr`, `ch_number`, `ico`, `lei`, ...) and each
+#: coverage file is per source, so one ordered list keys them all without a
+#: per-producer literal. ``lei`` leads because it is the only identifier an
+#: entity already has *before* the register resolves it: keying on the register
+#: id first would file an entity's `unresolved` row and its later `ok` row as two
+#: different entities. ``name`` is the last resort, for an unresolved spec that
+#: never got an identifier. This is the coverage schema, not a tunable.
+COVERAGE_KEY_FIELDS: tuple[str, ...] = (
+    "lei", "orgnr", "ch_number", "be_number", "business_id", "rcs", "cvr",
+    "registrikood", "ico", "entity_id", "name",
+)
+
+
+def coverage_key(row: dict) -> tuple:
+    """Natural key of one coverage row: its first present identifier.
+
+    A row carrying none of them (an unresolved spec with no name at all) keys on
+    its own content, so identifier-less rows stay distinct instead of collapsing
+    onto one another.
+    """
+    for field_name in COVERAGE_KEY_FIELDS:
+        value = row.get(field_name)
+        if value:
+            return (field_name, value)
+    return ("row", json.dumps(row, sort_keys=True, default=str))
+
+
 class ShrinkGuardError(RuntimeError):
     """A write would drop more of a table than ``no_shrink_fraction`` allows."""
 
@@ -618,6 +646,20 @@ class Storage:
         path = self._write_table(self.config.ownership_dir / f"{cik}.jsonl", rows,
                                  key=group_key(OWNERSHIP_GROUP_KEY))
         return self._rel(path)
+
+    # ---- coverage reports ----
+    def write_coverage(self, path: Path, rows: Iterable[dict]) -> str:
+        """Merge a coverage file instead of truncating it.
+
+        All three coverage writers used to replace the whole file with the
+        current run's rows -- two of them not even atomically -- so last night's
+        evidence was destroyed by tonight's, an incremental run over a slice of
+        the universe wiped the rest, and "was ok yesterday, source-error today"
+        was unobservable (Rob-I14). Rows are keyed by :func:`coverage_key`, so a
+        re-run of one entity replaces that entity's row and leaves every entity
+        it did not touch exactly where it was.
+        """
+        return str(self._write_table(path, rows, key=coverage_key))
 
     # ---- discovery errors ----
     def record_errors(self, errors: Iterable[dict], *, run_id: str | None = None) -> int:

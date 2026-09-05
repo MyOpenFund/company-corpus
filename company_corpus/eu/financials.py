@@ -203,10 +203,13 @@ def build_eu_financials(specs, *, fetcher, config: Config, write: bool = True, u
             cov_ok["arelle"] = bool(arelle_flat)
         coverage.append(cov_ok)
     out["errors"] = len(error_items)
-    cov_path = config.data_dir / "reports" / "eu_financials_coverage.jsonl"
+    cov_path = config.reports_dir / "eu_financials_coverage.jsonl"
     if write:
-        cov_path.parent.mkdir(parents=True, exist_ok=True)
-        cov_path.write_text("\n".join(json.dumps(r, default=str) for r in coverage))
+        # Merged and atomic (Rob-I14): the plain, non-atomic ``write_text`` this
+        # replaces truncated the file to the current run's entities, so a run
+        # over a handful of LEIs erased the coverage of every other filer and an
+        # interrupt left a half-written report behind.
+        storage.write_coverage(cov_path, coverage)
         out["coverage_path"] = str(cov_path)
     else:
         out["coverage_path"] = None
