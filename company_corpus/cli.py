@@ -67,6 +67,7 @@ Three deliberate choices:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import json
 import logging
@@ -81,6 +82,7 @@ from .completeness import build_matrix, summarize
 from .config import Config, normalize_cik
 from .entity import EntityRegistry
 from .http import Fetcher
+from .lock import CorpusLocked, corpus_lock
 from .pipeline import (
     discover_universe,
     download_universe,
@@ -301,6 +303,31 @@ def _add_period_flags(p: argparse.ArgumentParser) -> None:
     p.add_argument("--years", default=None, help="filing-year filter, e.g. 2010-2020 or 2024")
     p.add_argument("--since", default=None, help="start date filter (YYYY-MM-DD)")
     p.add_argument("--until", default=None, help="end date filter (YYYY-MM-DD)")
+
+
+#: Flags that mean "this invocation writes into the corpus". Only writers take
+#: the corpus lock; a read-only command must never block on a running crawl.
+_WRITING_FLAGS = ("write", "download")
+
+
+def _is_writing_run(args: argparse.Namespace) -> bool:
+    return any(bool(getattr(args, flag, False)) for flag in _WRITING_FLAGS)
+
+
+@contextlib.contextmanager
+def _corpus_lock_if_writing(args: argparse.Namespace):
+    """Hold the single-writer corpus lock for a writing run, and only then.
+
+    Two overlapping writers used to interleave read-modify-rewrite passes over
+    the same manifest and tables, losing rows with no error anywhere (DI-I1 /
+    Rob-I9 / Contract I-7). A dry run mutates nothing, so it neither takes nor
+    waits for the lock -- and so never creates the lock file either.
+    """
+    if not _is_writing_run(args):
+        yield
+        return
+    with corpus_lock(_config(args), purpose=args.cmd):
+        yield
 
 
 def _config(args: argparse.Namespace) -> Config:
@@ -1359,7 +1386,14 @@ def main(argv: list[str] | None = None) -> int:
     report = DoctrineReport("company-corpus", args.cmd)
     args.report = report
     try:
-        func_rc = args.func(args)
+        with _corpus_lock_if_writing(args):
+            func_rc = args.func(args)
+    except CorpusLocked as exc:
+        # Its own branch, before the generic handler: a refused start is not a
+        # crash, and the operator needs the holder named rather than a traceback.
+        print(f"error: {exc}", file=sys.stderr)
+        rc = report.finish(fatal=str(exc))
+        return _write_report(report, args, rc)
     except Exception as exc:
         rc = report.finish(fatal=f"{type(exc).__name__}: {exc}")
         rc = _write_report(report, args, rc)

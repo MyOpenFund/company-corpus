@@ -8,6 +8,12 @@ data/financials/
 # Input identifier files (credit-index exports etc.; often large/proprietary)
 *.xlsx
 
+# Runtime state under data/: the single-writer lock, and the unique staging
+# files an interrupted atomic write leaves behind. Never committed.
+data/.corpus.lock
+data/**/*.tmp
+data/**/*.part
+
 # Render caches / headless-browser profiles
 .chrome-profile-*/
 *.pdf.tmp

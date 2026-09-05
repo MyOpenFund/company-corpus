@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import tempfile
 from pathlib import Path
 
 from ..config import Config
@@ -39,7 +40,14 @@ def download_document(doc: Document, *, fetcher, config: Config) -> dict:
         dest = base / (f.get("name") or (f.get("url") or "file").rsplit("/", 1)[-1])
         try:
             if not dest.exists():
-                tmp = dest.with_name(dest.name + ".part")
+                # A unique staging name per call: a fixed "<name>.part" sibling
+                # meant two concurrent runs fetching the same document shared one
+                # staging path, so one os.replace stole the other's bytes and the
+                # loser died with FileNotFoundError (DI-I1 / Rob-I9).
+                fd, tmp_name = tempfile.mkstemp(dir=dest.parent,
+                                                prefix=f"{dest.name}.", suffix=".part")
+                os.close(fd)
+                tmp = Path(tmp_name)
                 try:
                     # Backends whose source has no stable, re-fetchable URL (e.g. the
                     # Bundesanzeiger's session-bound Wicket links) capture the bytes at

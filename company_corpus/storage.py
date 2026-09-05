@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import tempfile
 import warnings
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -25,16 +26,24 @@ from .submission import filename_from_url, parse_submission, select_primary
 
 
 def _atomic_write_text(path: Path, data: str) -> None:
-    """Write ``data`` to ``path`` atomically: a tmp sibling + ``os.replace``.
+    """Write ``data`` to ``path`` atomically: a UNIQUE tmp sibling + ``os.replace``.
 
-    An interrupt (Ctrl-C, crash, disk-full) mid-write leaves the tmp file behind,
-    never a truncated destination, so readers and idempotent re-runs always see a
-    complete prior version rather than a half-written file that fails to parse.
+    An interrupt mid-write leaves a tmp file behind, never a truncated
+    destination. The tmp name is unique per call: a fixed ``<name>.tmp`` sibling
+    meant two writers of the same destination shared one temp path, so whichever
+    called ``os.replace`` second died with FileNotFoundError and lost its whole
+    write (DI-I1 / Rob-I9).
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.tmp")
-    tmp.write_text(data, encoding="utf-8")
-    os.replace(tmp, path)  # atomic on the same filesystem (tmp is a sibling)
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name}.", suffix=".tmp")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(data)
+        os.replace(tmp, path)  # atomic on the same filesystem (tmp is a sibling)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _jsonl(rows: Iterable[dict]) -> str:

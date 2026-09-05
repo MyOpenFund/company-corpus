@@ -1,6 +1,8 @@
 import json
 
 import company_corpus.cli as cli
+from company_corpus.config import Config
+from company_corpus.lock import corpus_lock, lock_path
 
 
 def _read_report(data_dir):
@@ -129,3 +131,46 @@ def test_unwritable_report_path_exits_nonzero_without_traceback(tmp_path, monkey
     err = capsys.readouterr().err
     assert "error: could not write run report" in err
     assert "Traceback" not in err
+
+
+def test_a_writing_run_refuses_to_start_while_the_lock_is_held(tmp_path, monkeypatch, capsys):
+    """A second writer must fail fast with a message naming the holder, not corrupt."""
+    def fake_cmd_discover(args):
+        raise AssertionError("the command must not run while another writer holds the lock")
+
+    monkeypatch.setattr(cli, "_cmd_discover", fake_cmd_discover)
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(tmp_path))
+    cfg = Config(data_dir=tmp_path)
+    with corpus_lock(cfg, purpose="download"):
+        rc = cli.main(["--data-dir", str(tmp_path), "discover", "--ciks", "320193", "--write"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "download" in err and str(lock_path(cfg)) in err
+    rep = _read_report(tmp_path)
+    assert rep["outcome"] == "failed"
+    assert "download" in rep["fatal"]
+
+
+def test_a_read_only_run_ignores_a_held_lock(tmp_path, monkeypatch):
+    """A dry run writes nothing, so it must never block on a running crawl."""
+    def fake_cmd_discover(args):
+        args.report.source("sec").record_saved_counts({"saved": 0})
+        return 0
+
+    monkeypatch.setattr(cli, "_cmd_discover", fake_cmd_discover)
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(tmp_path))
+    with corpus_lock(Config(data_dir=tmp_path), purpose="download"):
+        rc = cli.main(["--data-dir", str(tmp_path), "discover", "--ciks", "320193"])
+    assert rc == 0
+
+
+def test_a_read_only_run_does_not_create_the_lock_file(tmp_path, monkeypatch):
+    def fake_cmd_discover(args):
+        args.report.source("sec").record_saved_counts({"saved": 0})
+        return 0
+
+    monkeypatch.setattr(cli, "_cmd_discover", fake_cmd_discover)
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(tmp_path))
+    data_dir = tmp_path / "corpus"
+    assert cli.main(["--data-dir", str(data_dir), "discover", "--ciks", "320193"]) == 0
+    assert not lock_path(Config(data_dir=data_dir)).exists()
