@@ -153,7 +153,8 @@ def _check_no_shrink(path: Path, before: set, after: set, *, fraction: float) ->
     if lost > len(before) * fraction:
         raise ShrinkGuardError(
             f"{path}: refusing to drop {lost} of {len(before)} record group(s) "
-            f"(no_shrink_fraction={fraction}). Re-run with --allow-shrink to force.")
+            f"(no_shrink_fraction={fraction}). "
+            "Re-run with --replace --allow-shrink to force.")
 
 
 @dataclass
@@ -198,6 +199,10 @@ class Storage:
 
     def __init__(self, config: Config | None = None):
         self.config = config or Config()
+        #: Tables this Storage has already replaced, under ``replace_tables``.
+        #: One Storage is one run, so replacement is spent once per table and
+        #: every later write of that table merges (see ``_write_table``).
+        self._replaced: set[Path] = set()
 
     # ---- manifests ----
     def load_manifest(self, cik: str) -> dict[str, FilingRecord]:
@@ -522,13 +527,27 @@ class Storage:
         ``Config.replace_tables`` (the CLI's ``--replace``) restores the old
         wholesale-replacement behaviour; the guard then refuses a write that
         drops more than ``Config.no_shrink_fraction`` of the table's groups.
+
+        Replacement is by the RUN, not by the write: the first write of a table
+        in this run replaces what was stored, every later write of that same
+        table merges into the run's own output. Several producers write one
+        entity's table many times per run -- ``build_ch_financials`` once per zip
+        member, ``build_lu_financials`` once per yearly file, BE/DK/FI likewise
+        -- so a per-write replacement made ``--replace`` either a wall of shrink
+        errors or (with ``--allow-shrink``) a silent "last member wins" that kept
+        one year of the years the run had just produced.
         """
         rows = list(rows)
         existing = self._read_table(path)
-        merged = rows if self.config.replace_tables else merge_rows(existing, rows, key=key)
+        replace = self.config.replace_tables and path not in self._replaced
+        merged = rows if replace else merge_rows(existing, rows, key=key)
         _check_no_shrink(path, {key(r) for r in existing}, {key(r) for r in merged},
                          fraction=self.config.no_shrink_fraction)
         _atomic_write_text(path, _jsonl(merged))
+        # Marked only once the bytes are down: a write the guard refused replaced
+        # nothing, so it must not spend this table's one replacement.
+        if self.config.replace_tables:
+            self._replaced.add(path)
         return path
 
     def _write_financials_table(

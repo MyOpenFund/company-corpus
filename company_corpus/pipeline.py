@@ -30,7 +30,7 @@ from .ownership import (
 )
 from .sources.edgar_submissions import EdgarSubmissions
 from .sources.edgar_xbrl import EdgarXBRL
-from .storage import SaveStats, Storage
+from .storage import SaveStats, ShrinkGuardError, Storage
 from .taxonomy import FULL_SCOPE, FormType
 
 
@@ -339,7 +339,10 @@ def fetch_financials(
     without writing anything and recorded as an error item in the report, rather
     than being deduped away silently (DI-C2) or aborting the whole run: the other
     issuers still produce, and the exit-code doctrine
-    (:meth:`runreport.RunReport.finish`) decides what the run is worth.
+    (:meth:`runreport.RunReport.finish`) decides what the run is worth. A write
+    the no-shrink guard refuses (:class:`storage.ShrinkGuardError`, reachable
+    under ``--replace``) is handled the same way: that issuer's remaining writes
+    are skipped and reported, the run goes on.
     """
     config = config or Config()
     fetcher = fetcher or Fetcher(config)
@@ -384,13 +387,22 @@ def fetch_financials(
             continue
 
         report.periods += len(records)
-        if not dry_run:
-            for rec, ps in zip(records, summaries, strict=True):
-                storage.write_financial_summary(rec, render_summary_html(ps),
-                                                _summary_text(ps))
-            storage.store_companyfacts(cik, facts)
-            storage.write_financials_table(cik, rows)
-        report.stats += storage.save_records(records, dry_run=dry_run)
+        try:
+            if not dry_run:
+                for rec, ps in zip(records, summaries, strict=True):
+                    storage.write_financial_summary(rec, render_summary_html(ps),
+                                                    _summary_text(ps))
+                storage.store_companyfacts(cik, facts)
+                storage.write_financials_table(cik, rows)
+            report.stats += storage.save_records(records, dry_run=dry_run)
+        except ShrinkGuardError as exc:
+            # A tripped no-shrink guard is one issuer's refused write, not the
+            # run's death (same doctrine as the identity collision above): the
+            # issuer's remaining writes are skipped, the error is reported, and
+            # the other issuers still produce.
+            report.errors.append({"source": "edgar_xbrl", "context": normalize_cik(cik),
+                                  "error": str(exc)})
+            continue
 
     if not dry_run and report.errors:
         storage.record_errors(report.errors, run_id=run_id)

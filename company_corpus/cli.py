@@ -328,15 +328,19 @@ def _add_table_write_flags(p: argparse.ArgumentParser, *, partial_write: bool = 
     """Add the escape hatches out of the group-replace table merge.
 
     The merge is the default because a narrowed re-run used to delete the
-    periods it did not look at (DI-C3 / Rob-C8). ``--replace`` gets the old
+    periods it did not look at (DI-C3 / Rob-C8). ``--replace`` gets the
     destructive write back for an operator who genuinely wants to rebuild a
-    table from scratch, and ``--allow-shrink`` confirms the loss the no-shrink
-    guard would otherwise refuse. ``--allow-partial-write`` is offered only by
-    the commands whose ``--limit`` narrows the rows they emit.
+    table from scratch -- the RUN replaces, so a producer that writes one
+    entity's table once per zip member or once per yearly file still ends up
+    with everything the run produced -- and ``--allow-shrink`` confirms the loss
+    the no-shrink guard would otherwise refuse. ``--allow-partial-write`` is
+    offered only by the commands whose ``--limit`` narrows the rows they emit.
     """
     p.add_argument("--replace", action="store_true",
-                   help="replace each table wholesale instead of merging into it "
-                        "(destructive: drops periods this run did not produce)")
+                   help="the run replaces each table it writes instead of merging into "
+                        "it (destructive: drops periods this run did not produce). "
+                        "Replacement is once per table per run: a table this run writes "
+                        "several times is replaced by the first write and merged after")
     p.add_argument("--allow-shrink", action="store_true", dest="allow_shrink",
                    help="with --replace: accept a write that drops stored record groups")
     if partial_write:
@@ -383,9 +387,9 @@ def _config(args: argparse.Namespace) -> Config:
         kw["contact"] = args.contact
     if getattr(args, "insecure", False):
         kw["verify_tls"] = False
-    # Table-writing commands only: --replace restores the pre-chantier-3
-    # wholesale replacement, --allow-shrink lifts the no-shrink guard that
-    # replacement then trips (see Storage._write_table).
+    # Table-writing commands only: --replace makes the run (not each write)
+    # replace the tables it touches, --allow-shrink lifts the no-shrink guard
+    # that replacement then trips (see Storage._write_table).
     if getattr(args, "replace", False):
         kw["replace_tables"] = True
     if getattr(args, "allow_shrink", False):

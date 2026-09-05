@@ -8,8 +8,9 @@ from pathlib import Path
 import pytest
 
 from company_corpus import rag
-from company_corpus.config import Config
+from company_corpus.config import Config, normalize_cik
 from company_corpus.models import FilingRecord
+from company_corpus.pipeline import fetch_financials
 from company_corpus.storage import ShrinkGuardError, Storage, group_key, merge_rows
 from company_corpus.taxonomy import FormType
 
@@ -131,7 +132,128 @@ def test_the_no_shrink_guard_refuses_a_replace_that_loses_a_period(config):
     replacing = Storage(Config(data_dir=config.data_dir, replace_tables=True))
     with pytest.raises(ShrinkGuardError) as excinfo:
         replacing.write_financials_table("320193", [_row("2020-12-31", "assets", 2)])
-    assert "--allow-shrink" in str(excinfo.value)
+    # The remedy must keep --replace: --allow-shrink alone would merge silently
+    # instead of performing the rebuild the operator asked for.
+    assert "--replace --allow-shrink" in str(excinfo.value)
+
+
+def test_dropping_rows_inside_a_kept_group_is_not_a_shrink(config):
+    """The guard counts groups, not rows: a period that reports fewer concepts
+    this vintage is a normal replacement, not a loss of history."""
+    st = Storage(config)
+    st.write_financials_table("320193", [_row("2021-12-31", "assets", 1),
+                                         _row("2021-12-31", "inventory", 5)])
+    replacing = Storage(Config(data_dir=config.data_dir, replace_tables=True,
+                               no_shrink_fraction=0.0))
+    replacing.write_financials_table("320193", [_row("2021-12-31", "assets", 2)])
+    rows = _read(config.financials_dir / "0000320193.jsonl")
+    assert [(r["concept"], r["value"]) for r in rows] == [("assets", 2)]
+
+
+# ---------------------------------------------------------------------------
+# --replace is scoped to the RUN, not to the write: several producers write one
+# entity's table many times in a single run (one CH zip member, one LU yearly
+# file, ...), and replacement "by the current run" must not mean "by whichever
+# member wrote last".
+# ---------------------------------------------------------------------------
+def test_replace_applies_once_per_run_not_once_per_write(config):
+    replacing = Storage(Config(data_dir=config.data_dir, replace_tables=True))
+    replacing.write_financials_table("320193", [_row("2019-12-31", "assets", 1)])
+    replacing.write_financials_table("320193", [_row("2020-12-31", "assets", 2)])
+    rows = _read(config.financials_dir / "0000320193.jsonl")
+    assert [r["period_end"] for r in rows] == ["2019-12-31", "2020-12-31"]
+
+
+def test_replace_drops_the_stored_table_once_then_merges(config):
+    st = Storage(config)
+    st.write_financials_table("320193", [_row("2018-12-31", "assets", 0)])
+    replacing = Storage(Config(data_dir=config.data_dir, replace_tables=True,
+                               no_shrink_fraction=1.0))
+    replacing.write_financials_table("320193", [_row("2019-12-31", "assets", 1)])
+    replacing.write_financials_table("320193", [_row("2020-12-31", "assets", 2)])
+    rows = _read(config.financials_dir / "0000320193.jsonl")
+    # The pre-run vintage is gone (the run replaced), both of the run's own
+    # writes survive (the run merged with itself).
+    assert [r["period_end"] for r in rows] == ["2019-12-31", "2020-12-31"]
+
+
+def test_replace_is_tracked_per_table(config):
+    """One entity's replacement must not spend another entity's."""
+    st = Storage(config)
+    st.write_financials_table("320193", [_row("2018-12-31", "assets", 0)])
+    st.write_financials_table("789019", [_row("2018-12-31", "assets", 0)])
+    replacing = Storage(Config(data_dir=config.data_dir, replace_tables=True,
+                               no_shrink_fraction=1.0))
+    replacing.write_financials_table("320193", [_row("2019-12-31", "assets", 1)])
+    replacing.write_financials_table("789019", [_row("2019-12-31", "assets", 2)])
+    for cik in ("0000320193", "0000789019"):
+        rows = _read(config.financials_dir / f"{cik}.jsonl")
+        assert [r["period_end"] for r in rows] == ["2019-12-31"]
+
+
+def test_ownership_replace_is_also_once_per_run(config):
+    replacing = Storage(Config(data_dir=config.data_dir, replace_tables=True))
+    replacing.write_ownership_table("320193", [{"cik": "0000320193", "accession": "acc-1"}])
+    replacing.write_ownership_table("320193", [{"cik": "0000320193", "accession": "acc-2"}])
+    rows = _read(config.ownership_dir / "0000320193.jsonl")
+    assert [r["accession"] for r in rows] == ["acc-1", "acc-2"]
+
+
+def test_a_new_run_replaces_again(config):
+    """The scope is the Storage instance: the next run gets its own replacement."""
+    first = Storage(Config(data_dir=config.data_dir, replace_tables=True))
+    first.write_financials_table("320193", [_row("2019-12-31", "assets", 1)])
+    second = Storage(Config(data_dir=config.data_dir, replace_tables=True,
+                            no_shrink_fraction=1.0))
+    second.write_financials_table("320193", [_row("2020-12-31", "assets", 2)])
+    rows = _read(config.financials_dir / "0000320193.jsonl")
+    assert [r["period_end"] for r in rows] == ["2020-12-31"]
+
+
+# ---------------------------------------------------------------------------
+# A tripped guard is one issuer's problem, not the run's (like DI-C2).
+# ---------------------------------------------------------------------------
+class _OneSummarySource:
+    """EdgarXBRL stand-in: one clean annual summary for every issuer."""
+
+    def __init__(self, **_):
+        self.errors: list[dict] = []
+
+    def period_summaries(self, cik, **_):
+        from company_corpus.financials import PeriodSummary
+        return {"facts": {}}, [PeriodSummary(
+            period_end=date(2024, 9, 30), frequency="annual",
+            publication_date=date(2024, 11, 1), sec_form="10-K",
+            accession=f"acc-{normalize_cik(cik)}", company="Acme",
+            company_current="Acme",
+            values={"assets": {"value": 1, "unit": "USD", "label": "Assets"}})]
+
+
+class _RefusingStorage(Storage):
+    """Trips the no-shrink guard on one issuer's financials table."""
+
+    def __init__(self, config, *, refuse_for: str):
+        super().__init__(config)
+        self.refuse_for = normalize_cik(refuse_for)
+
+    def write_financials_table(self, cik, rows):
+        if normalize_cik(cik) == self.refuse_for:
+            raise ShrinkGuardError(f"{cik}: refusing to drop 2 of 2 record group(s)")
+        return super().write_financials_table(cik, rows)
+
+
+def test_a_shrink_guard_error_is_a_per_issuer_report_error(config, monkeypatch):
+    monkeypatch.setattr("company_corpus.pipeline.EdgarXBRL", _OneSummarySource)
+    storage = _RefusingStorage(config, refuse_for="320193")
+    report = fetch_financials(["320193", "789019"], dry_run=False, config=config,
+                              fetcher=object(), storage=storage)
+    assert [e["context"] for e in report.errors] == [normalize_cik("320193")]
+    assert "refusing to drop" in report.errors[0]["error"]
+    # The refused issuer's remaining writes are skipped...
+    assert not Storage(config).load_manifest("320193")
+    # ...and the run's other issuers are untouched by it.
+    assert len(Storage(config).load_manifest("789019")) == 1
+    assert normalize_cik("320193") in config.discovery_errors_path.read_text(encoding="utf-8")
 
 
 def test_merge_is_stable_in_order():

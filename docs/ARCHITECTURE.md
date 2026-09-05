@@ -234,10 +234,21 @@ row, is the unit: a concept an issuer stopped reporting disappears with its
 period rather than surviving as a stale row from an older vintage, and two
 legitimately identical Form 4 transaction lines both survive.
 
-`--replace` restores the old wholesale replacement on `xbrl`, `ownership`,
-`eu-financials` and `register-financials`. It then trips a no-shrink guard, which
-refuses a write dropping more than `Config.no_shrink_fraction` (default `0.0`) of
-a table's stored groups; `--allow-shrink` raises that to 1.0. `--limit` may never
+`--replace` brings back wholesale replacement on `xbrl`, `ownership`,
+`eu-financials` and `register-financials`. **The run replaces, not the write:**
+the first write of a given table in a run replaces what was stored, and every
+later write of that same table in that run merges into the run's own output —
+several producers write one entity's table many times per run (`build_ch_financials`
+once per zip member, `build_lu_financials` once per yearly file, BE/DK/FI likewise),
+and a per-write replacement would have made `--replace` a wall of shrink errors or,
+with `--allow-shrink`, a silent "last file wins" that kept one year of the years the
+run had just produced. Replacement then trips a no-shrink guard, which refuses a
+write dropping more than `Config.no_shrink_fraction` (default `0.0`) of a table's
+stored groups; `--allow-shrink` raises that to 1.0. The guard counts *groups*, so a
+period that reports fewer concepts this vintage is not a shrink. A tripped guard is
+one issuer's refused write, not the run's death: like an identity collision, it is
+recorded as a per-issuer error, that issuer's remaining writes are skipped, and the
+run continues. `--limit` may never
 be combined with `--replace`, and on the two commands whose `--limit` narrows the
 rows they emit (`ownership`, `register-financials`) combining it with `--write`
 requires `--allow-partial-write`, since a capped run's coverage report describes
