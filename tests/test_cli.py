@@ -228,6 +228,9 @@ class _FakeFTS:
 
     def __init__(self, *a, **k):
         type(self).instantiated += 1
+        # Same contract as the real EdgarFTS (a Source): failures land here, and
+        # the CLI reads them to report them as fetch errors.
+        self.errors: list[dict] = []
 
     def resolve(self, cusip):
         return ("0000999999", "DEUTSCHE TELEKOM INTL FIN") if cusip == "25156PAA0" else None
@@ -346,7 +349,7 @@ class _BoomFTS:
     """An EdgarFTS stand-in whose resolve() must never be called."""
 
     def __init__(self, *a, **k):
-        pass
+        self.errors: list[dict] = []  # the EdgarFTS contract the CLI reads
 
     def resolve(self, cusip):
         raise AssertionError("fts.resolve called for a cached CUSIP")
@@ -372,7 +375,7 @@ class _OneHitFTS:
     """Confirmed hit for 25156PAA0; mismatched (unverified) hit for 88888XAA0."""
 
     def __init__(self, *a, **k):
-        pass
+        self.errors: list[dict] = []  # the EdgarFTS contract the CLI reads
 
     def resolve(self, cusip):
         if cusip == "25156PAA0":
@@ -406,11 +409,16 @@ def test_fts_cache_writes_confirmed_only_without_write_flag(monkeypatch, tmp_pat
 def test_name_tier_fetch_failure_degrades_gracefully(monkeypatch, tmp_path, capsys):
     """A transient SEC fetch failure in _name_tier must not abort build-universe.
 
-    rc must be 0, stderr must carry the WARNING, and the build must complete
-    (even though no name resolution happens). Overrides the autouse
+    The build completes on the tiers that are still up (here: the ticker map),
+    stderr carries the WARNING, and rc stays 0 because real work was done — the
+    failure is recorded as a fetch error, which only degrades a run that
+    resolved nothing (see tests/test_report_feeding.py). Overrides the autouse
     _stub_name_fetch with a raising stub set inside the test body.
     """
-    monkeypatch.setattr("company_corpus.cli.load_company_tickers", lambda fetcher: {})
+    monkeypatch.setattr(
+        "company_corpus.cli.load_company_tickers",
+        lambda fetcher: {"ZZZZ": Issuer(cik="0000320193", ticker="ZZZZ", company="Widget Inc")},
+    )
     # Override the autouse stub with one that raises.
     monkeypatch.setattr(
         "company_corpus.cli.fetch_cik_lookup",
@@ -422,8 +430,9 @@ def test_name_tier_fetch_failure_degrades_gracefully(monkeypatch, tmp_path, caps
     csv_path.write_text("Ticker,Name\nZZZZ,Widget Inc\n", encoding="utf-8")
     data_dir = tmp_path / "data"
     rc = main(["--data-dir", str(data_dir), "build-universe",
-               "--from-file", str(csv_path), "--name", "names"])
+               "--from-file", str(csv_path), "--name", "names", "--write"])
     assert rc == 0, "build-universe must exit 0 even when the name-tier fetch fails"
+    assert [i.cik for i in Universe(Config(data_dir=data_dir)).load("names")] == ["0000320193"]
     err = capsys.readouterr().err
     assert "WARNING" in err, f"expected a WARNING on stderr; got: {err!r}"
     assert "cik-lookup fetch failed" in err, (

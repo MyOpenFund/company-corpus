@@ -576,6 +576,10 @@ def resolve_ciks(ciks: Iterable[str], fetcher: Fetcher) -> list[Issuer]:
             tks = data.get("tickers") or []
             ticker = tks[0] if tks else ""
         except Exception:  # noqa: BLE001 - keep the CIK even if metadata is unavailable
+            # FOLLOW-UP: this swallows an upstream failure. It costs metadata
+            # only (the CIK still resolves and still counts as useful work), so
+            # surfacing it in the run report needs an errors out-param here and
+            # at both call sites -- deliberately not done in this wave.
             pass
         issuers.append(Issuer(cik=cik, ticker=ticker, company=name))
     return issuers

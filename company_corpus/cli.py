@@ -26,7 +26,10 @@ render-pdf            sec        rendered+would+skipped+
 xbrl                  sec        issuers processed            period summaries        companyfacts errors
 ownership             sec        issuers processed            insider+13F+passthrough ownership errors
                                                               + would_download (dry)
-build-universe        sec        identifiers submitted        issuers resolved        (none: see below)
+build-universe        sec        distinct inputs examined     issuers resolved        (none: see below --
+                                                                                      an upstream fetch
+                                                                                      failure is a fetch
+                                                                                      error)
 enrich-openfigi       sec        identifiers submitted        identifiers mapped      (none: see below)
 eu-financials         xbrlorg    entities resolved            period summaries        ``out["errors"]``
 eu-acquire            per        entities dispatched to       documents kept from     that backend's
@@ -51,7 +54,14 @@ Three deliberate choices:
   a delisted index member is deliberately kept with ``cik=""`` — so
   ``docs_failed`` stays 0 and an all-unresolved input file is a clean "nothing
   new" that still exits 0, as it always has. The shortfall stays visible as
-  ``docs_seen - docs_new`` and in the command's own stderr notes.
+  ``docs_seen - docs_new`` and in the command's own stderr notes. **An upstream
+  fetch failure is not a no-match**: a dead cik-lookup (the name tier never ran)
+  and an EFTS lookup that errored out are recorded as *fetch errors*, so a run
+  left with nothing resolved by a dead upstream is ``degraded`` (exit 3), while
+  the same failure beside real resolutions stays ``ok`` with the error named in
+  the report. ``docs_seen`` counts each input once: the index branch keeps an
+  unresolved member in ``issuers`` *and* in ``unresolved``, and counting both
+  doubled the member count of an all-unresolved build.
 * **``enrich-openfigi`` is recorded under ``sec``.** OpenFIGI is a mapping
   service, not a document authority, so it gets no code of its own (``one code
   per real-world regulatory authority``, see :mod:`company_corpus.source_codes`);
@@ -466,6 +476,12 @@ def _name_tier(args, cfg, fetcher):
             "building from ticker/CUSIP only",
             file=sys.stderr,
         )
+        # An unreadable cik-lookup is an upstream failure, not a no-match: the
+        # name tier never ran, so the rows it would have resolved are missing
+        # work. Recorded as a fetch error (not ``docs_failed``), which degrades
+        # the run only if nothing else resolved.
+        _feed_report(getattr(args, "report", None), "sec",
+                     errors=[f"cik-lookup: {exc}"])
         return None, None, ledger_path
     return parse_cik_lookup(text), load_name_cache(ledger_path), ledger_path
 
@@ -479,11 +495,22 @@ def _feed_universe_report(args: argparse.Namespace, issuers, unresolved) -> None
     input that resolves to nothing is a documented, recorded outcome of this
     command (a delisted member is kept with ``cik=""``), not an upstream failure,
     and treating it as one would degrade every historical index build. The count
-    is still visible as ``docs_seen - docs_new``, and on stderr.
+    is still visible as ``docs_seen - docs_new``, and on stderr. An *upstream*
+    failure is a different thing and is fed separately, as a fetch error, by the
+    callers (a dead cik-lookup, an unreadable EFTS).
+
+    ``docs_seen`` is distinct inputs examined. The two branches disagree on what
+    ``unresolved`` holds: the index branch keeps every member in ``issuers``
+    (with ``cik=""``) *and* names it in ``unresolved``, while the from-file branch
+    drops the row and names it only in ``unresolved``. So the entries already
+    carried by a CIK-less issuer are subtracted -- counting them twice inflated
+    an all-unresolved S&P build to twice its member count.
     """
     resolved = sum(1 for it in issuers if getattr(it, "cik", ""))
+    cikless = {getattr(it, "ticker", "") for it in issuers if not getattr(it, "cik", "")}
+    extra = sum(1 for u in (unresolved or ()) if u not in cikless)
     _feed_report(getattr(args, "report", None), "sec",
-                 seen=len(issuers) + len(list(unresolved or ())), new=resolved)
+                 seen=len(issuers) + extra, new=resolved)
 
 
 def _cmd_build_universe(args: argparse.Namespace) -> int:
@@ -554,7 +581,6 @@ def _cmd_build_universe(args: argparse.Namespace) -> int:
         issuers.extend(resolve_ciks([c for c in args.ciks.split(",") if c.strip()], fetcher))
     if not issuers:
         raise SystemExit("error: provide --tickers and/or --ciks")
-    _feed_universe_report(args, issuers, unresolved)
     if args.write:
         path = Universe(cfg).save(args.name, issuers)
         print(f"wrote {len(issuers)} issuers -> {path}")
@@ -563,6 +589,9 @@ def _cmd_build_universe(args: argparse.Namespace) -> int:
         for it in issuers:
             print(f"  {it.cik}  {it.ticker:<8} {it.company}")
         print("re-run with --write to persist")
+    # Fed after the save, like the two other branches, so the report is written
+    # from what the run actually got through.
+    _feed_universe_report(args, issuers, unresolved)
     return 0
 
 
@@ -639,6 +668,11 @@ def _build_universe_from_file(args: argparse.Namespace, cfg, fetcher) -> int:
     else:
         print(f"[dry-run] {len(issuers)} issuers for universe '{args.name}' "
               f"({len(collisions)} collisions held out). Re-run with --write to persist.")
+    if fts is not None and fts.errors:
+        # EFTS lookups that never completed: the CUSIPs behind them are not
+        # "no such issuer", they were never asked. Fetch errors, not failures.
+        _feed_report(getattr(args, "report", None), "sec",
+                     errors=[e["error"] for e in fts.errors])
     _feed_universe_report(args, issuers, unresolved)
     return 0
 

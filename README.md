@@ -127,7 +127,7 @@ a green "nothing to do":
 
 | command | source | docs_new (useful work) |
 |---|---|---|
-| `build-universe` | sec | issuers resolved to a CIK (an unresolved identifier ≠ error) |
+| `build-universe` | sec | issuers resolved to a CIK (an unresolved identifier ≠ error; each input counted once; upstream fetch failures — a dead cik-lookup, an EFTS error — are recorded as fetch errors, so a run left with nothing resolved by a dead upstream is degraded) |
 | `discover` (`--download`) | sec | records added (+ files downloaded); both legs fold into the one `sec` row, so exit 3 needs both legs empty and either leg failing |
 | `discover-index` | sec | records added |
 | `download` | sec | files downloaded |

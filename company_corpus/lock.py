@@ -44,6 +44,7 @@ LOCK_POLL_SECONDS = 0.05
 #: ``flock`` is a filesystem that cannot lock at all (ENOTSUP/EOPNOTSUPP on
 #: SMB, ENOLCK when the kernel's lock table is full, EINVAL on some NFS
 #: mounts) -- a condition no amount of waiting can resolve.
+#: (``EACCES``: harmless superset -- ``flock`` never returns it, ``lockf`` does.)
 _CONTENDED_ERRNOS = frozenset({errno.EAGAIN, errno.EWOULDBLOCK, errno.EACCES})
 
 
