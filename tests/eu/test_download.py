@@ -136,7 +136,7 @@ def test_index_only_file_recorded_without_download(tmp_path):
 # corpus (Rob-C7 / DI-M4).
 # ---------------------------------------------------------------------------
 
-def _doc(files, *, lei="529900T8BM49AURSKB52", doc_id="hostile-1"):
+def _doc(files, *, lei="5493001KJTIIGC8Y1R12", doc_id="hostile-1"):
     return Document(doc_id=doc_id, lei=lei, country="DE", doc_type="annual_report",
                     period_end=date(2023, 12, 31), published_ts="2024-03-01",
                     discovered_ts="x", language="de", source="oam-de",
@@ -147,7 +147,7 @@ def test_traversing_filename_stays_inside_the_document_directory(tmp_path):
     cfg = Config(data_dir=tmp_path / "data", contact="t@e.com")
     doc = _doc([{"name": "../../../pwn.bin", "url": "http://x/a", "kind": "package_url"}])
     man = download_document(doc, fetcher=_DLFetcher(), config=cfg)
-    base = cfg.raw_dir / "529900T8BM49AURSKB52" / "ESEF-AR" / "2023" / "hostile-1"
+    base = cfg.raw_dir / "5493001KJTIIGC8Y1R12" / "ESEF-AR" / "2023" / "hostile-1"
     f = man["files"][0]
     assert "error" not in f, "a hostile name must not cost us the document"
     assert f["name"].endswith(".bin") and "/" not in f["name"]
@@ -178,7 +178,7 @@ def test_a_hostile_name_maps_to_the_same_file_on_a_re_run(tmp_path):
     first = download_document(_doc(files), fetcher=_DLFetcher(), config=cfg)
     second = download_document(_doc(files), fetcher=_DLFetcher(), config=cfg)
     assert first["files"][0]["name"] == second["files"][0]["name"]
-    base = cfg.raw_dir / "529900T8BM49AURSKB52" / "ESEF-AR" / "2023" / "hostile-1"
+    base = cfg.raw_dir / "5493001KJTIIGC8Y1R12" / "ESEF-AR" / "2023" / "hostile-1"
     assert len(list(base.iterdir())) == 1
 
 

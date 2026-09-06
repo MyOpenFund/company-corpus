@@ -24,13 +24,14 @@ def _sha256_file(p: Path) -> str:
 
 
 def download_document(doc: Document, *, fetcher, config: Config) -> dict:
-    # Every one of these four is third-party metadata (an OAM's LEI field, a
-    # published_ts we slice for the year, a doc_id built from native ids), and
-    # each one is a path component. ``safe_filename`` rather than
-    # ``safe_component`` so a hostile value costs us a pretty directory name and
-    # not the document itself; the fallback is a deterministic hash, so a re-run
-    # lands on the same directory instead of downloading a second copy
-    # (Rob-C7 / DI-M4).
+    # Three of the four components below are third-party metadata (an OAM's LEI
+    # field, a published_ts we slice for the year, a doc_id built from native
+    # ids); ``fam`` is our own :data:`DOC_FAMILY` constant and goes through the
+    # same helper only for uniformity -- it can never fail it. ``safe_filename``
+    # rather than ``safe_component`` so a hostile value costs us a pretty
+    # directory name and not the document itself; the fallback is a
+    # deterministic hash, so a re-run lands on the same directory instead of
+    # downloading a second copy (Rob-C7 / DI-M4).
     def _dir(value) -> str:
         return safe_filename(value, url=str(value),
                              max_length=config.max_path_component_length)

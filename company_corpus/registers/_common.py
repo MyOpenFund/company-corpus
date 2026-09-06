@@ -101,7 +101,8 @@ def _emit_entity_rows(
 ) -> None:
     """Shared tail: write the financials table, update counters, append coverage entry.
 
-    Handles both the ``no-financials`` (empty rows) and ``ok`` paths. Error and
+    Handles the ``invalid-identifier`` (unusable ``entity_id``, checked first),
+    ``no-financials`` (empty rows) and ``ok`` paths. Source-error and
     ``unbalanced`` paths are handled by the individual producers before calling here.
 
     Parameters
@@ -128,16 +129,16 @@ def _emit_entity_rows(
     rows = [row for row in rows if row.get("concept") not in _SUPPRESSED_CONCEPTS]
     # C1: stamp the leverage basis onto the leverage-derived rows (no-op if None).
     stamp_leverage_basis(rows, leverage_basis)
-    if not rows:
-        coverage.append({**cov_base, "status": "no-financials"})
-        out["no_financials"] += 1
-        return
     # An entity_id that cannot be a path component (a filename stem, a register
     # field carrying prose or "../..") is a visible skip for that entity, never
-    # an aborted batch (Rob-C7 / DI-M4). Checked BEFORE the counters and
-    # independently of ``write``, so a dry-run reports the same refusal a real
-    # run would; :meth:`Storage.write_register_financials_table` re-checks it as
-    # the last line of defence.
+    # an aborted batch (Rob-C7 / DI-M4). Checked BEFORE the counters, before the
+    # ``no-financials`` early return and independently of ``write``: an unusable
+    # identifier is unusable whatever the row count, and reporting one as a bland
+    # "no-financials" both hid the outcome an operator has to act on and made the
+    # refusal depend on whether the register happened to carry figures. A
+    # dry-run therefore reports the same refusal a real run would;
+    # :meth:`Storage.write_register_financials_table` re-checks it as the last
+    # line of defence.
     try:
         safe_component(entity_id,
                        max_length=storage.config.max_path_component_length)
@@ -145,6 +146,10 @@ def _emit_entity_rows(
         coverage.append({**cov_base, "status": "invalid-identifier", "error": str(exc)})
         out["errors"] += 1
         log.warning("refusing to write a table for an unusable identifier: %s", exc)
+        return
+    if not rows:
+        coverage.append({**cov_base, "status": "no-financials"})
+        out["no_financials"] += 1
         return
     out["periods"] += n_periods
     out["with_financials"] += 1

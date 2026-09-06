@@ -91,8 +91,8 @@ def test_register_table_write_refuses_an_absolute_ident(config, tmp_path):
 
 def test_eu_writer_normalises_the_lei(config):
     st = Storage(config)
-    st.write_eu_financials_table(" 529900t8bm49aurskb52 ", [{"period_end": "2024-12-31"}])
-    assert (config.financials_eu_dir / "529900T8BM49AURSKB52.jsonl").exists()
+    st.write_eu_financials_table(" 5493001kjtiigc8y1r12 ", [{"period_end": "2024-12-31"}])
+    assert (config.financials_eu_dir / "5493001KJTIIGC8Y1R12.jsonl").exists()
     with pytest.raises(ValueError):
         st.write_eu_financials_table("TOOSHORT", [{"a": 1}])
 
@@ -100,13 +100,13 @@ def test_eu_writer_normalises_the_lei(config):
 def test_eu_writer_merges_the_two_spellings_of_one_lei(config):
     """One issuer, one file: the case-folded spelling must not open a second."""
     st = Storage(config)
-    st.write_eu_financials_table("529900T8BM49AURSKB52",
+    st.write_eu_financials_table("5493001KJTIIGC8Y1R12",
                                  [{"period_end": "2023-12-31", "concept": "revenue"}])
-    st.write_eu_financials_table("529900t8bm49aurskb52",
+    st.write_eu_financials_table("5493001kjtiigc8y1r12",
                                  [{"period_end": "2024-12-31", "concept": "revenue"}])
     written = sorted(p.name for p in config.financials_eu_dir.glob("*.jsonl"))
-    assert written == ["529900T8BM49AURSKB52.jsonl"]
-    rows = (config.financials_eu_dir / "529900T8BM49AURSKB52.jsonl").read_text().splitlines()
+    assert written == ["5493001KJTIIGC8Y1R12.jsonl"]
+    rows = (config.financials_eu_dir / "5493001KJTIIGC8Y1R12.jsonl").read_text().splitlines()
     assert len(rows) == 2
 
 
@@ -116,11 +116,11 @@ def test_eu_writer_merges_the_two_spellings_of_one_lei(config):
 
 
 def test_normalize_lei_upper_cases_and_strips():
-    assert normalize_lei("  529900t8bm49aurskb52\n") == "529900T8BM49AURSKB52"
+    assert normalize_lei("  5493001kjtiigc8y1r12\n") == "5493001KJTIIGC8Y1R12"
 
 
-@pytest.mark.parametrize("bad", ["", "   ", "TOOSHORT", "529900T8BM49AURSKB5",
-                                 "529900T8BM49AURSKB521", "529900T8BM49AURSKB5-",
+@pytest.mark.parametrize("bad", ["", "   ", "TOOSHORT", "5493001KJTIIGC8Y1R1",
+                                 "5493001KJTIIGC8Y1R121", "5493001KJTIIGC8Y1R1-",
                                  "../../pwn", "N/A", None])
 def test_normalize_lei_refuses_a_malformed_lei(bad):
     with pytest.raises(ValueError):
@@ -130,13 +130,21 @@ def test_normalize_lei_refuses_a_malformed_lei(bad):
 def test_normalize_lei_validates_the_shape_not_the_check_digits():
     """Deliberate boundary: ISO 17442 shape only, no ISO 7064 mod-97-10 test.
 
-    ``…KB53`` is ``529900T8BM49AURSKB52`` with a wrong check pair; it is still a
-    structurally valid path component and is accepted. Existence and checksum are
-    GLEIF's authority, not the writer's -- the writer's job is one canonical
-    spelling per issuer. Enforcing the checksum here would also reject the
-    well-formed synthetic LEIs the fixtures are built from.
+    ISO 17442's last two characters are check digits: expand every character to
+    its base-36 value, concatenate, and the resulting integer is a valid LEI only
+    when ``% 97 == 1``. ``5493001KJTIIGC8Y1R12`` (a real, checksum-valid LEI)
+    gives 1; ``…R13`` -- the same LEI with a mutated check pair -- gives 2 and is
+    NOT a valid LEI. It is still a structurally valid path component, so it is
+    accepted here, and it is passed through verbatim (stripped and upper-cased
+    only): a wrong check pair is never "repaired" into a neighbouring issuer's id.
+
+    That is deliberate. On the CLI path GLEIF is the effective identity gate --
+    an id GLEIF does not know resolves to nothing long before it reaches a path --
+    so ``normalize_lei``'s job is one canonical SPELLING per issuer, not
+    existence. Enforcing the checksum here would also reject the well-formed
+    synthetic LEIs several fixtures are built from.
     """
-    assert normalize_lei("529900t8bm49aurskb53") == "529900T8BM49AURSKB53"
+    assert normalize_lei("5493001kjtiigc8y1r13") == "5493001KJTIIGC8Y1R13"
 
 
 @pytest.mark.parametrize("bad", ["0", "0000000000", "00000000", " 0 ", "CIK0000000000"])
@@ -244,6 +252,23 @@ def test_emit_entity_rows_refuses_the_same_id_in_a_dry_run(config):
     assert out["errors"] == 1 and out["with_financials"] == 0
 
 
+def test_emit_entity_rows_refuses_a_hostile_id_even_with_no_rows(config):
+    """The identifier check runs BEFORE the ``no-financials`` early return.
+
+    An entity whose id cannot be a path component is unusable whatever its row
+    count; recording it as a bland ``no-financials`` hid the one outcome an
+    operator has to see, and made the refusal depend on whether the register
+    happened to carry figures for that entity (Rob-C7 / DI-M4).
+    """
+    from company_corpus.registers._common import _emit_entity_rows, _make_out
+
+    out, coverage = _make_out(), []
+    _emit_entity_rows("../../pwn", [], 0, {"rcs": "../../pwn", "lei": None},
+                      Storage(config), out, coverage, write=True)
+    assert coverage[0]["status"] == "invalid-identifier" and coverage[0]["error"]
+    assert out["errors"] == 1 and out["no_financials"] == 0
+
+
 def test_emit_entity_rows_refuses_a_none_entity_id(config):
     """``str(None)`` is the perfectly usable component ``"None"`` -- every
     unreadable entity in a run would have shared one ``None.jsonl``."""
@@ -289,7 +314,11 @@ def test_ch_bulk_skips_a_member_whose_number_is_unusable(tmp_path):
     zip_path = tmp_path / "bulk.zip"
     with zipfile.ZipFile(zip_path, "w") as zf:
         zf.writestr("Prod223_4212_02855129_20260331.html", b"<html>ok</html>")
-        zf.writestr("Prod223_4212_N/A_20260331.html", b"<html>junk</html>")
+        # Slash-free junk on purpose: a literal "N/A" in a member name is a zip
+        # PATH separator, so iter_ch_bulk's basename split would hand
+        # _norm_ch_number "A" and the member would never exercise the branch
+        # this test is named for.
+        zf.writestr("Prod223_4212_N-A_20260331.html", b"<html>junk</html>")
         zf.writestr("Prod223_4212_00000000_20260331.html", b"<html>zeros</html>")
     numbers = [n for n, _ in iter_ch_bulk(str(zip_path))]
     assert numbers == ["02855129"]
