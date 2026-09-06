@@ -282,3 +282,28 @@ def test_eu_acquire_write_all_downloads_forbidden_is_degraded(monkeypatch, tmp_p
     assert rep["totals"]["docs_new"] == 0 and rep["totals"]["docs_failed"] >= 1
     banz = {s["source_code"]: s for s in rep["sources"]}["banz"]
     assert banz["docs_new"] == 0 and "403" in banz["error_samples"][0]
+
+
+def test_eu_acquire_offers_replace_and_allow_shrink(monkeypatch, tmp_path):
+    """`eu-acquire` is a coverage-file writer, so it needs the reset flag.
+
+    `data/reports/eu_coverage.jsonl` is MERGED across runs (Rob-I14) -- which is
+    what makes "was ok yesterday, source-error today" observable -- but
+    `eu-acquire` was the one coverage writer with no `--replace`, so an operator
+    who rebuilt a universe from scratch had no way to drop the rows of the
+    issuers no longer in it: they stayed in the report, indefinitely, looking
+    like coverage.
+    """
+    captured = _install(monkeypatch, tmp_path)
+    rc = cli.main(["eu-acquire", "--leis", "5493001KJTIIGC8Y1R12", "--write",
+                   "--no-download", "--replace", "--allow-shrink"])
+    assert rc == 0
+    cfg = captured["config"]
+    assert cfg.replace_tables is True
+    assert cfg.no_shrink_fraction == 1.0
+
+
+def test_eu_acquire_without_replace_still_merges(monkeypatch, tmp_path):
+    captured = _install(monkeypatch, tmp_path)
+    cli.main(["eu-acquire", "--leis", "5493001KJTIIGC8Y1R12", "--write", "--no-download"])
+    assert captured["config"].replace_tables is False

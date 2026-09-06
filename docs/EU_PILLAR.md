@@ -257,7 +257,11 @@ Specs accept `{"lei": …}`, `{"isin": …}`, or `{"name": …, "country": …}`
 first; with `write=False` nothing at all is written (no entity index, no coverage
 file; `coverage_path` is `None`), and `download=True` with `write=False` raises.
 The coverage report (`data/reports/eu_coverage.jsonl`) lists every entity with its
-doc count, doc types, and any gap. The summary also carries `unresolved` (specs
+doc count, doc types, and any gap. It is **merged across runs**, keyed by entity,
+so an incremental acquire over a slice of the universe updates that slice and
+leaves every other issuer's evidence intact — and the rows of an issuer you stop
+crawling persist until you clear them. `eu-acquire --replace` (with
+`--allow-shrink` to confirm the loss) resets the file to what the run produced. The summary also carries `unresolved` (specs
 that resolved to no LEI) and `sources` — per backend `name`, the entities it was
 asked about, the kept documents it contributed and its errors — and every entry
 of `errors` is tagged with the backend's `source` (a raised discovery under the

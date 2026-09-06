@@ -61,6 +61,10 @@ filings could not be FETCHED is `source-error` (with the failure message), count
 in `out["errors"]` and appended to `data/discovery_errors.jsonl`: a dead aggregator
 must never be readable as "this issuer files nothing".
 
+Like every coverage file, it is **merged across runs** (keyed by LEI), so a run
+over a handful of issuers updates only their rows; `--replace` (plus
+`--allow-shrink`) resets it to what the run itself produced.
+
 ## IFRS concept pack
 
 The `IFRS_CONCEPTS` pack in `company_corpus/xbrl/ifrs_concepts.py` maps the same

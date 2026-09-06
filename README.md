@@ -217,6 +217,15 @@ still reports the errors in `runs.jsonl`, but leaves no trail file — "DRY-RUN
 register could not be read" is a fact about the source, never confused with
 "the issuer filed nothing."
 
+Every coverage file (`reports/eu_coverage.jsonl`,
+`reports/eu_financials_coverage.jsonl`, `reports/register_coverage_<source>.jsonl`)
+is **merged across runs**, keyed by entity: a run over a slice of the universe
+updates that slice's rows and leaves every other entity's evidence where it was,
+which is what makes "was ok yesterday, source-error today" observable at all.
+The rows of an entity you stop crawling therefore persist. `--replace` (with
+`--allow-shrink` to confirm the loss) resets a coverage file to what the run
+itself produced — the way to rebuild a report after narrowing a universe.
+
 ### `SOURCE_CODES`: one code per authority
 
 The corpus pulls filings through three pillars — SEC EDGAR, the EU/OAM network

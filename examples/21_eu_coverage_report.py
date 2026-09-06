@@ -4,6 +4,10 @@
 `{lei, name, country, resolution, doc_count, doc_types, gap}`. The `gap` makes
 incompleteness explicit — an issuer that resolved but returned no documents is
 `no-documents` (never a silent omission); an unbindable spec is `unresolved-entity`.
+The file is MERGED across runs, keyed by entity: a run over part of a universe
+updates that part and leaves every other issuer's row where it was, so rows
+outlive the runs that made them. `eu-acquire --replace --allow-shrink` resets it.
+
 Here we discover (no download) three issuers in three jurisdictions and print their
 rows. Network; writes only the entity index + coverage report (to a temp dir).
 

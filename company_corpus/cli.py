@@ -956,6 +956,8 @@ def _cmd_eu_acquire(args: argparse.Namespace) -> int:
     documents that WOULD be acquired and any dead backend. ``--write`` downloads
     and writes everything; ``--write --no-download`` is a discovery-only run
     that still leaves the entity index, the coverage file and the error trail.
+    The coverage file is merged across runs like every other one; ``--replace``
+    (plus ``--allow-shrink``) resets it to what this run produced.
 
     The run report gets one row per backend (see the module docstring). A spec
     that resolved to no LEI reaches no backend and therefore no report row, so
@@ -1471,6 +1473,11 @@ def build_parser() -> argparse.ArgumentParser:
                           "file and the error trail (else dry-run: discovery only, nothing written)")
     eua.add_argument("--no-download", action="store_true", dest="no_download",
                      help="with --write: discovery only (entity index + coverage + trail, no files)")
+    # eu-acquire writes reports/eu_coverage.jsonl, which is merged across runs
+    # like every other coverage file -- so it needs the same reset. Without it an
+    # operator rebuilding a universe from scratch had no way to drop the rows of
+    # the issuers no longer in it, and stale rows read as coverage forever.
+    _add_table_write_flags(eua)
     eua.set_defaults(func=_cmd_eu_acquire)
 
     rf = sub.add_parser("register-financials",
