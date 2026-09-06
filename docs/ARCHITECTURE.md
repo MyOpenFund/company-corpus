@@ -285,6 +285,11 @@ flowchart LR
   the quarterly full-index, including delisted/merged issuers).
 - `report` and `rag-items` are read-only consumers at the tail; `entities`,
   `list-forms`, `list-universe`, `config` are inspection-only.
+- **`verify`** ([`verify.py`](../company_corpus/verify.py)) audits the whole tree
+  against these invariants — pointers resolve, ids are the ones the current
+  identity rules compute, a table holds only its own entity's rows, no raw file
+  is unreachable. Read-only by construction: no writes, no lock, exit `3` on
+  findings.
 
 ### Discovery convergence
 

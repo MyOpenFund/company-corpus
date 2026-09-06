@@ -135,6 +135,11 @@ from .sources.edgar_fts import EdgarFTS
 from .sources.edgar_index import EdgarFullIndex
 from .storage import Storage, _atomic_write_text, _jsonl as _jsonl_text
 from .taxonomy import FULL_SCOPE, parse_scope
+from .verify import (
+    as_json as verify_as_json,
+    format_text as verify_text,
+    scan as verify_scan,
+)
 from .universe import (
     Issuer,
     Universe,
@@ -1165,6 +1170,40 @@ def _cmd_ownership(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_verify(args: argparse.Namespace) -> int:
+    """Report corpus integrity findings. Reads; never writes, never locks.
+
+    Exit codes follow the doctrine of the run commands even though this one
+    keeps no run-report: ``0`` clean, ``3`` degraded (findings — the corpus can
+    be read but is not what it claims to be), ``1`` fatal (the data directory
+    itself cannot be read, so nothing was checked and a ``0`` would be a lie).
+    """
+    config = _config(args)
+    if not config.data_dir.is_dir():
+        print(f"error: not a readable data directory: {config.data_dir}",
+              file=sys.stderr)
+        return 1
+    try:
+        ciks = [normalize_cik(c) for c in args.ciks.split(",") if c.strip()] \
+            if getattr(args, "ciks", None) else None
+    except ValueError as exc:
+        # A bad flag is a usage error (2), not a corpus verdict: exiting 3 here
+        # would report a healthy corpus as degraded on a typo.
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    try:
+        result = verify_scan(config, ciks=ciks, check_hashes=args.check_hashes)
+    except OSError as exc:
+        print(f"error: cannot read {config.data_dir}: {exc}", file=sys.stderr)
+        return 1
+
+    if args.as_json:
+        print(json.dumps(verify_as_json(result), ensure_ascii=False))
+    else:
+        print(verify_text(result))
+    return 3 if result.findings else 0
+
+
 def _cmd_rag_items(args: argparse.Namespace) -> int:
     cfg = _config(args)
     ciks = None
@@ -1486,6 +1525,19 @@ def build_parser() -> argparse.ArgumentParser:
     ow.add_argument("--limit", type=int, default=None, help="cap number of new downloads")
     _add_table_write_flags(ow, partial_write=True)
     ow.set_defaults(func=_cmd_ownership)
+
+    vf = sub.add_parser(
+        "verify",
+        help="check corpus invariants (read-only: writes nothing, takes no lock, "
+             "safe beside a running crawl)")
+    vf.add_argument("--ciks", help="comma-separated CIKs (default: every manifest; "
+                                   "a CIK filter skips the LEI-keyed EU pillar)")
+    vf.add_argument("--hash", action="store_true", dest="check_hashes",
+                    help="re-hash every stored artefact (slow: re-reads the whole "
+                         "corpus; the default pass is metadata only)")
+    vf.add_argument("--json", action="store_true", dest="as_json",
+                    help="emit findings as JSON")
+    vf.set_defaults(func=_cmd_verify)
 
     ri = sub.add_parser("rag-items", help="preview SourceItems the RAG would ingest")
     risrc = ri.add_mutually_exclusive_group(required=False)

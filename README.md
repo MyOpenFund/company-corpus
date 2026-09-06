@@ -163,6 +163,40 @@ under the usual `022`), not the `0600` that the atomic-write temp file is
 created with — the corpus is meant to be readable by the ingester and by share
 consumers running as other accounts.
 
+### `verify`: the read-only self-check
+
+```bash
+python -m company_corpus verify                 # human summary, exit 0 / 3
+python -m company_corpus verify --json          # every finding, machine-readable
+python -m company_corpus verify --ciks 320193   # one issuer (skips the LEI-keyed EU pillar)
+python -m company_corpus verify --hash          # also re-hash every stored artefact (slow)
+```
+
+Asks the corpus on disk whether it is what it claims to be, and answers with
+findings — never a repair. It **writes nothing**, creates no directory, and
+takes **no corpus lock**, so it is safe to run beside a nightly crawl.
+
+| kind | what it means |
+|---|---|
+| `missing-artefact` | a manifest row points at bytes that are not on disk (or outside the data dir) |
+| `orphan-artefact` | a file under `raw/` that no manifest row points at |
+| `duplicate-doc-id` | one `doc_id` on two rows (or under two LEI manifests) |
+| `stale-doc-id` | a stored id the current identity rule does not reproduce (a pre-period-keyed F1 id, an EU manifest with no `native_id`) |
+| `foreign-row` | a row filed under an entity other than the one naming its file |
+| `invalid-identifier` | a filename or row id that is not a usable CIK / LEI / path component |
+| `incomplete-record` | an artefact is stored but `sha256` is unset (half-processed; `download` repairs it from disk) |
+| `hash-mismatch` | `--hash` only: stored bytes no longer hash to the recorded `sha256` |
+| `unreadable-row` / `unreadable-file` | a line or a file that could not be parsed or read — reported, never a crash |
+
+Exit codes follow the doctrine: `0` clean, `3` findings, `1` the data
+directory itself cannot be read. The default pass is metadata-only — every
+pointer is resolved against **one** listing of `raw/`, so a 9 GB corpus is a
+directory walk, not a re-read; `--hash` is the opposite and is not a nightly
+job. When part of the index cannot be read the orphan check is **skipped**
+entirely (unreferenced could not be told from unknown) and says so. A corpus
+with no `data/manifest/` at all gets one `note` saying that in a sentence,
+beside the per-file findings.
+
 ### Logging
 
 Work commands configure the root logger once (INFO, to stderr) so their own
