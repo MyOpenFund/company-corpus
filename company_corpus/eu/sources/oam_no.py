@@ -33,7 +33,7 @@ from __future__ import annotations
 import unicodedata
 from datetime import date, datetime, timezone
 
-from ..documents import Document
+from ..documents import Document, source_key
 from ..entities import Entity
 from ..oam_base import OamSource
 
@@ -261,7 +261,7 @@ class NewsWebNO(OamSource):
                 cat_ids = [c["id"] for c in raw_cats if isinstance(c, dict) and "id" in c]
 
                 doc = Document(
-                    doc_id=f"no-{mid}",
+                    native_id=source_key(mid),
                     lei=entity.lei,
                     country="NO",
                     doc_type=_doc_type(cat_ids),

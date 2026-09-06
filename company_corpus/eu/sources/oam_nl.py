@@ -25,7 +25,7 @@ import re
 import unicodedata
 from datetime import datetime, timezone
 
-from ..documents import Document
+from ..documents import Document, source_key
 from ..entities import Entity
 from ..oam_base import OamSource
 
@@ -185,13 +185,13 @@ class AfmNL(OamSource):
 
             published_ts = _parse_datum(datum)
             doc_type = _DOC_TYPE_MAP.get(objecttype_eng, "other")
-            doc_id = f"nl-{entry_id}"
+            native_id = source_key(entry_id)
 
             # 5. Resolve download URL via per-doc details hop.
             file_entry = self._resolve_file(entry_id, filename)
 
             out.append(Document(
-                doc_id=doc_id,
+                native_id=native_id,
                 lei=entity.lei,
                 country="NL",
                 doc_type=doc_type,

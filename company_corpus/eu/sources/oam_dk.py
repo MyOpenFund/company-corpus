@@ -28,7 +28,7 @@ import re
 import unicodedata
 from datetime import datetime, timezone
 
-from ..documents import Document
+from ..documents import Document, source_key
 from ..entities import Entity
 from ..oam_base import OamSource
 
@@ -234,7 +234,7 @@ class OamDK(OamSource):
                 category = _category_from_detail(detail) or category
 
                 docs.append(Document(
-                    doc_id=f"dk-{row_id}",
+                    native_id=source_key(row_id),
                     lei=entity.lei,
                     country="DK",
                     doc_type=_doc_type(category),

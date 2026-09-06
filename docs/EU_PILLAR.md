@@ -80,7 +80,7 @@ subclass + one entry in `COUNTRY_BACKENDS` (in
 
 ### The `Document` model
 
-A [`Document`](../company_corpus/eu/documents.py) carries `doc_id`, `lei`,
+A [`Document`](../company_corpus/eu/documents.py) carries `native_id`, `lei`,
 `country`, `doc_type`, `period_end`, `published_ts`, `source`, a list of `files`
 (each `{name, kind, url|content, sha256, …}`), and `native_meta`. `doc_type` is one
 of:
@@ -93,6 +93,38 @@ holding_notification · prospectus · governance · other
 A file can be a downloadable `url`, an inline `content` blob (capture-at-discovery,
 for sources whose links are session-bound), or index-only (metadata, no file) —
 which is recorded, never a silent drop.
+
+#### Document identity — `doc_id` is computed, never minted
+
+`Document.doc_id` is a read-only property:
+
+```
+doc_id = sha1("<source>|<country>|<native_id>")[:16]
+```
+
+`native_id` is the **source's own stable handle** on the document (an OAM row id,
+a disclosure id, a register number) — the only field a backend supplies. It must
+be stable across runs; a backend that has no id of its own builds one with
+`stable_native_id(*parts)` from the publication's own facts (its artefact URL, its
+title, its publication date), and `source_key(*parts)` guards a source key that is
+present but falsy (`0` is a key; `None` is not). Neither helper will invent an id:
+when every part is empty they raise, the backend records the gap through its
+`errors` list and skips the document. An id minted from the wall clock, from a
+page offset or from `len(files)` — which three backends used to do — renames the
+same document on every run, and a renamed document is a re-download into a fresh
+directory that never converges.
+
+Three consequences worth knowing:
+
+- Because the source and the country are inside the hash basis, they are **not**
+  in the id string: there are no more `se-…` / `fi-…` prefixes.
+- `doc_id` is 16 hex characters, so it can never be a hostile path component. The
+  `safe_filename` call in `download.py` is now belt-and-braces for it (it still
+  earns its keep for the LEI and for file names).
+- **No compatibility shim.** Documents acquired before this rule keep their old
+  directory under `data/raw/…` and their old `data/manifest/<LEI>/<doc_id>.json`,
+  and nothing will read them again. Re-run `eu-acquire` and delete the orphans;
+  the two spellings will never converge on their own.
 
 ## Identity resolution (no-guess)
 

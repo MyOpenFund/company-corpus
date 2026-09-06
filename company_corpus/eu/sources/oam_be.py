@@ -23,7 +23,7 @@ from __future__ import annotations
 import unicodedata
 from datetime import datetime, timezone
 
-from ..documents import Document
+from ..documents import Document, stable_native_id
 from ..entities import Entity
 from ..oam_base import OamSource
 
@@ -282,10 +282,19 @@ class StoriBE(OamSource):
 
         # requiredReportingTopicId is the primary key; fall back to a stable, unique
         # id (the first fileDataId — a GUID) so distinct keyless items never collide.
+        # The last resort used to be ``now``: an item with no topic id and no file
+        # was reborn under a new id — and a new directory — on every single run.
+        # A recorded gap is worth more than a document that never converges.
         fallback = files[0]["url"].rsplit("fileDataId=", 1)[-1] if files else None
-        doc_id = f"be-{topic_id or fallback or item.get('dateReceived') or now}"
+        try:
+            native_id = str(topic_id or fallback or "") or stable_native_id(
+                item.get("documentTitle"), item.get("reportingTopicName"),
+                item.get("datePublication"), item.get("companyNumber"))
+        except ValueError as exc:
+            self._record_error("native-id", f"{_BASE}/result", exc)
+            return None
         return Document(
-            doc_id=doc_id,
+            native_id=native_id,
             lei=item.get("lei") or entity.lei,
             country="BE",
             doc_type=_doc_type(item.get("reportingTopicName") or ""),

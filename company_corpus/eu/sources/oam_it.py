@@ -14,7 +14,7 @@ import re
 from datetime import datetime, timezone
 from urllib.parse import quote
 
-from ..documents import Document
+from ..documents import Document, source_key
 from ..entities import Entity
 from ..oam_base import OamSource
 
@@ -234,12 +234,13 @@ class OneInfoIT(OamSource):
         categoria = row.get("categoria") or ""
         doc_type = _CAT_MAP.get(categoria, "other")
 
-        # doc_id: prefer pdf id, fall back to protocolCode
+        # native id: prefer pdf id, fall back to protocolCode. The filetype is
+        # part of it because CONSOB's ids are only unique within one archive.
         raw_id = pdf or row.get("protocolCode") or row.get("id")
-        doc_id = f"it-{filetype}-{raw_id}"
+        native_id = source_key(filetype, raw_id)
 
         return Document(
-            doc_id=doc_id,
+            native_id=native_id,
             lei=entity.lei,
             country="IT",
             doc_type=doc_type,

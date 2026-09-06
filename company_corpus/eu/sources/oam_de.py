@@ -277,8 +277,8 @@ class BundesanzeigerDE(OamSource):
         publishing_entity: str,
         now: str,
     ) -> Document:
-        doc_id = self._doc_id(entity, published_ts, title, register)
-        file_entry: dict = {"name": f"{doc_id}.html", "kind": "html", "url": href}
+        native_id = self._native_id(entity, published_ts, title, register)
+        file_entry: dict = {"name": f"{native_id}.html", "kind": "html", "url": href}
 
         # Capture-at-discovery: the detail link has no stable URL, so fetch it now in
         # the same session and store the HTML inline. If the GET fails, still emit the
@@ -295,7 +295,7 @@ class BundesanzeigerDE(OamSource):
             file_entry["capture_failed"] = True
 
         return Document(
-            doc_id=doc_id,
+            native_id=native_id,
             lei=entity.lei,
             country="DE",
             doc_type=_doc_type(title),
@@ -314,14 +314,18 @@ class BundesanzeigerDE(OamSource):
         )
 
     @staticmethod
-    def _doc_id(entity: Entity, published_ts: str | None, title: str, register: str) -> str:
-        """Deterministic id from issuer + date + a short title hash + register.
+    def _native_id(entity: Entity, published_ts: str | None, title: str, register: str) -> str:
+        """Deterministic native id from issuer + publication date + a short title
+        hash + register.
 
-        Two genuinely distinct publications that share issuer+date+title+register would
-        collide and dedupe to one in merge_documents — vanishingly rare given the title
-        hash, and acceptable: such pairs are near-certainly the same disclosure.
+        The Bundesanzeiger listing exposes no id of its own, so the id is built
+        from the publication's own facts — never from its position in the result
+        list or from the clock. Two genuinely distinct publications that share
+        issuer+date+title+register would collide and dedupe to one in
+        merge_documents — vanishingly rare given the title hash, and acceptable:
+        such pairs are near-certainly the same disclosure.
         """
         ymd = (published_ts or "0000-00-00").replace("-", "")
         key = f"{entity.lei or entity.name}|{ymd}|{title}|{register}"
         short = hashlib.sha1(key.encode("utf-8")).hexdigest()[:10]
-        return f"de-{register}-{ymd}-{short}"
+        return f"{register}-{ymd}-{short}"

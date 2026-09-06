@@ -302,8 +302,10 @@ def test_doc_id_is_deterministic():
     e = Entity(lei="L1", name="IBERDROLA, S.A.", country="ES")
     ids1 = [d.doc_id for d in CnmvES(fetcher=_StubFetcher()).discover(e)]
     ids2 = [d.doc_id for d in CnmvES(fetcher=_StubFetcher()).discover(e)]
-    assert ids1 == ids2, "doc_ids must be deterministic"
-    assert all(i.startswith("es-") for i in ids1), "doc_ids must be prefixed 'es-'"
+    assert ids1 and ids1 == ids2, "doc_ids must be deterministic"
+    # The NIF keys the native id; the country and source live in the hash basis.
+    natives = [d.native_id for d in CnmvES(fetcher=_StubFetcher()).discover(e)]
+    assert all(n and not n.startswith("es-") for n in natives)
 
 
 def test_unknown_name_returns_empty():

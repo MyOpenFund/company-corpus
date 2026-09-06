@@ -5,7 +5,7 @@ from company_corpus.eu.reconcile import reconcile
 
 
 def _doc(lei, dt):
-    return Document(doc_id="d", lei=lei, country="DE", doc_type=dt, period_end=date(2023, 12, 31),
+    return Document(native_id="d", lei=lei, country="DE", doc_type=dt, period_end=date(2023, 12, 31),
                     published_ts=None, discovered_ts="x", language=None, source="oam-de",
                     files=[{"name": "f", "sha256": "h"}], native_meta={})
 

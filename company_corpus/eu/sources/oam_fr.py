@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 
-from ..documents import Document
+from ..documents import Document, source_key
 from ..entities import Entity
 from ..oam_base import OamSource
 
@@ -124,7 +124,7 @@ class InfoFinanciereFR(OamSource):
                 skipped += 1
                 continue
             out.append(Document(
-                doc_id=f"fr-{f.get('uin_idt_uin')}", lei=entity.lei, country="FR",
+                native_id=source_key(f.get("uin_idt_uin")), lei=entity.lei, country="FR",
                 doc_type=_doc_type(f.get("subtype_of_information"),
                                    f.get("type_of_information")),
                 period_end=None,  # FR records are publication-dated, not period-keyed

@@ -30,7 +30,7 @@ import html as _html
 import re
 from datetime import datetime, timezone
 
-from ..documents import Document
+from ..documents import Document, stable_native_id
 from ..entities import Entity
 from ..oam_base import OamSource
 
@@ -296,16 +296,28 @@ class DisclosureCH(OamSource):
         ad_hoc = bool(item.get("ad_hoc"))
         published_ts = _ts_from_millis(item.get("news_date"))
 
+        # An item with no ``id`` used to be named ``ch-six-<isin>-<len(files)>``:
+        # two id-less releases of the same issuer that happened to carry the same
+        # number of attachments were handed the SAME id, and one silently
+        # replaced the other. Key on the item's own facts instead.
+        try:
+            native_id = f"six-{item_id}" if item_id else "six-" + stable_native_id(
+                isin, title, published_ts)
+        except ValueError as exc:
+            self._record_error("native-id", _SIX_FEED_URL, exc)
+            return None
+        stem = item_id or native_id
+
         files: list[dict] = []
         if body:
-            files.append({"name": f"ch-{item_id}.html", "kind": "announcement", "content": body})
+            files.append({"name": f"ch-{stem}.html", "kind": "announcement", "content": body})
         for n, url in enumerate(dict.fromkeys(_ATTACH_RE.findall(body))):
-            files.append({"name": f"ch-{item_id}-att{n}.pdf", "kind": "document", "url": url})
+            files.append({"name": f"ch-{stem}-att{n}.pdf", "kind": "document", "url": url})
         if not files:
             return None
 
         doc = Document(
-            doc_id=f"ch-six-{item_id}" if item_id else f"ch-six-{isin}-{len(files)}",
+            native_id=native_id,
             lei=entity.lei,
             country="CH",
             doc_type=_doc_type(title, ad_hoc),
@@ -358,7 +370,7 @@ class DisclosureCH(OamSource):
         """
         slug = url.rstrip("/").rsplit("/", 1)[-1]
         return Document(
-            doc_id=f"ch-eqs-{slug}",
+            native_id="eqs-" + (slug or stable_native_id(url, title, published_ts)),
             lei=entity.lei,
             country="CH",
             doc_type=_doc_type(title, False),

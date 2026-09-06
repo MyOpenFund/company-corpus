@@ -212,11 +212,15 @@ def test_native_meta_carries_boekjaar_and_register():
     assert "filename" in meta
 
 
-def test_doc_id_prefixed_nl():
-    """doc_id must start with 'nl-'."""
+def test_native_id_is_the_afm_entry_id():
+    """The native id is the AFM register entry id; the doc_id is computed from
+    it together with the source and the country."""
     src = AfmNL(fetcher=_StubFetcher())
     docs = src.discover(Entity(lei="L1", name="ASML Holding N.V.", country="NL"))
-    assert all(d.doc_id.startswith("nl-") for d in docs)
+    assert docs
+    assert all(d.native_id.strip() for d in docs)
+    assert len({d.doc_id for d in docs}) == len(docs)
+    assert all(len(d.doc_id) == 16 for d in docs)
 
 
 # ---------------------------------------------------------------------------

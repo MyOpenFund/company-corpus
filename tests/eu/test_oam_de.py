@@ -98,7 +98,7 @@ def test_inline_content_captured():
         assert f.get("content"), "kept Documents must carry inline detail HTML"
         assert "Dividende" in f["content"] or "SAP" in f["content"]
         assert f["url"].startswith("https://www.bundesanzeiger.de"), "provenance url"
-        assert f["name"] == f"{d.doc_id}.html"
+        assert f["name"] == f"{d.native_id}.html"
 
 
 def test_doc_type_mapping():
@@ -209,7 +209,10 @@ def test_doc_id_is_deterministic():
     e = Entity(lei="L1", name="SAP SE", country="DE")
     ids1 = [d.doc_id for d in src.discover(e)]
     ids2 = [d.doc_id for d in BundesanzeigerDE(fetcher=_SynthFetcher(_SYNTH_RESULTS)).discover(e)]
-    assert ids1 == ids2 and all(i.startswith("de-") for i in ids1)
+    assert ids1 and ids1 == ids2
+    # The register is part of the native id; the country is in the hash basis.
+    natives = [d.native_id for d in src.discover(e)]
+    assert all(n and not n.startswith("de-") for n in natives)
 
 
 def test_list_issuers_returns_empty():

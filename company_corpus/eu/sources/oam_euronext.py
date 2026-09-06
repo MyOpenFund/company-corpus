@@ -25,7 +25,7 @@ import re
 from datetime import datetime, timezone
 from urllib.parse import parse_qs
 
-from ..documents import Document
+from ..documents import Document, source_key
 from ..entities import Entity
 from ..oam_base import OamSource
 
@@ -281,7 +281,7 @@ class EuronextSource(OamSource):
                 )
 
         return Document(
-            doc_id=f"euronext-{notice_id}",
+            native_id=source_key(notice_id),
             lei=entity.lei,
             country=entity.country,
             doc_type=_doc_type(notice_name),

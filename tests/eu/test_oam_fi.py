@@ -314,10 +314,14 @@ def test_discover_documents_carry_lei():
     assert all(d.lei == "FI-LEI-001" for d in docs)
 
 
-def test_discover_doc_ids_prefixed_fi():
+def test_discover_native_ids_are_the_oam_view_ids():
+    """The native id is the OAM's own view_id — nothing else. The country and
+    the source live in the doc_id hash basis, not in the id string."""
     src = OamFI(fetcher=_StubFetcher())
     docs = src.discover(Entity(lei="FI-LEI-001", name="Nokia Oyj", country="FI"))
-    assert all(d.doc_id.startswith("fi-") for d in docs)
+    assert docs
+    assert all(d.native_id.isdigit() for d in docs)
+    assert len({d.doc_id for d in docs}) == len(docs)
 
 
 def test_discover_file_urls_contain_viewattachment():
@@ -490,8 +494,8 @@ def test_discover_published_ts_first_row():
     docs = src.discover(Entity(lei="FI-LEI-001", name="Nokia Oyj", country="FI"))
     assert docs, "need at least one document to check published_ts"
     # The first row in the fixture is view_id=464108, date 2025-10-28
-    matching = [d for d in docs if d.doc_id == "fi-464108"]
-    assert matching, "expected a document with doc_id='fi-464108'"
+    matching = [d for d in docs if d.native_id == "464108"]
+    assert matching, "expected a document with native_id='464108'"
     assert matching[0].published_ts == "2025-10-28", (
         f"expected published_ts='2025-10-28', got {matching[0].published_ts!r}"
     )

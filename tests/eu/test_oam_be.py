@@ -371,7 +371,7 @@ def test_peek_skips_redundant_company():
     # Documents: only from isin1's full fetch; topic-B was never fetched (correct —
     # items for the same STORI company are already captured from isin1's full run).
     assert len(docs) == 1
-    assert docs[0].doc_id == f"be-{item_a['requiredReportingTopicId']}"
+    assert docs[0].native_id == item_a["requiredReportingTopicId"]
 
 
 def test_peek_distinct_company_is_fully_fetched():
@@ -394,9 +394,9 @@ def test_peek_distinct_company_is_fully_fetched():
     # Both ISINs fully paginated (different companies).
     assert {b["isinCode"] for b in http.full_calls} == {isin1, isin2}
     # Documents from both companies.
-    doc_ids = {d.doc_id for d in docs}
-    assert f"be-{item_x['requiredReportingTopicId']}" in doc_ids
-    assert f"be-{item_y['requiredReportingTopicId']}" in doc_ids
+    native_ids = {d.native_id for d in docs}
+    assert item_x["requiredReportingTopicId"] in native_ids
+    assert item_y["requiredReportingTopicId"] in native_ids
 
 
 def test_peek_empty_isin_skipped():
@@ -423,7 +423,7 @@ def test_peek_empty_isin_skipped():
 
     # Docs from isin1 only.
     assert len(docs) == 1
-    assert docs[0].doc_id == f"be-{item_a['requiredReportingTopicId']}"
+    assert docs[0].native_id == item_a["requiredReportingTopicId"]
 
 
 # ---------------------------------------------------------------------------
@@ -528,4 +528,4 @@ def test_peek_error_falls_through_to_full_search():
     assert any(e["context"] == "peek" for e in src.errors)
     # Full search still runs and returns the doc.
     assert len(docs) == 1
-    assert docs[0].doc_id == f"be-{item_a['requiredReportingTopicId']}"
+    assert docs[0].native_id == item_a["requiredReportingTopicId"]

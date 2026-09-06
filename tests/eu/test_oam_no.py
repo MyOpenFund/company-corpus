@@ -141,9 +141,9 @@ def test_discover_skips_zero_attachment_messages():
         for m in _LIST_FIX["data"]["messages"]
         if m.get("numbAttachments", 0) == 0
     }
-    doc_ids = {d.doc_id for d in docs}
+    native_ids = {d.native_id for d in docs}
     for mid in zero_att_msg_ids:
-        assert f"no-{mid}" not in doc_ids, (
+        assert str(mid) not in native_ids, (
             f"message {mid} has 0 attachments but produced a Document"
         )
 
@@ -333,11 +333,12 @@ def test_pagination_overflow_then_stops():
         _oam_no_module._today = original_today
 
     # 3 unique messageIds (101, 102, 103) but 102 is deduplicated → 3 Documents
-    doc_ids = [d.doc_id for d in docs]
-    assert len(doc_ids) == 3, f"expected 3 docs (deduplicated), got {len(doc_ids)}: {doc_ids}"
-    assert "no-101" in doc_ids
-    assert "no-102" in doc_ids
-    assert "no-103" in doc_ids
+    native_ids = [d.native_id for d in docs]
+    assert len(native_ids) == 3, \
+        f"expected 3 docs (deduplicated), got {len(native_ids)}: {native_ids}"
+    assert "101" in native_ids
+    assert "102" in native_ids
+    assert "103" in native_ids
     assert not src.errors, f"unexpected errors: {src.errors}"
 
 
@@ -489,7 +490,7 @@ def test_esef_kind():
     src = NewsWebNO(fetcher=stub)
     docs = src.discover(EQNR_ENTITY)
     # The annual report message (614113) has an eqnr20231231NO.zip attachment
-    ar_docs = [d for d in docs if d.doc_id == f"no-{_MESSAGE_ID}"]
+    ar_docs = [d for d in docs if d.native_id == str(_MESSAGE_ID)]
     if ar_docs:
         zip_files = [f for f in ar_docs[0].files if f["name"].endswith(".zip")]
         assert all(f["kind"] == "esef" for f in zip_files), (
