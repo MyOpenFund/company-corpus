@@ -11,9 +11,9 @@ import os
 import tempfile
 from pathlib import Path
 
-from ..config import Config
+from ..config import Config, normalize_lei
 from ..paths import safe_filename
-from ..storage import data_file_mode
+from ..storage import _atomic_write_text, data_file_mode
 from .documents import DOC_FAMILY, Document
 
 
@@ -21,6 +21,30 @@ def _sha256_file(p: Path) -> str:
     h = hashlib.sha256()
     h.update(p.read_bytes())
     return h.hexdigest()
+
+
+def _lei_dir(value: str, fallback) -> str:
+    """The CANONICAL spelling of a LEI, for the one directory it names.
+
+    Acquire used to file a document under whatever the OAM spelled -- a
+    ``safe_filename`` of the raw field -- while every reader (``verify``, the
+    EU financials writer) resolves a LEI through :func:`normalize_lei`. A
+    lower-case LEI in a spec file therefore produced ``raw/5493001kj…/`` and
+    ``manifest/5493001kj…/``, which ``verify`` reported as an
+    ``invalid-identifier`` directory plus one ``foreign-row`` per document, and
+    which a case-sensitive filesystem splits from the same issuer's upper-case
+    directory outright (DI-I7 -- the SEC side normalises its CIK, this side did
+    not).
+
+    A value that is not a LEI at all (an OAM row carrying prose, the
+    ``"UNRESOLVED"`` placeholder) falls back to the sanitised raw spelling: the
+    document still lands somewhere and the resulting ``invalid-identifier``
+    finding is the honest one, not a canonicalisation of junk.
+    """
+    try:
+        return normalize_lei(value)
+    except (ValueError, TypeError):
+        return fallback(value)
 
 
 def download_document(doc: Document, *, fetcher, config: Config) -> dict:
@@ -36,7 +60,7 @@ def download_document(doc: Document, *, fetcher, config: Config) -> dict:
         return safe_filename(value, url=str(value),
                              max_length=config.max_path_component_length)
 
-    lei = _dir(doc.lei or "UNRESOLVED")
+    lei = _lei_dir(doc.lei or "UNRESOLVED", _dir)
     fam = _dir(DOC_FAMILY.get(doc.doc_type, "OTHER"))
     year = _dir(str(doc.period_end.year) if doc.period_end else (
         (doc.published_ts or "")[:4] or "unknown"))
@@ -104,7 +128,7 @@ def download_document(doc: Document, *, fetcher, config: Config) -> dict:
         files_out.append({"name": dest.name, "url": f.get("url"), "kind": f.get("kind"),
                           "sha256": sha, "path": rel})
 
-    # ``doc_id`` / ``lei`` are the SANITISED components, not the raw ones:
+    # ``doc_id`` / ``lei`` are the NORMALISED components, not the raw ones:
     # ``acquire._discard_download`` rebuilds ``manifest/<lei>/<doc_id>.json``
     # from these two fields, so a manifest whose body disagreed with its own
     # path would leave an orphan behind. For every legitimate value the two
@@ -124,5 +148,11 @@ def download_document(doc: Document, *, fetcher, config: Config) -> dict:
     }
     mpath = config.data_dir / "manifest" / lei / f"{doc_dir}.json"
     mpath.parent.mkdir(parents=True, exist_ok=True)
-    mpath.write_text(json.dumps(manifest, indent=2, default=str))
+    # Atomic, like every other index this tool writes: the plain ``write_text``
+    # this replaces truncated the manifest first, so an interrupt (or a full
+    # disk) between truncate and write left a zero-length or half-written JSON
+    # file -- the one file that says which bytes under ``raw/`` belong to this
+    # document. ``verify`` then reports it as unreadable and nothing points at
+    # the document's files any more.
+    _atomic_write_text(mpath, json.dumps(manifest, indent=2, default=str))
     return manifest

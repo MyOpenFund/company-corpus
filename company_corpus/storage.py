@@ -639,14 +639,48 @@ class Storage:
 
     # ---- ownership summaries (Phase 4b) ----
     def write_ownership_summary(self, record: FilingRecord, html: str, text: str) -> None:
-        """Write a structured ownership summary (HTML primary + clean text)."""
+        """Write a structured ownership summary (HTML primary + clean text).
+
+        The record arrives pointing at the primary ``fetch_and_store``
+        decomposed out of the submission -- ``<doc_id>.primary.xml`` for a Form
+        4, ``.htm`` for some 13F wrappers. This summary supersedes it, so the
+        superseded file is REMOVED as the pointer moves: leaving it behind broke
+        the "every raw file is reachable from a manifest row" invariant once per
+        ownership filing, which is to say ``verify`` exited 3 on every corpus
+        ``ownership --write`` had ever touched, with no repair that could ever
+        settle it. The cleaned text keeps the same ``<doc_id>.txt`` name and is
+        simply overwritten.
+        """
         dest_dir = self.raw_dir_for(record)
+        superseded = record.primary_path
         primary = dest_dir / f"{record.doc_id}.primary.html"
         _atomic_write_text(primary, html)
         record.primary_path = self._rel(primary)
         txt = dest_dir / f"{record.doc_id}.txt"
         _atomic_write_text(txt, text)
         record.text_path = self._rel(txt)
+        self._drop_superseded_primary(record, superseded, dest_dir)
+
+    def _drop_superseded_primary(self, record: FilingRecord, superseded: str | None,
+                                 dest_dir: Path) -> None:
+        """Delete the decomposed primary a summary has just replaced.
+
+        Deliberately narrow: only a path that is this record's OWN
+        ``<doc_id>.primary.*`` in its own raw directory and is not the file just
+        written. Anything else -- a legacy pointer, a hand-laid-out corpus, a
+        pointer that escapes the data dir -- is left on disk, because deleting a
+        file we cannot prove we wrote is worse than the orphan finding it would
+        avoid. Best-effort on OSError for the same reason.
+        """
+        if not superseded or superseded == record.primary_path:
+            return
+        old = self.config.data_dir / superseded
+        if old.parent != dest_dir or not old.name.startswith(f"{record.doc_id}.primary"):
+            return
+        try:
+            old.unlink(missing_ok=True)
+        except OSError:  # a read-only share, a vanished mount: an orphan, not a crash
+            pass
 
     def write_ownership_table(self, cik: str, rows: Iterable[dict]) -> str:
         """Merge the normalized ownership rows into data/ownership/<cik>.jsonl.
