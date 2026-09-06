@@ -123,7 +123,8 @@ class InfoFinanciereFR(OamSource):
             if not url:
                 skipped += 1
                 continue
-            out.append(Document(
+            doc = self._emit(
+                error_url=url,
                 native_id=source_key(f.get("uin_idt_uin")), lei=entity.lei, country="FR",
                 doc_type=_doc_type(f.get("subtype_of_information"),
                                    f.get("type_of_information")),
@@ -131,7 +132,9 @@ class InfoFinanciereFR(OamSource):
                 published_ts=f.get("informationdeposee_inf_dat_emt") or f.get("uin_dat_amf"),
                 discovered_ts=now, language="fr", source=self.name,
                 files=[{"name": url.rsplit("/", 1)[-1], "url": url, "kind": _file_kind(url)}],
-                native_meta=f))
+                native_meta=f)
+            if doc is not None:
+                out.append(doc)
         if skipped:
             self._record_error("no-url", q, f"{skipped} records had no url_de_recuperation")
         return out

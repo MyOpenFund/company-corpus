@@ -320,10 +320,11 @@ class BundesanzeigerDE(OamSource):
 
         The Bundesanzeiger listing exposes no id of its own, so the id is built
         from the publication's own facts — never from its position in the result
-        list or from the clock. Two genuinely distinct publications that share
-        issuer+date+title+register would collide and dedupe to one in
-        merge_documents — vanishingly rare given the title hash, and acceptable:
-        such pairs are near-certainly the same disclosure.
+        list or from the clock. Two genuinely distinct publications sharing
+        issuer+date+title+register is vanishingly rare given the title hash, and
+        it is no longer this backend's call to wave through: such a pair reaches
+        ``merge_documents`` as an identity collision, is reported, and degrades
+        the entity's coverage row. Nothing is deduped on a guess here.
         """
         ymd = (published_ts or "0000-00-00").replace("-", "")
         key = f"{entity.lei or entity.name}|{ymd}|{title}|{register}"

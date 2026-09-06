@@ -220,3 +220,22 @@ def test_a_path_outside_data_dir_is_a_recorded_error_not_a_traceback(tmp_path, m
     f = man["files"][0]
     assert "is not in the subpath of" in f["error"]
     assert "path" not in f and "sha256" not in f
+
+
+def test_manifest_carries_the_native_id_the_doc_id_was_computed_from(tmp_path):
+    """``doc_id`` is a one-way hash: without the ``native_id`` beside it the
+    manifest cannot say WHICH row of WHICH register the document came from, and
+    an id can never be traced back to its source (or recomputed to check it)."""
+    cfg = Config(data_dir=tmp_path / "data", contact="t@e.com")
+    doc = Document(native_id="ÖVERLÅTELSE/2024-17", lei="L9", country="SE",
+                   doc_type="holding_notification", period_end=None,
+                   published_ts="2024-03-01", discovered_ts="x", language="sv",
+                   source="oam-se",
+                   files=[{"name": "a.pdf", "url": "http://x/a.pdf", "kind": "document"}],
+                   native_meta={})
+    man = download_document(doc, fetcher=_DLFetcher(), config=cfg)
+    assert man["native_id"] == "ÖVERLÅTELSE/2024-17"
+    on_disk = json.loads(
+        (cfg.data_dir / "manifest" / man["lei"] / f"{man['doc_id']}.json").read_text())
+    assert on_disk["native_id"] == doc.native_id
+    assert on_disk["source"] == doc.source and on_disk["country"] == doc.country

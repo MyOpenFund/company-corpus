@@ -441,7 +441,8 @@ class OamFI(OamSource):
         files = self._parse_attachments(view_html)
         published_ts = _parse_published_ts(raw_date)
 
-        return Document(
+        return self._emit(
+            error_url=view_url,
             native_id=source_key(view_id),
             lei=entity.lei,
             country="FI",

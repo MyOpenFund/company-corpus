@@ -23,7 +23,7 @@ from __future__ import annotations
 import unicodedata
 from datetime import datetime, timezone
 
-from ..documents import Document, stable_native_id
+from ..documents import Document, source_key, stable_native_id
 from ..entities import Entity
 from ..oam_base import OamSource
 
@@ -261,7 +261,9 @@ class StoriBE(OamSource):
         self, item: dict, entity: Entity, now: str, seen: set[str]
     ) -> Document | None:
         """Build one Document from a STORI result item (dedup by topic id)."""
-        topic_id = item.get("requiredReportingTopicId")
+        # ``source_key`` rather than the raw value: a topic id of 0 is a topic
+        # id, and ``x or fallback`` used to hand it to the fallback instead.
+        topic_id = source_key(item.get("requiredReportingTopicId"))
         if topic_id:
             if topic_id in seen:
                 return None
@@ -287,13 +289,14 @@ class StoriBE(OamSource):
         # A recorded gap is worth more than a document that never converges.
         fallback = files[0]["url"].rsplit("fileDataId=", 1)[-1] if files else None
         try:
-            native_id = str(topic_id or fallback or "") or stable_native_id(
+            native_id = topic_id or source_key(fallback) or stable_native_id(
                 item.get("documentTitle"), item.get("reportingTopicName"),
                 item.get("datePublication"), item.get("companyNumber"))
         except ValueError as exc:
             self._record_error("native-id", f"{_BASE}/result", exc)
             return None
-        return Document(
+        return self._emit(
+            error_url=files[0]["url"] if files else f"{_BASE}/result",
             native_id=native_id,
             lei=item.get("lei") or entity.lei,
             country="BE",

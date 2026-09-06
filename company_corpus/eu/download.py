@@ -110,8 +110,13 @@ def download_document(doc: Document, *, fetcher, config: Config) -> dict:
     # path would leave an orphan behind. For every legitimate value the two
     # spellings are identical; the raw spelling survives in ``native_meta`` and
     # in each file's ``url``.
+    # ``native_id`` beside the ``doc_id``: the id is a one-way hash of
+    # (source, country, native_id), so without the source's own handle the
+    # manifest cannot say which row of which register it came from, and the id
+    # can never be recomputed to check it.
     manifest = {
-        "doc_id": doc_dir, "lei": lei, "country": doc.country, "doc_type": doc.doc_type,
+        "doc_id": doc_dir, "native_id": doc.native_id,
+        "lei": lei, "country": doc.country, "doc_type": doc.doc_type,
         "period_end": doc.period_end.isoformat() if doc.period_end else None,
         "published_ts": doc.published_ts, "discovered_ts": doc.discovered_ts,
         "language": doc.language, "source": doc.source, "files": files_out,

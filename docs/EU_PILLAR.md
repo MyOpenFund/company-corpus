@@ -126,6 +126,26 @@ Three consequences worth knowing:
   and nothing will read them again. Re-run `eu-acquire` and delete the orphans;
   the two spellings will never converge on their own.
 
+The basis is normalised so a cosmetic difference cannot fork one document in two:
+the native id is stripped, the country is upper-cased. Each manifest carries the
+`native_id` beside the `doc_id`, so the one-way hash stays traceable back to the
+row of the register it came from (and recomputable to check).
+
+**A collision is an error, never a dedup.** Two *different* documents that compute
+one `doc_id` would share one raw directory and one manifest path, so one of them
+cannot be acquired at all. [`merge_documents`](../company_corpus/eu/dispatcher.py)
+compares the two (files, `published_ts`, title) and reports the clash to
+`acquire`, which records it against the losing backend and degrades that entity's
+coverage row to `source-error` — the run continues for every other issuer. Only
+byte-identical copies (equal `sha256` sets) merge, and that merge is near-nil at
+discovery time by design: the authoritative cross-backend dedup runs *after*
+download, on `(lei, published-day, sha256)`, where the bytes actually exist.
+
+**One bad row costs one row.** A listing row whose source gives no key at all is
+skipped through `OamSource._emit`, which records a `native-id` error for that
+document and keeps the rest of the listing. Previously the `ValueError` escaped
+`discover()` and cost the entity its whole listing on that backend.
+
 ## Identity resolution (no-guess)
 
 US identity is the CIK; EU identity is the **GLEIF Legal Entity Identifier (LEI)**

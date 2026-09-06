@@ -239,7 +239,8 @@ class OneInfoIT(OamSource):
         raw_id = pdf or row.get("protocolCode") or row.get("id")
         native_id = source_key(filetype, raw_id)
 
-        return Document(
+        return self._emit(
+            error_url=files[0].get("url") if files else None,
             native_id=native_id,
             lei=entity.lei,
             country="IT",

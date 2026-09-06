@@ -48,11 +48,30 @@ def stable_native_id(*parts) -> str:
     For listings with no id of their own. Raises when every part is empty --
     minting an id from the clock or from ``len(docs)`` produces a *different*
     document every night, which is worse than a recorded gap.
+
+    The parts are the SOURCE's own spelling and are hashed verbatim (only
+    surrounding whitespace is trimmed): unicode is fine, but ``…/a`` and ``…/a/``
+    are two different parts and yield two different ids. Pass only parts the
+    source spells the same way on every run.
     """
     usable = [str(p).strip() for p in parts if str(p or "").strip()]
     if not usable:
         raise ValueError("no stable part available for a native id")
     return hashlib.sha1("|".join(usable).encode("utf-8")).hexdigest()[:16]
+
+
+#: The keys under which the EU backends carry a document's headline in
+#: ``native_meta``. One of them is enough to tell a corrected title from the
+#: original in :meth:`Document.merge_fingerprint`.
+_TITLE_KEYS = ("title", "documentTitle", "headline", "reportingTopicName", "name")
+
+
+def _title(meta: dict) -> str:
+    for k in _TITLE_KEYS:
+        v = meta.get(k)
+        if v:
+            return str(v).strip()
+    return ""
 
 
 @dataclass
@@ -82,9 +101,36 @@ class Document:
         or any other clock reading, not the document's position in a result page.
         Producers hand over a ``native_id`` and never an id; there is exactly one
         rule and one place for it.
+
+        The basis is normalised so a cosmetic difference in one run's spelling
+        cannot fork one document into two directories: the native id is stripped
+        (registers pad their ids), and the country is upper-cased (the ISO code
+        is an identifier, and ``filings.xbrl.org`` supplies its own). The
+        ``country`` and ``native_id`` FIELDS keep the source's spelling -- the
+        normalisation is for identity only.
         """
-        basis = f"{self.source}|{self.country}|{self.native_id}"
+        basis = (f"{self.source}|{str(self.country).strip().upper()}"
+                 f"|{str(self.native_id).strip()}")
         return hashlib.sha1(basis.encode("utf-8")).hexdigest()[:16]
+
+    def merges_on_bytes(self) -> bool:
+        """True when :meth:`key` keys on file hashes rather than on ``doc_id``."""
+        return any(f.get("sha256") for f in self.files)
+
+    def merge_fingerprint(self) -> tuple:
+        """What two documents sharing a ``("doc", doc_id)`` key must agree on to
+        be one document rather than an identity collision.
+
+        Deliberately the *observable* facts of a discovery -- where the files
+        are, when the source says it published, what it called it. Not
+        ``discovered_ts`` (a clock reading, different by construction on a
+        re-run) and not the rest of ``native_meta`` (sources restate it).
+        """
+        files = tuple(sorted(
+            (str(f.get("url") or ""), str(f.get("name") or ""), str(f.get("sha256") or ""))
+            for f in self.files))
+        return (self.lei, self.doc_type, self.period_end, self.published_ts,
+                files, _title(self.native_meta))
 
     def key(self) -> tuple:
         """Cross-backend dedup key.

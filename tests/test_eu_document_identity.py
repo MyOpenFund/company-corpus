@@ -10,6 +10,7 @@ from company_corpus.eu.entities import Entity
 from company_corpus.eu.sources.oam_be import StoriBE
 from company_corpus.eu.sources.oam_ch import DisclosureCH
 from company_corpus.eu.sources.oam_gb import NsmGB
+from company_corpus.models import IdentityCollisionError
 
 
 def _doc(native_id, *, source="oam_se", country="SE", files=None, doc_type="holding_notification"):
@@ -145,7 +146,7 @@ def test_gb_doc_id_survives_a_newer_disclosure_shifting_the_page():
     assert before["Trading Update"] == after["Trading Update"]
 
 
-def test_gb_hit_with_no_stable_part_is_skipped_with_an_error():
+def test_gb_download_link_alone_is_a_sufficient_stable_part():
     src = NsmGB(fetcher=_GbStub([{"download_link": "NSM/RNS/dddd.html"}]))
     docs = src.discover(_GB_ENTITY)
     # download_link alone is stable and sufficient; the document survives.
@@ -242,3 +243,126 @@ def test_be_item_with_no_stable_part_is_skipped_and_recorded():
     docs = src.discover(_BE_ENTITY)
     assert docs == []
     assert any(e["context"] == "native-id" for e in src.errors), src.errors
+
+
+# ---------------------------------------------------------------------------
+# Identity collisions: two DIFFERENT documents that compute one doc_id share one
+# raw directory and one manifest path. Marc's binding rule: loud, never silent.
+# ---------------------------------------------------------------------------
+
+def test_two_different_documents_with_one_doc_id_never_collapse_silently():
+    """Same ``doc_id``, different files: ``setdefault`` used to keep the first and
+    throw the second away without a word (SIX's ISIN+title+date pairs, a BE
+    same-day amendment, an ES artefact re-listed, a DE lei|date|title|register)."""
+    a = _doc("x", files=[{"url": "https://x.invalid/a.pdf"}])
+    b = _doc("x", files=[{"url": "https://x.invalid/b.pdf"}])
+    with pytest.raises(IdentityCollisionError) as exc:
+        merge_documents([[a], [b]])
+    assert a.doc_id in exc.value.doc_ids
+
+
+def test_a_collision_goes_to_the_error_sink_when_one_is_offered():
+    a = _doc("x", files=[{"url": "https://x.invalid/a.pdf"}])
+    b = _doc("x", files=[{"url": "https://x.invalid/b.pdf"}])
+    seen = []
+    docs = merge_documents([[a], [b]], on_collision=lambda kept, dropped: seen.append((kept, dropped)))
+    assert [(k.source, d.source) for k, d in seen] == [(a.source, b.source)]
+    # One directory cannot hold two documents: the first-listed backend still
+    # wins, but the loss is now on the record.
+    assert docs == [a]
+
+
+def test_a_collision_on_published_ts_alone_is_still_a_collision():
+    a = _doc("x")
+    b = Document(native_id="x", lei="L1", country="SE", doc_type="holding_notification",
+                 period_end=None, published_ts="2026-06-06", discovered_ts="2026-01-02",
+                 language="sv", source="oam_se", files=[])
+    seen = []
+    merge_documents([[a], [b]], on_collision=lambda *args: seen.append(args))
+    assert len(seen) == 1
+
+
+def test_a_collision_on_the_title_alone_is_still_a_collision():
+    """The BE same-day amendment: one topic id, one date, a corrected title."""
+    a = _doc("x")
+    b = _doc("x")
+    a.native_meta = {"documentTitle": "Rapport annuel"}
+    b.native_meta = {"documentTitle": "Rapport annuel (corrigé)"}
+    seen = []
+    merge_documents([[a], [b]], on_collision=lambda *args: seen.append(args))
+    assert len(seen) == 1
+
+
+def test_the_very_same_document_seen_twice_still_collapses_quietly():
+    """Two backends re-listing one identical document is not a collision."""
+    calls = []
+    docs = merge_documents([[_doc("x")], [_doc("x")]],
+                           on_collision=lambda *args: calls.append(args))
+    assert len(docs) == 1 and calls == []
+
+
+def test_byte_identical_copies_merge_despite_different_urls_and_dates():
+    """The sha256 key is the ground truth: two backends naming and dating one
+    disclosure differently still collapse, and that is never a collision."""
+    a = Document(native_id="nat-1", lei="L1", country="SE", doc_type="annual_report",
+                 period_end=None, published_ts="2026-01-01", discovered_ts="x",
+                 language="sv", source="oam_se",
+                 files=[{"sha256": "deadbeef", "url": "https://se.invalid/a.zip"}])
+    b = Document(native_id="fxo-9", lei="L1", country="SE", doc_type="annual_report",
+                 period_end=None, published_ts="2026-01-02", discovered_ts="y",
+                 language=None, source="filings_org",
+                 files=[{"sha256": "deadbeef", "url": "https://fxo.invalid/b.zip"}])
+    calls = []
+    docs = merge_documents([[a], [b]], on_collision=lambda *args: calls.append(args))
+    assert len(docs) == 1 and calls == []
+
+
+# ---------------------------------------------------------------------------
+# The identity basis itself
+# ---------------------------------------------------------------------------
+
+def test_a_native_id_is_stripped_before_it_enters_the_basis():
+    """A source that pads its id with whitespace on one run must not fork the
+    document into a second directory."""
+    assert _doc("  n-1  ").doc_id == _doc("n-1").doc_id
+
+
+def test_country_case_does_not_fork_the_identity():
+    assert _doc("n-1", country="se").doc_id == _doc("n-1", country="SE").doc_id
+
+
+def test_a_unicode_native_id_still_yields_sixteen_hex_characters():
+    d = _doc("Übernahmeangebot-Ω-café")
+    assert len(d.doc_id) == 16
+    assert all(c in "0123456789abcdef" for c in d.doc_id)
+    assert d.doc_id == _doc("Übernahmeangebot-Ω-café").doc_id
+
+
+def test_stable_native_id_handles_unicode_parts():
+    got = stable_native_id("https://x.invalid/Übernahme", "Ordentliche Hauptversammlung — Ω")
+    assert len(got) == 16 and all(c in "0123456789abcdef" for c in got)
+    assert got == stable_native_id("https://x.invalid/Übernahme",
+                                   "Ordentliche Hauptversammlung — Ω")
+
+
+def test_stable_native_id_treats_a_trailing_slash_as_a_different_url():
+    """Documented, deliberate: the parts are the SOURCE's own spelling and are
+    hashed verbatim. A source that alternates ``/a`` and ``/a/`` for one document
+    forks its id — so only genuinely stable parts belong in this call."""
+    assert stable_native_id("https://x.invalid/a") != stable_native_id("https://x.invalid/a/")
+
+
+def test_stable_native_id_strips_surrounding_whitespace():
+    assert stable_native_id("  u  ", " t ") == stable_native_id("u", "t")
+
+
+def test_gb_seq_id_zero_is_a_real_id():
+    """``src.get("disclosure_id") or src.get("seq_id") or ""`` dropped a legitimate
+    ``seq_id`` of 0 and fell through to the hashed fallback."""
+    docs = NsmGB(fetcher=_GbStub([dict(_GB_HIT_A, seq_id=0)])).discover(_GB_ENTITY)
+    assert [d.native_id for d in docs] == ["0"]
+
+
+def test_be_topic_id_zero_is_a_real_id():
+    docs = StoriBE(http=_BeStub([_be_item(requiredReportingTopicId=0)])).discover(_BE_ENTITY)
+    assert [d.native_id for d in docs] == ["0"]

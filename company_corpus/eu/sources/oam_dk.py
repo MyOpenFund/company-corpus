@@ -209,8 +209,15 @@ class OamDK(OamSource):
                 )
 
             for row in rows:
-                row_id = str(row.get("id") or "")
+                # ``str(row.get("id") or "")`` threw away a legitimate row 0 --
+                # the OAM numbers some result sets from zero -- and did it before
+                # the detail hop, so the document never existed. And a row with
+                # NO id at all is a gap in this listing, not a silent nothing.
+                row_id = source_key(row.get("id"))
                 if not row_id:
+                    self._record_error(
+                        "native-id", f"{_BASE}/search",
+                        ValueError("search row carries no id; document skipped"))
                     continue
                 category = row.get("CategoryColumn") or ""
                 published_ts = row.get("PublicationDateColumn")
@@ -233,8 +240,9 @@ class OamDK(OamSource):
                 # to CategoryColumn (older responses carry the API key there).
                 category = _category_from_detail(detail) or category
 
-                docs.append(Document(
-                    native_id=source_key(row_id),
+                doc = self._emit(
+                    error_url=f"{_BASE}/details/{row_id}",
+                    native_id=row_id,
                     lei=entity.lei,
                     country="DK",
                     doc_type=_doc_type(category),
@@ -250,7 +258,9 @@ class OamDK(OamSource):
                         "category": category,
                         "cvr": cvr,
                     },
-                ))
+                )
+                if doc is not None:
+                    docs.append(doc)
 
             if not rows:
                 break  # empty page — all docs fetched (works with or without totalPages)

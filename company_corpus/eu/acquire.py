@@ -12,6 +12,7 @@ import logging
 from ..config import Config
 from ..storage import Storage
 from .dispatcher import merge_documents
+from .documents import Document
 from .download import download_document
 from .entities import Entity, resolve_entities
 from .reconcile import reconcile
@@ -160,6 +161,31 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True,
     # truncated page next to real documents), and they turn the entity's
     # coverage row into a `source-error` instead of a look-alike `no-documents`.
     discover_failures: dict[str, str] = {}
+
+    def _collision_sink(e):
+        """The per-entity error sink :func:`merge_documents` reports into.
+
+        Two different documents computing one ``doc_id`` would share one raw
+        directory and one manifest path, so one of them cannot be acquired at
+        all. That is a failure of this entity's discovery, not a dedup: it is
+        recorded against the losing backend AND lands in ``discover_failures``,
+        which turns the entity's coverage row into a ``source-error`` instead of
+        a shorter, healthy-looking listing. The run itself continues -- one
+        colliding issuer must not cost the others their work (same doctrine as
+        the F1 ``IdentityCollisionError`` in ``pipeline.run``).
+        """
+        def _sink(kept: Document, dropped: Document) -> None:
+            msg = (f"doc_id {kept.doc_id} is computed by two different documents "
+                   f"({kept.source}/{kept.native_id} and "
+                   f"{dropped.source}/{dropped.native_id}); the second cannot be "
+                   "acquired -- one doc_id is one directory")
+            errors.append({"source": dropped.source, "context": "identity-collision",
+                           "entity": e.lei, "doc_id": kept.doc_id, "error": msg})
+            _src(dropped.source)["errors"] += 1
+            discover_failures.setdefault(e.lei, msg)
+            log.error("identity collision for %s: %s", e.lei, msg)
+        return _sink
+
     for i, e in enumerate(entities):
         if not e.lei:
             unresolved += 1
@@ -193,7 +219,7 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True,
         # (NewsWeb has no ISIN to key on, so name alone would otherwise be a guess).
         if e.country != "NO" and _has_oslo_notice(per_backend):
             per_backend.append(_discover(NewsWebNO(fetcher=fetcher, config=config), e))
-        all_docs.extend(merge_documents(per_backend))
+        all_docs.extend(merge_documents(per_backend, on_collision=_collision_sink(e)))
 
     manifests = 0
     download_errors = 0

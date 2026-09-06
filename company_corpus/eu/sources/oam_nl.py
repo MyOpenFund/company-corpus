@@ -190,7 +190,8 @@ class AfmNL(OamSource):
             # 5. Resolve download URL via per-doc details hop.
             file_entry = self._resolve_file(entry_id, filename)
 
-            out.append(Document(
+            doc = self._emit(
+                error_url=file_entry.get("url"),
                 native_id=native_id,
                 lei=entity.lei,
                 country="NL",
@@ -206,7 +207,9 @@ class AfmNL(OamSource):
                     "filename": filename,
                     "register": _REGISTER_NAME,
                 },
-            ))
+            )
+            if doc is not None:
+                out.append(doc)
 
         return out
 

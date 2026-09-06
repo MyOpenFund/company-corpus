@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 
-from ..documents import Document, stable_native_id
+from ..documents import Document, source_key, stable_native_id
 from ..entities import Entity
 from ..oam_base import OamSource
 
@@ -173,24 +173,30 @@ class NsmGB(OamSource):
                                        RuntimeError("unexpected/unsafe download_link; skipped"))
                     continue
 
-                disclosure_id = src.get("disclosure_id") or src.get("seq_id") or ""
+                # ``a or b or ""`` threw away a legitimate id of 0 and fell
+                # through to the hashed fallback, giving the row two identities
+                # depending on which branch ran; ``source_key`` keeps the 0 and
+                # refuses only a genuinely absent key.
+                disclosure_id = (source_key(src.get("disclosure_id"))
+                                 or source_key(src.get("seq_id")))
                 # A hit with no id of its own used to be named after its POSITION
                 # (`gb-<from_offset>-<len(docs)>`), so the night a newer notice was
                 # published every older document below it was renamed and
                 # re-downloaded into a fresh directory. The NSM artefact path is
                 # the server's own stable handle on the file — key on that.
-                try:
-                    native_id = disclosure_id or stable_native_id(
-                        download_link, src.get("headline"), src.get("publication_date"))
-                except ValueError as exc:
-                    self._record_error("native-id", download_link, exc)
-                    continue
+                # No try: ``download_link`` is non-empty here (the guard above
+                # skipped and recorded the blanks), so ``stable_native_id`` has a
+                # stable part and cannot refuse. ``self._emit`` below is the net
+                # if that guard ever moves.
+                native_id = disclosure_id or stable_native_id(
+                    download_link, src.get("headline"), src.get("publication_date"))
 
                 tag_esef = src.get("tag_esef") or ""
                 kind = _file_kind(download_link, tag_esef)
                 file_name = os.path.basename(download_link)
 
-                doc = Document(
+                doc = self._emit(
+                    error_url=_ARTEFACTS_BASE + download_link,
                     native_id=native_id,
                     # The NSM is also the de-facto OAM for Irish issuers (this
                     # backend is wired for IE too); label the document with the
@@ -220,7 +226,8 @@ class NsmGB(OamSource):
                         "tag_esef": tag_esef,
                     },
                 )
-                docs.append(doc)
+                if doc is not None:
+                    docs.append(doc)
 
             from_offset += _PAGE
 

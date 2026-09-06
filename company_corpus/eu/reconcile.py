@@ -24,6 +24,11 @@ def reconcile(
     ``error``), never ``no-documents``: "the OAM was unreachable" and "the issuer
     published nothing" are different facts, and only the second is a property of
     the issuer.
+
+    A recorded failure outranks the documents that DID arrive, too: an issuer
+    whose OAM died mid-listing, or one of whose documents lost an identity
+    collision, has a listing we already know to be short, and reporting that as
+    ``none`` is exactly the silent partial this module exists to prevent.
     """
     errors = errors or {}
     by_lei: dict[str, list[Document]] = defaultdict(list)
@@ -36,8 +41,15 @@ def reconcile(
         error = errors.get(e.lei or "")
         if e.resolution == "unresolved" or not e.lei:
             gap = "unresolved-entity"
+        elif error:
+            # A recorded discovery failure outranks the documents that DID
+            # arrive: an issuer whose OAM died mid-listing, or one of whose
+            # documents lost an identity collision, has a listing we know to be
+            # short. Calling that ``none`` is the silent partial this module
+            # exists to prevent.
+            gap = "source-error"
         elif not docs:
-            gap = "source-error" if error else "no-documents"
+            gap = "no-documents"
         else:
             gap = "none"
         row = {

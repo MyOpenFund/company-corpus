@@ -35,6 +35,24 @@ class OamSource(ABC):
     def _record_note(self, context, url, note):
         self.notes.append({"source": self.name, "context": context, "url": url, "note": str(note)})
 
+    def _emit(self, *, error_url: str | None = None, **doc_kwargs) -> Document | None:
+        """Build one :class:`Document`, or record the refusal and skip IT ALONE.
+
+        ``Document.__post_init__`` refuses a blank ``native_id`` -- a row whose
+        source gave us no key. Raised from inside a listing loop that ValueError
+        escapes ``discover()``, and ``acquire._discover`` then marks the whole
+        ENTITY ``source-error`` and drops the perfectly good documents that were
+        already built or would have followed. One id-less row must cost one row.
+        The failure is still loud, just at the right granularity.
+        """
+        try:
+            return Document(**doc_kwargs)
+        except ValueError as exc:
+            files = doc_kwargs.get("files") or []
+            first = files[0] if files and isinstance(files[0], dict) else {}
+            self._record_error("native-id", error_url or first.get("url"), exc)
+            return None
+
     def list_issuers(self) -> list[IssuerRef]:
         """Enumerate all known issuers for this OAM.
 
