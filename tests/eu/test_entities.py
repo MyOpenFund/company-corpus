@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from company_corpus.eu.entities import resolve_entities
+from company_corpus.eu.entities import _canonical_lei, _lookup_lei, resolve_entities
 
 FIX = Path(__file__).parent.parent / "fixtures" / "eu"
 
@@ -171,3 +171,36 @@ def test_bridge_unresolved_when_openfigi_has_no_name():
     f = _BridgeFetcher(figi_name=None, fulltext_rows=[])
     [e] = resolve_entities([{"isin": "IE00BF2NR112"}], fetcher=f, populate_isins=False)
     assert e.lei is None and e.resolution == "unresolved"
+
+
+# ---- _canonical_lei: the spec's own spelling still goes through the rule ----
+def test_lookup_lei_canonicalises_the_spec_when_gleif_omits_the_lei():
+    """GLEIF answered with a record carrying no ``lei`` attribute, so the spec's
+    spelling is all we have — and it is the operator's, lower-case here. It must
+    still reach the writers canonicalised (DI-I7: the EU downloader files a
+    document under ``Entity.lei`` and the financials writer names a table by it,
+    and both normalise), never as typed."""
+    record = {"data": {"attributes": {"entity": {
+        "legalName": {"name": "SAP SE"},
+        "legalAddress": {"country": "DE"}}}}}
+    f = _Fetcher({"lei-records/": record})
+    e = _lookup_lei(" 529900d6bf99lw9r2e68 ", f, with_isins=False)
+    assert e.lei == "529900D6BF99LW9R2E68"
+    assert e.name == "SAP SE" and e.country == "DE" and e.resolution == "lei"
+
+
+def test_lookup_lei_leaves_a_non_lei_spec_alone():
+    """A spec that is not a LEI at all is passed through unchanged rather than
+    raising: refusing it here would turn a downstream ``invalid-identifier``
+    finding into a resolver crash."""
+    record = {"data": {"attributes": {"entity": {"legalName": {"name": "Nope"}}}}}
+    f = _Fetcher({"lei-records/": record})
+    e = _lookup_lei("not-a-lei", f, with_isins=False)
+    assert e.lei == "not-a-lei" and e.country == ""
+
+
+def test_canonical_lei_is_the_shared_rule():
+    assert _canonical_lei("529900d6bf99lw9r2e68") == "529900D6BF99LW9R2E68"
+    assert _canonical_lei("529900D6BF99LW9R2E68") == "529900D6BF99LW9R2E68"
+    for bad in ("", "short", None):
+        assert _canonical_lei(bad) == bad

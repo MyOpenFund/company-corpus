@@ -114,3 +114,44 @@ def test_dict_error_message_survives_truncation():
     assert error_sample.startswith("discovery_phase:")
     # Verify truncation happened (message is 300 chars)
     assert len(error_sample) <= 300
+
+
+def test_local_refusal_alone_degrades_under_no_source_row():
+    """A write the corpus itself refused: no authority failed, so no source row
+    carries it — but it is still a failure of the run, so a run that produced
+    nothing else does not exit clean."""
+    r = RunReport("company-corpus", "eu-acquire")
+    r.source("amf").record_saved_counts({"skipped": 1})
+    r.record_local_refusal("refusing to drop 1 of 2 record groups")
+    assert r.finish() == 3
+    d = r.to_dict()
+    assert d["outcome"] == "degraded"
+    assert [s["source_code"] for s in d["sources"]] == ["amf"]
+    assert d["sources"][0]["docs_failed"] == 0, "the authority is not charged for it"
+    assert d["local_refusals"]["count"] == 1
+    assert "refusing to drop" in d["local_refusals"]["samples"][0]
+    assert d["totals"]["docs_failed"] == 1
+
+
+def test_local_refusal_beside_new_documents_does_not_degrade():
+    r = RunReport("company-corpus", "eu-acquire")
+    r.source("amf").record_saved_counts({"saved": 2})
+    r.record_local_refusal("refusing to drop 1 of 2 record groups")
+    assert r.finish() == 0
+    assert r.to_dict()["local_refusals"]["count"] == 1
+
+
+def test_no_local_refusal_leaves_the_key_out():
+    r = RunReport("company-corpus", "eu-acquire")
+    r.source("amf").record_saved_counts({"saved": 1})
+    r.finish()
+    assert "local_refusals" not in r.to_dict()
+
+
+def test_local_refusal_samples_capped_at_five():
+    r = RunReport("company-corpus", "eu-acquire")
+    for i in range(9):
+        r.record_local_refusal(f"refusal {i}")
+    r.finish()
+    d = r.to_dict()
+    assert d["local_refusals"]["count"] == 9 and len(d["local_refusals"]["samples"]) == 5

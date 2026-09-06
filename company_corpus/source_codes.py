@@ -178,11 +178,35 @@ _ALIASES: dict[str, str] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Local sources: the tool's own refusals, which are NOT authorities.
+# ---------------------------------------------------------------------------
+#: Producer ``source`` tags that name this corpus itself rather than a
+#: publisher: a write the no-shrink guard refused, an identity collision --
+#: decisions taken locally, before or after any backend was involved. They are
+#: deliberately absent from :data:`SOURCE_CODES`: that registry holds one code
+#: per real-world regulatory authority (23 of them, pinned by
+#: ``tests/test_source_codes.py``), and a local refusal has no authority behind
+#: it -- reporting it on a backend's row would blame that backend for the
+#: corpus's own decision. Callers route these to the run report's
+#: :meth:`company_corpus.runreport.RunReport.record_local_refusal` counter,
+#: which counts them as failures of the run under no source row at all.
+LOCAL_SOURCES: frozenset[str] = frozenset({"storage"})
+
+
+def is_local_source(name: "str | None") -> bool:
+    """True when ``name`` tags a local refusal rather than a backend."""
+    return name in LOCAL_SOURCES
+
+
 def source_code_for(name: str) -> str:
     """Resolve any producer/backend tag (or a canonical code itself) to its
     canonical :data:`SOURCE_CODES` key.
 
-    Raises ``KeyError`` for anything unrecognised — never guesses.
+    Raises ``KeyError`` for anything unrecognised — never guesses. A local
+    refusal tag (:data:`LOCAL_SOURCES`) is unrecognised on purpose and raises
+    like any other: test it with :func:`is_local_source` first and report it
+    off the per-authority rows.
     """
     if name in SOURCE_CODES:
         return name

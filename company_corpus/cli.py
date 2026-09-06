@@ -129,7 +129,7 @@ from .registers.financials import (
 from .openfigi import coverage_hint, map_identifiers
 from .rag import iter_items
 from .runreport import RunReport as DoctrineReport
-from .source_codes import source_code_for
+from .source_codes import is_local_source, source_code_for
 from .sources.cik_lookup import fetch_cik_lookup, parse_cik_lookup
 from .sources.edgar_fts import EdgarFTS
 from .sources.edgar_index import EdgarFullIndex
@@ -234,6 +234,21 @@ def _feed_report(
         msgs = [f"{code}: backend reported a truncated result"]
     for msg in msgs:
         stats.record_fetch_error(msg, truncated=truncated)
+
+
+def _feed_local_refusals(report, items) -> None:
+    """Fold refusals the corpus made itself into the report, under no source row.
+
+    ``items`` carry a :data:`company_corpus.source_codes.LOCAL_SOURCES` tag
+    (``"storage"`` today): the no-shrink guard refused a write, so nothing was
+    asked of any backend and no authority may be charged for it. Counted as
+    failures of the run (``local_refusals`` + ``totals.docs_failed``), which is
+    what the exit-code doctrine reads.
+    """
+    if report is None:
+        return
+    for msg in _error_messages(items):
+        report.record_local_refusal(msg)
 
 
 def _feed_from_out(report, code: str, out: dict) -> None:
@@ -1008,11 +1023,20 @@ def _cmd_eu_acquire(args: argparse.Namespace) -> int:
                      truncated=bool(st.get("truncated", False)))
     # An error tagged with a backend that reported no counts (cannot happen by
     # construction) is still fed under that backend's code — never dropped; an
-    # untagged one is a producer bug and raises rather than vanish.
+    # untagged one is a producer bug and raises rather than vanish. A LOCAL
+    # refusal (the coverage write the no-shrink guard refused, tagged
+    # ``source: "storage"``) is neither: it is the corpus's own decision, so it
+    # goes to the report's local-refusal counter instead of an authority's row.
+    # Feeding it as a backend raised ``KeyError: 'storage'`` and turned a
+    # contained refusal into a fatal run — the one failure mode this whole
+    # containment work exists to prevent.
     for name, items in items_by_source.items():
         if not name:
             raise RuntimeError(f"eu-acquire: {len(items)} error item(s) carry no backend "
                                f"source: {items[0]!r}")
+        if is_local_source(name):
+            _feed_local_refusals(report, items)
+            continue
         _feed_report(report, name, failed=len(items), errors=items)
     return _unresolved_verdict("eu-acquire", out)
 
@@ -1534,7 +1558,10 @@ def build_parser() -> argparse.ArgumentParser:
     ow.add_argument("--overwrite", action="store_true", help="re-download already-stored filings")
     ow.add_argument("--limit", type=int, default=None,
                     help="cap number of new downloads (repairs are not capped; "
-                         "--limit 0 converges and parses what is already on disk)")
+                         "--limit 0 is a download-free pass that converges and "
+                         "parses every HALF-PROCESSED filing on disk — a filing "
+                         "already complete on disk needs no repair and is left "
+                         "for an uncapped run)")
     _add_table_write_flags(ow, partial_write=True)
     ow.set_defaults(func=_cmd_ownership)
 

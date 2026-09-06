@@ -92,6 +92,70 @@ def test_register_coverage_refusal_does_not_abort(replacing_config):
     assert "refusing to drop" in result["error_items"][0]["error"]
 
 
+def test_eu_financials_table_refusal_is_one_issuer_and_tagged_local(
+        replacing_config, monkeypatch):
+    """The per-issuer ESEF table write, refused: the issuer is recorded
+    ``source-error`` and the run goes on -- and the error item is tagged
+    ``storage``, the LOCAL refusal tag, not ``esef``. The aggregator answered
+    perfectly here; it was the corpus that refused its own write, and the trail
+    (and the run report behind it) must not read as "filings.xbrl.org failed".
+    """
+    from company_corpus.eu import financials as fin
+
+    from .test_eu_financials import FakeFetcher, _report
+
+    _seed_table(replacing_config.financials_eu_dir / f"{LEI}.jsonl",
+                [{"source": "esef", "period_end": "2019-12-31", "frequency": "annual",
+                  "basis": None, "concept": "revenue", "value": 1},
+                 {"source": "esef", "period_end": "2018-12-31", "frequency": "annual",
+                  "basis": None, "concept": "revenue", "value": 2}])
+    monkeypatch.setattr(fin, "resolve_entities",
+                        lambda specs, **kw: [Entity(lei=LEI, name="X", country="FR")])
+    filings = [{"fxo_id": "1", "country": "FR", "period_end": "2020-12-31",
+                "date_added": "2021-05-01 00:00:00", "json_url": "/r/2020.json",
+                "package_url": "/r/2020.zip", "report_url": "/r/2020.html"}]
+
+    out = fin.build_eu_financials(
+        [{"lei": LEI}], fetcher=FakeFetcher(filings, {"/r/2020.json": _report(100)}),
+        config=replacing_config, write=True)
+
+    assert out["entities"] == 1 and out["with_financials"] == 0
+    assert out["paths"] == [], "nothing landed for this issuer"
+    item = next(i for i in out["error_items"] if "refusing to drop" in str(i["error"]))
+    assert item["source"] == "storage" and item["entity_id"] == LEI
+    cov = [c for c in _read_coverage(replacing_config) if c["lei"] == LEI]
+    assert cov and cov[0]["status"] == "source-error"
+
+
+def _read_coverage(config) -> list[dict]:
+    path = config.reports_dir / "eu_financials_coverage.jsonl"
+    return [json.loads(x) for x in path.read_text().splitlines() if x]
+
+
+def test_eu_financials_coverage_refusal_is_tagged_local(replacing_config, monkeypatch):
+    """Same for the run's last write: the refused coverage file is the corpus's
+    own refusal, tagged ``storage`` like every register's."""
+    from company_corpus.eu import financials as fin
+
+    _seed_table(replacing_config.reports_dir / "eu_financials_coverage.jsonl",
+                [{"lei": LEI, "status": "ok"}, {"lei": "OTHER", "status": "ok"}])
+    monkeypatch.setattr(fin, "resolve_entities",
+                        lambda specs, **kw: [Entity(lei=LEI, name="X", country="FI")])
+
+    class _Dead:
+        def get_json(self, url, **_):
+            raise RuntimeError("aggregator down")
+
+    out = fin.build_eu_financials([{"lei": LEI}], fetcher=_Dead(),
+                                  config=replacing_config, write=True)
+
+    refusals = [i for i in out["error_items"] if "refusing to drop" in str(i["error"])]
+    assert refusals and all(i["source"] == "storage" for i in refusals)
+    dead = [i for i in out["error_items"] if "aggregator down" in str(i["error"])]
+    assert dead and all(i["source"] == "esef" for i in dead), (
+        "a dead aggregator is still the aggregator's failure")
+
+
 def test_eu_financials_coverage_refusal_does_not_abort(replacing_config, monkeypatch):
     from company_corpus.eu import financials as fin
 

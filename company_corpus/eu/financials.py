@@ -34,6 +34,25 @@ def _record_error(errors: "list[dict] | None", lei: "str | None", message: str) 
     })
 
 
+def _record_refusal(errors: "list[dict] | None", lei: "str | None", message: str) -> None:
+    """Record a write the corpus itself refused (the no-shrink guard).
+
+    Tagged ``source: "storage"`` — the tag the register producers already use
+    (:func:`company_corpus.registers._common._record_shrink_refusal`) and the
+    one :data:`company_corpus.source_codes.LOCAL_SOURCES` holds. Tagging it
+    ``esef`` and logging "esef: source error" said the aggregator failed about a
+    file the aggregator was never asked for: the refusal is ours, and the error
+    trail must not read as a dead source.
+    """
+    log.error("refused write for %s: %s", lei, message)
+    if errors is None:
+        return
+    errors.append({
+        "entity_id": lei, "source": "storage", "error": message,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
+
+
 def facts_for_entity(
     entity: Entity, *, fetcher, errors: "list[dict] | None" = None,
 ) -> dict[str, list[dict]]:
@@ -214,7 +233,7 @@ def build_eu_financials(specs, *, fetcher, config: Config, write: bool = True, u
                 # as the F1 IdentityCollisionError in ``pipeline.run``).
                 coverage.append({"lei": ent.lei, "name": ent.name,
                                  "status": "source-error", "error": str(exc)})
-                _record_error(error_items, ent.lei, str(exc))
+                _record_refusal(error_items, ent.lei, str(exc))
                 continue
         out["periods"] += len(summaries)
         out["with_financials"] += 1
@@ -237,6 +256,6 @@ def build_eu_financials(specs, *, fetcher, config: Config, write: bool = True, u
             # The last write of the run: an uncaught refusal here threw away the
             # whole run's summary, tables included, as a traceback. Reported as
             # an error item; ``coverage_path`` stays None because nothing landed.
-            _record_error(error_items, None, str(exc))
+            _record_refusal(error_items, None, str(exc))
     out["errors"] = len(error_items)
     return out

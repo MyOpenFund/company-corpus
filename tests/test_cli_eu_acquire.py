@@ -307,3 +307,89 @@ def test_eu_acquire_without_replace_still_merges(monkeypatch, tmp_path):
     captured = _install(monkeypatch, tmp_path)
     cli.main(["eu-acquire", "--leis", "5493001KJTIIGC8Y1R12", "--write", "--no-download"])
     assert captured["config"].replace_tables is False
+
+
+# ---- local refusals: the tool's own, never a backend's ----------------------
+_REFUSAL = ("refusing to drop 1 of 2 rows from eu_coverage.jsonl "
+            "(pass --allow-shrink to confirm)")
+
+
+def test_eu_acquire_local_refusal_is_reported_not_a_crash(monkeypatch, tmp_path):
+    """A refused coverage write is the corpus's own refusal, not a backend's.
+
+    `acquire()` tags it `source: "storage"`, which is no authority: feeding it
+    to a per-backend report row raised `KeyError: 'storage'` and turned a
+    contained refusal into a fatal run. It is counted as a failure of the run
+    with no source row -- nothing landed here, so the run is degraded.
+    """
+    err = {"source": "storage", "context": "coverage", "error": _REFUSAL}
+    out = _fake_out(documents=0, errors=[err],
+                    sources={"oam-fr": {"entities": 1, "documents": 0, "errors": 0}})
+    _install(monkeypatch, tmp_path, out=out)
+    rc = cli.main(["--data-dir", str(tmp_path), "eu-acquire", "--leis", "L1", "--write"])
+    rep = _report(tmp_path)
+    assert rc == 3 and rep["outcome"] == "degraded"
+    assert "fatal" not in rep
+    assert [s["source_code"] for s in rep["sources"]] == ["amf"]
+    assert rep["local_refusals"]["count"] == 1
+    assert "refusing to drop" in rep["local_refusals"]["samples"][0]
+    assert rep["totals"]["docs_failed"] == 1
+
+
+def test_eu_acquire_local_refusal_next_to_acquired_documents_is_ok(monkeypatch, tmp_path):
+    """The same refusal beside real work: the documents landed, so the run is
+    `ok` under the zero-useful-work rule -- and the refusal is still on record."""
+    err = {"source": "storage", "context": "coverage", "error": _REFUSAL}
+    out = _fake_out(documents=2, errors=[err],
+                    sources={"oam-fr": {"entities": 1, "documents": 2, "errors": 0}})
+    _install(monkeypatch, tmp_path, out=out)
+    rc = cli.main(["--data-dir", str(tmp_path), "eu-acquire", "--leis", "L1", "--write"])
+    rep = _report(tmp_path)
+    assert rc == 0 and rep["outcome"] == "ok"
+    assert rep["local_refusals"]["count"] == 1
+    assert [s["source_code"] for s in rep["sources"]] == ["amf"]
+
+
+def test_eu_acquire_replace_refusal_end_to_end_does_not_crash(monkeypatch, tmp_path):
+    """The reviewer's repro, through the REAL orchestrator: a coverage file the
+    run would shrink, `--replace` without `--allow-shrink`. The guard refuses,
+    the discovery this run did is still reported, and the CLI exits on the
+    doctrine -- not on a traceback."""
+    from datetime import date
+
+    from company_corpus.eu import acquire as acq
+    from company_corpus.eu.documents import Document
+    from company_corpus.eu.entities import Entity
+
+    lei = "5493001KJTIIGC8Y1R12"
+    cov = tmp_path / "reports" / "eu_coverage.jsonl"
+    cov.parent.mkdir(parents=True, exist_ok=True)
+    cov.write_text(json.dumps({"lei": lei, "gap": None}) + "\n"
+                   + json.dumps({"lei": "OTHER", "gap": None}) + "\n", encoding="utf-8")
+
+    class _Backend:
+        name = "oam-de"
+
+        def __init__(self, *a, **k):
+            self.errors = []
+
+        def discover(self, e):
+            return [Document("de-1", lei, "DE", "annual_report", date(2023, 12, 31),
+                             None, "x", "de", "oam-de",
+                             [{"name": "r", "sha256": "h"}], {})]
+
+    monkeypatch.setattr(acq, "resolve_entities",
+                        lambda specs, *, fetcher: [Entity(lei, "X", "DE", resolution="lei")])
+    monkeypatch.setattr(acq, "COUNTRY_BACKENDS", {"DE": _Backend})
+    monkeypatch.setattr(acq, "FilingsXbrlOrg", _Backend)
+    monkeypatch.setattr(cli, "Fetcher", lambda cfg: object())
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(tmp_path))
+
+    rc = cli.main(["--data-dir", str(tmp_path), "eu-acquire", "--leis", lei,
+                   "--write", "--no-download", "--replace"])
+    rep = _report(tmp_path)
+    assert rc == 0 and rep["outcome"] == "ok", "the discovery landed"
+    assert "fatal" not in rep
+    assert rep["local_refusals"]["count"] == 1
+    assert "refusing to drop" in rep["local_refusals"]["samples"][0]
+    assert "storage" not in [s["source_code"] for s in rep["sources"]]
