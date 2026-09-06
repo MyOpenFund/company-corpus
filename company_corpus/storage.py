@@ -19,9 +19,10 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from .config import Config, normalize_cik
+from .config import Config, normalize_cik, normalize_lei
 from .extract import clean_text
 from .models import FilingRecord
+from .paths import safe_component
 from .submission import filename_from_url, parse_submission, select_primary
 
 
@@ -589,7 +590,13 @@ class Storage:
         narrowed by ``--years`` / ``--ciks`` / ``--limit`` -- or one that lost a
         register call to a transient 5xx -- updates the periods it saw and leaves
         the rest of the issuer's history where it was (DI-C3, Rob-C8).
+
+        ``ident`` reaches here from a spec file or a register payload, so it is
+        checked here rather than trusted: ``write_register_financials_table(
+        "../../x")`` used to create a table two levels above ``data/`` (Rob-C7 /
+        DI-M4). One choke point, so no writer added later can skip it.
         """
+        ident = safe_component(ident, max_length=self.config.max_path_component_length)
         path = self._write_table(subdir / f"{ident}.jsonl", rows,
                                  key=group_key(FINANCIALS_GROUP_KEY))
         return self._rel(path)
@@ -601,9 +608,16 @@ class Storage:
         )
 
     def write_eu_financials_table(self, lei: str, rows: Iterable[dict]) -> str:
-        """Write the normalized EU IFRS facts table data/financials_eu/<lei>.jsonl."""
+        """Write the normalized EU IFRS facts table data/financials_eu/<LEI>.jsonl.
+
+        The LEI is normalised the way the SEC writer normalises its CIK: this
+        writer used to pass the caller's raw LEI straight through, so a
+        lower-case LEI in a spec file opened a second file for an issuer that
+        already had one (DI-I7). :func:`~company_corpus.config.normalize_lei`
+        raises ``ValueError`` on anything that is not a 20-character LEI.
+        """
         return self._write_financials_table(
-            lei, rows, subdir=self.config.financials_eu_dir
+            normalize_lei(lei), rows, subdir=self.config.financials_eu_dir
         )
 
     def write_register_financials_table(self, entity_id: str, rows: Iterable[dict]) -> str:

@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
 from datetime import datetime, timezone
 
-from ..config import Config
+from ..config import Config, normalize_lei
 from ..financials import attach_ttm_from_flat, make_row_base, rows_from_base, summaries_from_flat
 from ..storage import Storage
 from ..xbrl import IFRS_CONCEPTS, IFRS_CONCEPTS_BY_KEY, flatten_oim_json
@@ -163,6 +164,18 @@ def build_eu_financials(specs, *, fetcher, config: Config, write: bool = True, u
             # resolve_entities yields one Entity per spec, in order; the fallback
             # only guards a resolver stub that returns a different shape.
             unresolved_specs.append(specs[i] if i < len(specs) else {"name": ent.name})
+            continue
+        try:
+            # One canonical spelling per issuer, adopted here so the whole body
+            # below -- the raw/manifest lookups, the rows, the table filename and
+            # the coverage row -- agrees on it, and so a malformed LEI costs this
+            # issuer and not the run: the writer raises on it and nothing used to
+            # catch that (DI-I7).
+            ent = replace(ent, lei=normalize_lei(ent.lei))
+        except ValueError as exc:
+            coverage.append({"lei": ent.lei, "name": ent.name,
+                             "status": "invalid-identifier", "error": str(exc)})
+            _record_error(error_items, ent.lei, str(exc))
             continue
         n_errors_before = len(error_items)
         flat = facts_for_entity(ent, fetcher=fetcher, errors=error_items)

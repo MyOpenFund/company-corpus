@@ -35,7 +35,7 @@ def test_facts_for_entity_unions_filings():
                 "date_added": "2021-05-01 00:00:00",
                 "json_url": "/r/2020.json", "package_url": "/r/2020.zip", "report_url": "/r/2020.html"}]
     fetcher = FakeFetcher(filings, {"/r/2020.json": _report(100)})
-    ent = Entity(lei="LEI123", name="X", country="FR")
+    ent = Entity(lei="529900T8BM49AURSKB52", name="X", country="FR")
     flat = facts_for_entity(ent, fetcher=fetcher)
     assert "Revenue" in flat
     assert flat["Revenue"][0]["val"] == 100
@@ -49,17 +49,17 @@ def test_build_eu_financials_writes_unified_rows(tmp_path, monkeypatch):
     fetcher = FakeFetcher(filings, {"/r/2020.json": _report(100)})
     # resolve_entities hits GLEIF; stub it to a fixed entity for this unit test.
     monkeypatch.setattr("company_corpus.eu.financials.resolve_entities",
-                        lambda specs, **kw: [Entity(lei="LEI123", name="X", country="FR")])
+                        lambda specs, **kw: [Entity(lei="529900T8BM49AURSKB52", name="X", country="FR")])
     cfg = Config(data_dir=tmp_path)
-    rep = build_eu_financials([{"lei": "LEI123"}], fetcher=fetcher, config=cfg, write=True)
+    rep = build_eu_financials([{"lei": "529900T8BM49AURSKB52"}], fetcher=fetcher, config=cfg, write=True)
     assert rep["entities"] == 1 and rep["with_financials"] == 1 and rep["periods"] == 1
-    out = (tmp_path / "financials_eu" / "LEI123.jsonl").read_text().splitlines()
+    out = (tmp_path / "financials_eu" / "529900T8BM49AURSKB52.jsonl").read_text().splitlines()
     rows = [json.loads(x) for x in out]
     rev = next(r for r in rows if r["kind"] == "reported" and r["concept"] == "revenue")
-    assert rev["value"] == 100 and rev["lei"] == "LEI123" and rev["currency"] == "EUR"
+    assert rev["value"] == 100 and rev["lei"] == "529900T8BM49AURSKB52" and rev["currency"] == "EUR"
     # Canonical RowBase (ARCH-C1): EU issuer id is the LEI (entity_id, id_scheme
     # "lei"), country from GLEIF, source "esef", form = the ESEF doc_type.
-    assert rev["entity_id"] == "LEI123" and rev["id_scheme"] == "lei"
+    assert rev["entity_id"] == "529900T8BM49AURSKB52" and rev["id_scheme"] == "lei"
     assert rev["country"] == "FR" and rev["source"] == "esef"
     assert rev["form"] == "annual_report" and rev["is_financial"] is None
     assert rev["publication_date"] == "2021-05-01"
@@ -81,13 +81,13 @@ def test_build_eu_financials_no_lei_records_coverage(tmp_path, monkeypatch):
 def test_build_eu_financials_no_filings_records_coverage(tmp_path, monkeypatch):
     # An entity with a LEI but no indexed filings -> no-financials, still recorded.
     monkeypatch.setattr("company_corpus.eu.financials.resolve_entities",
-                        lambda specs, **kw: [Entity(lei="LEI999", name="NoFilings", country="FR")])
+                        lambda specs, **kw: [Entity(lei="9845006BFDJF0375E466", name="NoFilings", country="FR")])
     cfg = Config(data_dir=tmp_path)
-    rep = build_eu_financials([{"lei": "LEI999"}], fetcher=FakeFetcher([], {}), config=cfg)
+    rep = build_eu_financials([{"lei": "9845006BFDJF0375E466"}], fetcher=FakeFetcher([], {}), config=cfg)
     assert rep["entities"] == 1 and rep["no_financials"] == 1 and rep["with_financials"] == 0
     cov = [json.loads(x) for x in
            (tmp_path / "reports" / "eu_financials_coverage.jsonl").read_text().splitlines()]
-    assert cov[0]["status"] == "no-financials" and cov[0]["lei"] == "LEI999"
+    assert cov[0]["status"] == "no-financials" and cov[0]["lei"] == "9845006BFDJF0375E466"
 
 
 def test_real_esef_fsecure_end_to_end(tmp_path, monkeypatch):
@@ -152,13 +152,13 @@ def test_real_esef_fsecure_end_to_end(tmp_path, monkeypatch):
 
 def test_build_eu_financials_dry_run_writes_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr("company_corpus.eu.financials.resolve_entities",
-                        lambda specs, **kw: [Entity(lei="LEI123", name="X", country="FR")])
+                        lambda specs, **kw: [Entity(lei="529900T8BM49AURSKB52", name="X", country="FR")])
     filings = [{"fxo_id": "1", "country": "FR", "period_end": "2020-12-31",
                 "date_added": "2021-05-01 00:00:00",
                 "json_url": "/r/2020.json", "package_url": "/r/2020.zip", "report_url": "/r/2020.html"}]
     fetcher = FakeFetcher(filings, {"/r/2020.json": _report(100)})
     cfg = Config(data_dir=tmp_path)
-    rep = build_eu_financials([{"lei": "LEI123"}], fetcher=fetcher, config=cfg, write=False)
+    rep = build_eu_financials([{"lei": "529900T8BM49AURSKB52"}], fetcher=fetcher, config=cfg, write=False)
     assert rep["with_financials"] == 1 and rep["coverage_path"] is None
     assert not (tmp_path / "financials_eu").exists()
     assert not (tmp_path / "reports").exists()

@@ -129,3 +129,87 @@ def test_index_only_file_recorded_without_download(tmp_path):
     assert "sha256" not in f and "path" not in f, "index-only file is not downloaded"
     # No artifact written.
     assert not (cfg.raw_dir / "L7" / "MAR" / "2023" / "de-fail-1" / "de-fail-1.html").exists()
+
+
+# ---------------------------------------------------------------------------
+# Task 7 — a hostile name from an OAM must cost a pretty filename, not the
+# corpus (Rob-C7 / DI-M4).
+# ---------------------------------------------------------------------------
+
+def _doc(files, *, lei="529900T8BM49AURSKB52", doc_id="hostile-1"):
+    return Document(doc_id=doc_id, lei=lei, country="DE", doc_type="annual_report",
+                    period_end=date(2023, 12, 31), published_ts="2024-03-01",
+                    discovered_ts="x", language="de", source="oam-de",
+                    files=files, native_meta={})
+
+
+def test_traversing_filename_stays_inside_the_document_directory(tmp_path):
+    cfg = Config(data_dir=tmp_path / "data", contact="t@e.com")
+    doc = _doc([{"name": "../../../pwn.bin", "url": "http://x/a", "kind": "package_url"}])
+    man = download_document(doc, fetcher=_DLFetcher(), config=cfg)
+    base = cfg.raw_dir / "529900T8BM49AURSKB52" / "ESEF-AR" / "2023" / "hostile-1"
+    f = man["files"][0]
+    assert "error" not in f, "a hostile name must not cost us the document"
+    assert f["name"].endswith(".bin") and "/" not in f["name"]
+    assert (base / f["name"]).exists()
+    # Nothing anywhere above the document directory.
+    assert not (tmp_path / "pwn.bin").exists()
+    assert not (cfg.raw_dir / "pwn.bin").exists()
+    assert not (cfg.data_dir / "pwn.bin").exists()
+    # The recorded path is relative to data_dir and points at the real file.
+    assert not Path(f["path"]).is_absolute()
+    assert (cfg.data_dir / f["path"]).exists()
+
+
+def test_absolute_filename_cannot_write_outside_the_corpus(tmp_path):
+    cfg = Config(data_dir=tmp_path / "data", contact="t@e.com")
+    outside = tmp_path / "outside.bin"
+    doc = _doc([{"name": str(outside), "url": "http://x/a", "kind": "package_url"}])
+    man = download_document(doc, fetcher=_DLFetcher(), config=cfg)
+    assert not outside.exists()
+    assert (cfg.data_dir / man["files"][0]["path"]).exists()
+
+
+def test_a_hostile_name_maps_to_the_same_file_on_a_re_run(tmp_path):
+    """The fallback is a hash of the URL, so a second run is idempotent rather
+    than downloading a second copy under a new name."""
+    cfg = Config(data_dir=tmp_path / "data", contact="t@e.com")
+    files = [{"name": "../../../pwn.bin", "url": "http://x/a", "kind": "package_url"}]
+    first = download_document(_doc(files), fetcher=_DLFetcher(), config=cfg)
+    second = download_document(_doc(files), fetcher=_DLFetcher(), config=cfg)
+    assert first["files"][0]["name"] == second["files"][0]["name"]
+    base = cfg.raw_dir / "529900T8BM49AURSKB52" / "ESEF-AR" / "2023" / "hostile-1"
+    assert len(list(base.iterdir())) == 1
+
+
+def test_a_hostile_lei_or_doc_id_stays_under_the_raw_directory(tmp_path):
+    cfg = Config(data_dir=tmp_path / "data", contact="t@e.com")
+    doc = _doc([{"name": "r.zip", "url": "http://x/a", "kind": "package_url"}],
+               lei="../../..", doc_id="../../pwn")
+    man = download_document(doc, fetcher=_DLFetcher(), config=cfg)
+    written = [p for p in cfg.raw_dir.rglob("r.zip")]
+    assert len(written) == 1
+    assert cfg.raw_dir in written[0].parents
+    assert not Path(man["files"][0]["path"]).is_absolute()
+    # The manifest body and the manifest's own path agree, so acquire's
+    # _discard_download can still find it: both are the sanitised components.
+    written_manifests = list(cfg.data_dir.glob("manifest/*/*.json"))
+    assert len(written_manifests) == 1
+    assert (cfg.data_dir / "manifest" / man["lei"] / f"{man['doc_id']}.json"
+            == written_manifests[0])
+
+
+def test_a_path_outside_data_dir_is_a_recorded_error_not_a_traceback(tmp_path, monkeypatch):
+    """``relative_to`` lives inside the try: it used to raise an uncaught
+    ValueError that aborted the whole acquire run instead of costing one file."""
+    cfg = Config(data_dir=tmp_path / "data", contact="t@e.com")
+
+    def _boom(self, *a, **kw):
+        raise ValueError("is not in the subpath of")
+
+    monkeypatch.setattr(Path, "relative_to", _boom)
+    doc = _doc([{"name": "r.zip", "url": "http://x/a", "kind": "package_url"}])
+    man = download_document(doc, fetcher=_DLFetcher(), config=cfg)
+    f = man["files"][0]
+    assert "is not in the subpath of" in f["error"]
+    assert "path" not in f and "sha256" not in f

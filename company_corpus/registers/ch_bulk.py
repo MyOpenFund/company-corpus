@@ -8,18 +8,25 @@ Filename format inside the zip::
     Prod223_4212_<NUMBER>_<YYYYMMDD>.html
 
 The third underscore-delimited field is the Companies House number; it is
-normalised via :func:`~company_corpus.registers.identity._norm_ch_number`
-(zero-pad to 8 if all-digits, uppercase, strip whitespace).
+VALIDATED via :func:`~company_corpus.registers.identity._norm_ch_number`
+(zero-pad to 8 if all-digits, uppercase, strip whitespace, then the 8-character
+shape Companies House publishes). A member whose field is not a usable number is
+skipped with a warning rather than yielded: the normaliser now returns ``None``
+instead of a repaired guess, and a ``None`` would have travelled all the way to
+``financials_register/None.jsonl`` (DI-I4 / DI-M4).
 
 Inner ``.zip`` entries (CIC filings, ~0.04% of the bulk) are skipped; they
 would need a second-level extraction pass that is out of scope here.
 """
 from __future__ import annotations
 
+import logging
 import zipfile
 from typing import Iterator
 
 from company_corpus.registers.identity import _norm_ch_number
+
+log = logging.getLogger(__name__)
 
 
 def iter_ch_bulk(
@@ -53,6 +60,10 @@ def iter_ch_bulk(
             if len(parts) < 4:
                 continue
             ch_number = _norm_ch_number(parts[2])
+            if ch_number is None:
+                log.warning("ch bulk: skipping %s -- %r is not a usable "
+                            "Companies House number", basename, parts[2])
+                continue
 
             html_bytes = zf.read(name)
             yield ch_number, html_bytes

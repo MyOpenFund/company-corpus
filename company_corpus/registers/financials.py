@@ -10,6 +10,7 @@ updating coverage/counter state, so the storage + coverage logic is only written
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import tempfile
@@ -44,7 +45,7 @@ from .concepts_sk import map_sk_vykaz as _map_sk_vykaz
 from .concepts_uk import map_ch_facts
 from .ee_csv import download_ee_bulk as _download_ee_bulk, iter_ee_reports as _iter_ee_reports
 from .fi_prh_xbrl import parse_fi_facts
-from .identity import resolve_register_specs
+from .identity import _norm_ico, _norm_rcs, resolve_register_specs
 from .lu_cdb import iter_lu_declarers
 from .no_brreg import fetch_brreg_accounts
 from .prh_api import fetch_fi_financial, list_fi_dates
@@ -54,6 +55,8 @@ from .sk_registeruz import (
     fetch_vykaz as _sk_fetch_vykaz,
     fetch_zavierka as _sk_fetch_zavierka,
 )
+
+log = logging.getLogger(__name__)
 
 # Y-tunnus pattern: NNNNNNN-N (7 digits, hyphen, 1 check digit)
 _YTUNNUS_RE = re.compile(r"(\d{7}-\d)")
@@ -379,7 +382,18 @@ def build_lu_financials_from_files(
 
         for declarer in declarers:
             out["entities"] += 1
-            entity_id = declarer["rcs"]
+            raw_rcs = declarer["rcs"]
+            # The declarer's <RcsNumber> reached the writer unvalidated: the
+            # spec-file path ran through _norm_rcs but this one did not, so a
+            # bulk file's prose or "../.." RCS became a table filename (DI-I4).
+            entity_id = _norm_rcs(raw_rcs)
+            if entity_id is None:
+                coverage.append({"rcs": raw_rcs, "lei": None,
+                                 "status": "invalid-identifier",
+                                 "error": f"not a usable rcs: {raw_rcs!r}"})
+                out["errors"] += 1
+                log.warning("lbr: refusing a declarer with an unusable RCS: %r", raw_rcs)
+                continue
             cov_base: dict = {"rcs": entity_id, "lei": None}
 
             try:
@@ -1321,7 +1335,17 @@ def build_sk_financials(
             break
         n_entities += 1
         out["entities"] += 1
-        cov_base: dict = {"entity_id": entity_id, "ico": None, "lei": None}
+        # Before the entity record is fetched we only have the registeruz id, so
+        # a pre-resolution coverage row used to key on ``entity_id`` while every
+        # post-resolution row keys on ``ico`` -- one entity, two rows in the
+        # merged coverage file, and neither one replaceable by the other
+        # (Task 6 review). When the caller passed something that IS a syntactic
+        # IČO (``--sk-id 31322832``, which operators do), key on it from the
+        # start so the two runs agree. registeruz's own ids are ~7 digits, so
+        # this does not silently relabel a real internal id.
+        pre_ico = _norm_ico(entity_id)
+        cov_base: dict = ({"ico": pre_ico, "lei": None} if pre_ico else
+                          {"entity_id": entity_id, "ico": None, "lei": None})
 
         ico = None
         try:

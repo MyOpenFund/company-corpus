@@ -13,15 +13,18 @@ import logging
 import re
 from datetime import date, datetime, timezone
 
-from ..config import Config
+from ..config import LEI_RE, Config
 from ..financials import PeriodSummary, make_row_base, rows_from_base, stamp_leverage_basis
+from ..paths import UnsafeIdentifier, safe_component
 from ..storage import Storage
 
 log = logging.getLogger(__name__)
 
 # ISO-17442 LEI: exactly 20 upper-case alphanumerics. Used on the DK path to
 # populate the `lei` column when the entity_id is itself a LEI (ESEF filers).
-_LEI_RE = re.compile(r"[A-Z0-9]{20}\Z")
+# One rule in the tree: this module carried its own copy of the pattern while
+# the EU writer had another, so "is this a LEI?" could be answered two ways.
+_LEI_RE = LEI_RE
 
 
 def _lei_or_none(entity_id: str) -> "str | None":
@@ -128,6 +131,20 @@ def _emit_entity_rows(
     if not rows:
         coverage.append({**cov_base, "status": "no-financials"})
         out["no_financials"] += 1
+        return
+    # An entity_id that cannot be a path component (a filename stem, a register
+    # field carrying prose or "../..") is a visible skip for that entity, never
+    # an aborted batch (Rob-C7 / DI-M4). Checked BEFORE the counters and
+    # independently of ``write``, so a dry-run reports the same refusal a real
+    # run would; :meth:`Storage.write_register_financials_table` re-checks it as
+    # the last line of defence.
+    try:
+        safe_component(entity_id,
+                       max_length=storage.config.max_path_component_length)
+    except UnsafeIdentifier as exc:
+        coverage.append({**cov_base, "status": "invalid-identifier", "error": str(exc)})
+        out["errors"] += 1
+        log.warning("refusing to write a table for an unusable identifier: %s", exc)
         return
     out["periods"] += n_periods
     out["with_financials"] += 1

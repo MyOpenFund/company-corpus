@@ -18,9 +18,9 @@ def _write_manifest(cfg, lei, doc_id, files):
 def test_arelle_facts_for_entity_discovers_esef_and_unions(tmp_path, monkeypatch):
     cfg = Config(data_dir=tmp_path)
     # one ESEF file + one non-ESEF (must be ignored)
-    _write_manifest(cfg, "LEI1", "d1", [
-        {"name": "r.zip", "kind": "esef", "path": "raw/LEI1/ESEF-AR/2024/d1/r.zip"},
-        {"name": "r.pdf", "kind": "document", "path": "raw/LEI1/ESEF-AR/2024/d1/r.pdf"}])
+    _write_manifest(cfg, "5493001KJTIIGC8Y1R12", "d1", [
+        {"name": "r.zip", "kind": "esef", "path": "raw/5493001KJTIIGC8Y1R12/ESEF-AR/2024/d1/r.zip"},
+        {"name": "r.pdf", "kind": "document", "path": "raw/5493001KJTIIGC8Y1R12/ESEF-AR/2024/d1/r.pdf"}])
     seen = {}
     def fake_bridge(zip_path, **kw):
         seen["zip"] = zip_path
@@ -28,8 +28,8 @@ def test_arelle_facts_for_entity_discovers_esef_and_unions(tmp_path, monkeypatch
             "concept": "ifrs-full:Revenue", "entity": "x", "unit": "iso4217:EUR",
             "period": "2024-01-01T00:00:00/2025-01-01T00:00:00"}}}}
     monkeypatch.setattr(eufin, "oim_from_esef_zip", fake_bridge)
-    flat = eufin.arelle_facts_for_entity(Entity(lei="LEI1", name="X", country="IT"), config=cfg)
-    assert seen["zip"].endswith("raw/LEI1/ESEF-AR/2024/d1/r.zip")    # only the esef file
+    flat = eufin.arelle_facts_for_entity(Entity(lei="5493001KJTIIGC8Y1R12", name="X", country="IT"), config=cfg)
+    assert seen["zip"].endswith("raw/5493001KJTIIGC8Y1R12/ESEF-AR/2024/d1/r.zip")    # only the esef file
     assert flat["Revenue"][0]["val"] == 100
     assert flat["Revenue"][0]["filed"] == "2025-04-01"               # published_ts truncated [:10]
 
@@ -37,16 +37,16 @@ def test_arelle_facts_for_entity_discovers_esef_and_unions(tmp_path, monkeypatch
 def test_build_eu_financials_use_arelle_fills_the_gap(tmp_path, monkeypatch):
     from company_corpus.eu.financials import build_eu_financials
     monkeypatch.setattr("company_corpus.eu.financials.resolve_entities",
-                        lambda specs, **kw: [Entity(lei="LEI1", name="X", country="IT")])
+                        lambda specs, **kw: [Entity(lei="5493001KJTIIGC8Y1R12", name="X", country="IT")])
     monkeypatch.setattr("company_corpus.eu.financials.facts_for_entity", lambda e, **kw: {})  # Tier A empty
     pt = {"val": 100, "end": "2024-12-31", "start": "2024-01-01", "unit": "EUR",
           "tag": "Revenue", "label": "Revenue", "filed": "2025-04-01", "form": "annual_report", "accn": "d1"}
     monkeypatch.setattr("company_corpus.eu.financials.arelle_facts_for_entity",
                         lambda e, **kw: {"Revenue": [pt]})
     cfg = Config(data_dir=tmp_path)
-    rep = build_eu_financials([{"lei": "LEI1"}], fetcher=None, config=cfg, write=True, use_arelle=True)
+    rep = build_eu_financials([{"lei": "5493001KJTIIGC8Y1R12"}], fetcher=None, config=cfg, write=True, use_arelle=True)
     assert rep["with_financials"] == 1
-    rows = [json.loads(x) for x in (tmp_path / "financials_eu" / "LEI1.jsonl").read_text().splitlines()]
+    rows = [json.loads(x) for x in (tmp_path / "financials_eu" / "5493001KJTIIGC8Y1R12.jsonl").read_text().splitlines()]
     assert any(r["kind"] == "reported" and r["concept"] == "revenue" and r["value"] == 100 for r in rows)
 
 
