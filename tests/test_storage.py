@@ -168,3 +168,25 @@ def test_the_shrink_guard_tolerates_the_configured_fraction(config):
     lenient.write_financials_table("320193", [_fin_row("2020-12-31", "assets", 2)])
     path = config.financials_dir / "0000320193.jsonl"
     assert len(path.read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_a_non_sticky_field_is_still_clearable(config):
+    """Stickiness covers the artefact pointers and NOTHING else (DI-C1, T1).
+
+    The carry-forward exists because a fresh discovery record has empty
+    pointers and must not orphan the bytes on disk. Applied to every field it
+    would be the opposite bug: a source that corrects a value to blank -- an
+    EDGAR period_of_report withdrawn, a title that turns out to be empty --
+    could never be recorded, and the manifest would keep a value its source no
+    longer asserts.
+    """
+    st = Storage(config)
+    st.save_records([_rec(period_of_report=date(2024, 9, 28), company="Old Name",
+                          local_path="raw/a.txt", sha256="abc")], dry_run=False)
+
+    st.save_records([_rec(period_of_report=None, company="")], dry_run=False)
+
+    kept = next(iter(st.load_manifest("320193").values()))
+    assert kept.period_of_report is None and kept.company == ""
+    assert (kept.local_path, kept.sha256) == ("raw/a.txt", "abc"), \
+        "the pointers, and only the pointers, survive"

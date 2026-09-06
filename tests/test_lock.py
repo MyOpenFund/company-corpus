@@ -168,3 +168,27 @@ def test_lock_is_released_when_the_block_raises(config):
             raise ValueError("boom")
     with corpus_lock(cfg, purpose="b"):
         pass
+
+
+def test_eacces_is_not_contention_either(config, monkeypatch):
+    """``flock`` never returns EACCES; ``lockf`` does. Waiting it out is wrong.
+
+    EACCES sat in the contended set as a "harmless superset". It is not
+    harmless: if anything ever hands this call an EACCES -- a future switch to
+    ``lockf``, a filesystem that maps a permission refusal onto it -- the run
+    would poll for ``lock_wait_seconds`` and then blame a holder that does not
+    exist, instead of saying the corpus cannot be locked.
+    """
+    def refuse(fd, operation):
+        raise OSError(errno.EACCES, "Permission denied")
+
+    monkeypatch.setattr("company_corpus.lock.fcntl.flock", refuse)
+    cfg = Config(data_dir=config.data_dir, lock_wait_seconds=1.0)
+    started = time.monotonic()
+    with pytest.raises(OSError) as excinfo:
+        with corpus_lock(cfg, purpose="discover"):
+            pass
+    assert not isinstance(excinfo.value, CorpusLocked)
+    assert excinfo.value.errno == errno.EACCES
+    assert "cannot take the corpus lock" in str(excinfo.value)
+    assert time.monotonic() - started < 0.5, "it waited for a lock it can never take"

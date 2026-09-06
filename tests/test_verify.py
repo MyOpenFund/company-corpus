@@ -401,11 +401,26 @@ def test_an_eu_file_hash_mismatch_needs_the_hash_flag(corpus):
 
 
 def test_a_corrupt_eu_manifest_is_reported_not_a_crash(corpus):
+    """An EU manifest is a FILE, so its kind is ``unreadable-file``.
+
+    It was reported as ``unreadable-row``, the kind that means "one bad line in
+    a JSONL file, the rest of the file is fine". An EU manifest is one JSON
+    document per file: when it does not parse, the whole document is gone --
+    which is a different remedy (re-acquire it) and a different blast radius.
+    """
     mpath = next((corpus.data_dir / "manifest").glob("*/*.json"))
     mpath.write_text("{not json")
 
     findings = verify(corpus)
-    assert "unreadable-row" in _kinds(findings)
+    assert "unreadable-file" in _kinds(findings)
+    assert "unreadable-row" not in _kinds(findings)
+
+
+def test_an_eu_manifest_that_is_not_an_object_is_an_unreadable_file(corpus):
+    mpath = next((corpus.data_dir / "manifest").glob("*/*.json"))
+    mpath.write_text("[1, 2, 3]")
+
+    assert "unreadable-file" in _kinds(verify(corpus))
 
 
 # ---------------------------------------------------------------------------
@@ -527,3 +542,32 @@ def test_unreadable_manifest_file_is_a_finding_not_a_crash(corpus):
     finally:
         os.chmod(path, 0o644)
     assert _kinds(findings) == ["unreadable-file"]
+
+
+# ---------------------------------------------------------------------------
+# leftovers of an interrupted atomic write
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("name", ["0000320193.jsonl.k3j2h1.tmp",
+                                  "report.xhtml.9f8e7d.part"])
+def test_a_leftover_staging_file_says_what_it_is(corpus, name):
+    """``*.tmp`` / ``*.part`` under raw/ are staging files, not lost documents.
+
+    Both atomic writers (``_atomic_write_text`` and the EU downloader) stage
+    through a unique sibling and ``os.replace`` it into place, so an interrupt
+    leaves the staging file behind. Reported as a bare orphan it reads like a
+    document the index lost -- which an operator must investigate rather than
+    delete. Naming it removes that whole investigation.
+    """
+    leftover = corpus.raw_dir / "0000320193" / "A1" / "2024" / name
+    leftover.write_text("half a write")
+
+    findings = verify(corpus)
+    assert _kinds(findings) == ["orphan-artefact"]
+    assert findings[0].detail == "interrupted atomic write, safe to delete"
+
+
+def test_a_real_orphan_still_reads_as_one(corpus):
+    """The staging-file wording must not leak onto a genuine lost document."""
+    (corpus.raw_dir / "0000320193" / "A1" / "2024" / "lost.primary.htm").write_text("<p/>")
+    findings = verify(corpus)
+    assert findings[0].detail == "no manifest row points at this file"

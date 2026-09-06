@@ -44,8 +44,13 @@ LOCK_POLL_SECONDS = 0.05
 #: ``flock`` is a filesystem that cannot lock at all (ENOTSUP/EOPNOTSUPP on
 #: SMB, ENOLCK when the kernel's lock table is full, EINVAL on some NFS
 #: mounts) -- a condition no amount of waiting can resolve.
-#: (``EACCES``: harmless superset -- ``flock`` never returns it, ``lockf`` does.)
-_CONTENDED_ERRNOS = frozenset({errno.EAGAIN, errno.EWOULDBLOCK, errno.EACCES})
+#:
+#: ``EACCES`` is deliberately NOT here. ``flock`` never returns it (``lockf``
+#: does), so it bought nothing -- and a superset is not harmless on this set:
+#: anything that did reach us as EACCES would be waited out for
+#: ``lock_wait_seconds`` and then blamed on a holder that does not exist,
+#: instead of being reported as a corpus that cannot be locked at all.
+_CONTENDED_ERRNOS = frozenset({errno.EAGAIN, errno.EWOULDBLOCK})
 
 
 class CorpusLocked(RuntimeError):

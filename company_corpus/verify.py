@@ -425,14 +425,18 @@ class _Scan:
     def _check_eu_manifest(self, path: Path, lei: str | None,
                            seen: dict[str, str]) -> None:
         rel = self._rel(path)
+        # ``unreadable-file``, not ``unreadable-row``: an EU manifest is ONE JSON
+        # document per file, so a parse failure loses the whole document's
+        # provenance (remedy: re-acquire it), where an unreadable row is one bad
+        # line in a JSONL file whose other lines are still good.
         try:
             manifest = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            self._add("unreadable-row", rel, f"not a readable manifest ({exc})")
+            self._add("unreadable-file", rel, f"not a readable manifest ({exc})")
             self._blind()
             return
         if not isinstance(manifest, dict):
-            self._add("unreadable-row", rel,
+            self._add("unreadable-file", rel,
                       f"not a JSON object but a {type(manifest).__name__}")
             self._blind()
             return
@@ -573,9 +577,30 @@ class _Scan:
         for rel in self._raw:
             if rel in self._referenced:
                 continue
-            if Path(rel).name in UNREFERENCED_RAW_NAMES:
+            name = Path(rel).name
+            if name in UNREFERENCED_RAW_NAMES:
                 continue
-            self._add("orphan-artefact", rel, "no manifest row points at this file")
+            self._add("orphan-artefact", rel, _orphan_detail(name))
+
+
+#: Suffixes both atomic writers stage through before ``os.replace``:
+#: ``_atomic_write_text`` uses ``.tmp``, the EU downloader ``.part``. A file
+#: still carrying one is the residue of an interrupted write, not a document
+#: the index lost.
+STAGING_SUFFIXES: frozenset[str] = frozenset({".tmp", ".part"})
+
+
+def _orphan_detail(name: str) -> str:
+    """Why this file is unreferenced, in the terms an operator has to act on.
+
+    A leftover staging file reported as a bare orphan reads exactly like a
+    document whose manifest row was destroyed -- which is the one finding that
+    must be investigated before anything is deleted. Naming it removes the
+    investigation: nothing ever pointed at it, and nothing ever will.
+    """
+    if Path(name).suffix in STAGING_SUFFIXES:
+        return "interrupted atomic write, safe to delete"
+    return "no manifest row points at this file"
 
 
 # ---- identifier normalisers, one per table family ----

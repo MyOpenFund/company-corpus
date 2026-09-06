@@ -50,6 +50,16 @@ def data_file_mode() -> int:
     only the crawling account could read -- the RAG ingester and the NAS share
     consumers run as other accounts. Reapply what a plain ``open()`` would have
     given: 0o666 masked by the umask, i.e. the operator's own policy.
+
+    The umask is the module-level ``_UMASK``, SNAPSHOT AT IMPORT and never read
+    again -- ``os.umask`` has no getter, so reading it means setting it and
+    putting it back, which is not atomic and must not happen once threads exist
+    (see :func:`_read_umask`). The consequence to know: a process that changes
+    its umask after importing this module keeps getting the modes the umask had
+    at import. That is the right trade for a CLI (one process, one policy, set
+    by the shell that launched it), and the wrong assumption for a long-lived
+    server embedding this library and flipping umask per request -- such a
+    caller should set its umask before the import, or set the modes itself.
     """
     return 0o666 & ~_UMASK
 
@@ -175,6 +185,13 @@ def _check_no_shrink(path: Path, before: set, after: set, *, fraction: float) ->
     A merged write is monotone, so this can only fire under ``--replace`` --
     which is exactly the operation whose purpose is destruction and therefore
     the one that deserves a confirmation.
+
+    The message names ``--replace --allow-shrink`` because every command that
+    can reach this guard offers both flags: ``xbrl``, ``ownership``,
+    ``eu-financials``, ``register-financials`` and (since this chantier)
+    ``eu-acquire``, all through ``cli._add_table_write_flags``. A future writer
+    reachable from a command WITHOUT them would make the remedy a lie, so wire
+    the flags in with the command.
     """
     if len(after) >= len(before):
         return
