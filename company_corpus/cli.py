@@ -1392,8 +1392,9 @@ def build_parser() -> argparse.ArgumentParser:
     di.add_argument("--download", action="store_true", help="also download+decompose (implies --write)")
     di.add_argument("--overwrite", action="store_true", help="re-download already-stored filings")
     di.add_argument("--limit", type=int, default=None,
-                    help="cap number of new downloads (repairs are not capped: they "
-                         "cost no network; reported as repaired=)")
+                    help="cap number of new downloads in the --download step (repairs "
+                         "are not capped: they cost no network and the run still walks "
+                         "the whole selection; reported as repaired=)")
     di.set_defaults(func=_cmd_discover)
 
     dl = sub.add_parser("download", help="download+decompose filings from existing manifests")

@@ -17,9 +17,6 @@ from __future__ import annotations
 
 from datetime import date
 
-import pytest
-
-from company_corpus.config import Config
 from company_corpus.eu.documents import Document
 from company_corpus.eu.download import download_document
 from company_corpus.eu.entities import Entity

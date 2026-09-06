@@ -197,6 +197,58 @@ entirely (unreferenced could not be told from unknown) and says so. A corpus
 with no `data/manifest/` at all gets one `note` saying that in a sentence,
 beside the per-file findings.
 
+### Adoption / migration: taking over an existing corpus
+
+Pointing this tool at a directory an earlier version (or an earlier tool) wrote
+is a supported move, and it costs far less bandwidth than it looks. The bytes
+under `raw/` are the expensive part and they are kept: what is rebuilt is the
+index that points at them.
+
+```bash
+python -m company_corpus verify --json > before.json   # measure, change nothing
+python -m company_corpus discover --universe u --write # rebuild the manifest index
+python -m company_corpus download  --universe u --write --limit 0   # repairs only
+python -m company_corpus verify --json > after.json    # measure again
+```
+
+1. **Measure first.** `verify --json` writes nothing and takes no lock, so it is
+   safe on a live corpus. Its `notes` say what is missing wholesale (no
+   `data/manifest/` at all, no tables at all) instead of drowning you in one
+   finding per file.
+2. **Rebuild the index** with `discover --write`. Downloaded bytes are never
+   orphaned by this: the artefact pointers are *sticky*, so a fresh discovery
+   record cannot blank the pointers a stored one already carries.
+3. **Adopt what is on disk** with `download --write`. `--limit` caps *new
+   downloads only* — repairs cost no network, since they re-derive the primary,
+   the cleaned text and the hash from the submission already stored — so
+   `--limit 0` is a download-free convergence pass over the whole selection.
+   Report the `repaired=` count; scope the pass with `--forms` / `--since` /
+   `--years` if the corpus is large. Drop `--limit` when you also want the
+   filings that were never fetched.
+4. **Re-run the derived pillars.** Family **F** (XBRL period summaries) is
+   *not* repaired from disk — its ids changed basis (they are period-keyed now),
+   so old summaries are orphans: rebuild with `xbrl --write` and delete what
+   `verify` then reports under `raw/<cik>/F1/`. Likewise, EU documents acquired
+   before the computed EU identity keep their old directories and are only
+   settled by re-running `eu-acquire --write`; ownership summaries are rebuilt
+   by `ownership --write`.
+5. **Verify again** and diff the two reports. Expect `orphan-artefact` to fall
+   and `incomplete-record` to reach zero. A remaining `orphan-artefact` whose
+   detail says *interrupted atomic write, safe to delete* is a `.tmp`/`.part`
+   leftover and needs no investigation.
+
+Three things to know before pointing it at a share:
+
+- **Coverage files are cumulative.** `reports/*_coverage*.jsonl` are merged, not
+  truncated, so rows from the old universe survive a narrower run. Reset one
+  with `--replace --allow-shrink` on the command that writes it.
+- **SMB/CIFS is refused, not tolerated.** A writing run takes an `flock` and
+  fails immediately on a mount that cannot provide one (see *One writer at a
+  time*). Write from a local filesystem; export it for readers.
+- **File modes follow the crawler's umask** (`0666 & ~umask`), read once at
+  import. If the ingester runs as another account, set the umask in the unit
+  file or wrapper that launches the crawl, not afterwards.
+
 ### Logging
 
 Work commands configure the root logger once (INFO, to stderr) so their own
