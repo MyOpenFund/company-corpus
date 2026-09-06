@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 from ..config import Config, normalize_lei
 from ..financials import attach_ttm_from_flat, make_row_base, rows_from_base, summaries_from_flat
-from ..storage import Storage
+from ..storage import ShrinkGuardError, Storage
 from ..xbrl import IFRS_CONCEPTS, IFRS_CONCEPTS_BY_KEY, flatten_oim_json
 from .arelle_esef import oim_from_esef_zip
 from .entities import Entity, resolve_entities
@@ -206,24 +206,37 @@ def build_eu_financials(specs, *, fetcher, config: Config, write: bool = True, u
         rows: list[dict] = []
         for s in summaries:
             rows.extend(rows_from_base(_eu_base(ent.lei, ent.country or None, s), s))
+        if write:
+            try:
+                out["paths"].append(storage.write_eu_financials_table(ent.lei, rows))
+            except ShrinkGuardError as exc:
+                # One issuer's refused write, not the run's death (same doctrine
+                # as the F1 IdentityCollisionError in ``pipeline.run``).
+                coverage.append({"lei": ent.lei, "name": ent.name,
+                                 "status": "source-error", "error": str(exc)})
+                _record_error(error_items, ent.lei, str(exc))
+                continue
         out["periods"] += len(summaries)
         out["with_financials"] += 1
-        if write:
-            out["paths"].append(storage.write_eu_financials_table(ent.lei, rows))
         cov_ok = {"lei": ent.lei, "name": ent.name, "status": "ok",
                   "periods": len(summaries), "fy_range": [summaries[-1].fy, summaries[0].fy]}
         if use_arelle:
             cov_ok["arelle"] = bool(arelle_flat)
         coverage.append(cov_ok)
-    out["errors"] = len(error_items)
     cov_path = config.reports_dir / "eu_financials_coverage.jsonl"
+    out["coverage_path"] = None
     if write:
         # Merged and atomic (Rob-I14): the plain, non-atomic ``write_text`` this
         # replaces truncated the file to the current run's entities, so a run
         # over a handful of LEIs erased the coverage of every other filer and an
         # interrupt left a half-written report behind.
-        storage.write_coverage(cov_path, coverage)
-        out["coverage_path"] = str(cov_path)
-    else:
-        out["coverage_path"] = None
+        try:
+            storage.write_coverage(cov_path, coverage)
+            out["coverage_path"] = str(cov_path)
+        except ShrinkGuardError as exc:
+            # The last write of the run: an uncaught refusal here threw away the
+            # whole run's summary, tables included, as a traceback. Reported as
+            # an error item; ``coverage_path`` stays None because nothing landed.
+            _record_error(error_items, None, str(exc))
+    out["errors"] = len(error_items)
     return out

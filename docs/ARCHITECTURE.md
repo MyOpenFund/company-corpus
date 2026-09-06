@@ -247,8 +247,12 @@ write dropping more than `Config.no_shrink_fraction` (default `0.0`) of a table'
 stored groups; `--allow-shrink` raises that to 1.0. The guard counts *groups*, so a
 period that reports fewer concepts this vintage is not a shrink. A tripped guard is
 one issuer's refused write, not the run's death: like an identity collision, it is
-recorded as a per-issuer error, that issuer's remaining writes are skipped, and the
-run continues. `--limit` may never
+recorded as a per-issuer error (a `source-error` coverage row and an error item),
+that issuer's remaining writes are skipped, and the run continues. That holds on
+every producer, not only `xbrl` — including the coverage writers, which run last:
+a refused coverage write is reported as an error item and leaves `coverage_path`
+null (nothing landed, so nothing is claimed) instead of discarding the whole run's
+summary as a traceback. `--limit` may never
 be combined with `--replace`, and on the two commands whose `--limit` narrows the
 rows they emit (`ownership`, `register-financials`) combining it with `--write`
 requires `--allow-partial-write`, since a capped run's coverage report describes

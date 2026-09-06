@@ -10,7 +10,7 @@ import json
 import logging
 
 from ..config import Config
-from ..storage import Storage
+from ..storage import ShrinkGuardError, Storage
 from .dispatcher import merge_documents
 from .documents import Document
 from .download import download_document
@@ -273,12 +273,22 @@ def acquire(specs, *, fetcher, config: Config, download: bool = True,
     cov = reconcile(entities, kept_docs, discover_failures)
     cov_path = None
     if write:
-        cov_path = config.reports_dir / "eu_coverage.jsonl"
+        path = config.reports_dir / "eu_coverage.jsonl"
         # Merged and atomic (Rob-I14): the plain, non-atomic ``write_text`` this
         # replaces truncated the file to the entities of the current run, so an
         # incremental acquire over a slice of the universe destroyed the gap
         # evidence for everything outside that slice.
-        Storage(config).write_coverage(cov_path, cov)
+        try:
+            Storage(config).write_coverage(path, cov)
+            cov_path = path
+        except ShrinkGuardError as exc:
+            # The last write of the run, after every download. An uncaught
+            # refusal turned a completed acquire -- manifests and all -- into a
+            # traceback with no summary at all. It is reported like any other
+            # error and ``coverage_path`` stays None, because nothing landed.
+            errors.append({"source": "storage", "context": "coverage",
+                           "error": str(exc)})
+            log.error("coverage write refused: %s", exc)
 
     return {"entities": len(entities), "unresolved": unresolved,
             "unresolved_specs": unresolved_specs,

@@ -571,10 +571,21 @@ def process_ownership(
                 report.passthrough += 1
 
         if not dry_run:
-            if touched:
-                storage.save_records(touched, dry_run=False)
-            if rows:
-                storage.write_ownership_table(cik, rows)
+            try:
+                if touched:
+                    storage.save_records(touched, dry_run=False)
+                if rows:
+                    storage.write_ownership_table(cik, rows)
+            except ShrinkGuardError as exc:
+                # This issuer's refused write, not the run's death: the guard
+                # only fires under ``--replace``, and an uncaught refusal on the
+                # first issuer used to cost every issuer behind it -- including
+                # the error trail, written after the loop. Same doctrine as the
+                # F1 IdentityCollisionError above.
+                report.errors += 1
+                report.error_items.append(
+                    {"source": "ownership", "context": normalize_cik(cik),
+                     "error": str(exc)})
 
     if not dry_run and report.error_items:
         storage.record_errors(report.error_items, run_id=run_id)

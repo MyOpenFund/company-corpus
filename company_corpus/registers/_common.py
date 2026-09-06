@@ -16,9 +16,37 @@ from datetime import date, datetime, timezone
 from ..config import LEI_RE, Config
 from ..financials import PeriodSummary, make_row_base, rows_from_base, stamp_leverage_basis
 from ..paths import UnsafeIdentifier, safe_component
-from ..storage import Storage
+from ..storage import ShrinkGuardError, Storage
 
 log = logging.getLogger(__name__)
+
+
+def _record_shrink_refusal(exc: ShrinkGuardError, cov_base: dict, *, entity_id,
+                           out: dict, coverage: "list[dict] | None" = None) -> None:
+    """Record a write the no-shrink guard refused, without ending the run.
+
+    The status is ``source-error`` -- the same one a dead register gets -- for
+    one reason: it is the status every consumer already reads as "this entity's
+    data did NOT land, and the reason is not the issuer". The message carries
+    the distinction (it names the table and the ``--allow-shrink`` remedy),
+    which is more than a new status would buy while the coverage vocabulary is
+    documented in a dozen places.
+
+    ``coverage`` is optional because the coverage finaliser itself can be the
+    thing that was refused: there is then no file to append a row to, and the
+    error item plus the counter are the whole record.
+    """
+    msg = str(exc)
+    if coverage is not None:
+        coverage.append({**cov_base, "status": "source-error", "error": msg})
+    out["errors"] = out.get("errors", 0) + 1
+    out.setdefault("error_items", []).append({
+        "entity_id": entity_id,
+        "source": "storage",
+        "error": msg,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
+    log.error("refused write: %s", msg)
 
 # ISO-17442 LEI: exactly 20 upper-case alphanumerics. Used on the DK path to
 # populate the `lei` column when the entity_id is itself a LEI (ESEF filers).
@@ -151,10 +179,22 @@ def _emit_entity_rows(
         coverage.append({**cov_base, "status": "no-financials"})
         out["no_financials"] += 1
         return
+    if write:
+        try:
+            path = storage.write_register_financials_table(entity_id, rows)
+        except ShrinkGuardError as exc:
+            # A refused write is THIS entity's failure, not the batch's. It used
+            # to escape to the top of the producer, so a single ``--replace``
+            # refusal cost the run every entity it had not reached yet -- and
+            # the coverage file, written at the very end, was never written at
+            # all. Same doctrine as the F1 IdentityCollisionError: report it
+            # against the entity, keep going.
+            _record_shrink_refusal(exc, cov_base, entity_id=entity_id, out=out,
+                                   coverage=coverage)
+            return
+        out["paths"].append(path)
     out["periods"] += n_periods
     out["with_financials"] += 1
-    if write:
-        out["paths"].append(storage.write_register_financials_table(entity_id, rows))
     coverage.append({**cov_base, "status": "ok", "periods": n_periods})
 
 
@@ -339,10 +379,18 @@ def _finalise_coverage(
     choice of entity ids erased the coverage of every entity it did not visit,
     so "was ok yesterday, source-error today" could not be seen (Rob-I14).
     """
+    out["coverage_path"] = None
     if write:
         cov_path = config.reports_dir / f"register_coverage_{source}.jsonl"
-        Storage(config).write_coverage(cov_path, coverage)
+        try:
+            Storage(config).write_coverage(cov_path, coverage)
+        except ShrinkGuardError as exc:
+            # The finaliser runs after every entity, so a refusal here used to
+            # kill the process holding the whole run's report -- the producer
+            # returned nothing, the CLI printed nothing, and the exit code was a
+            # traceback. ``coverage_path`` stays None (nothing was written, so
+            # nothing is claimed) and the refusal is an error item.
+            _record_shrink_refusal(exc, {}, entity_id=source, out=out)
+            return out
         out["coverage_path"] = str(cov_path)
-    else:
-        out["coverage_path"] = None
     return out
