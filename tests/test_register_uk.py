@@ -295,7 +295,7 @@ _OIM_UNBALANCED = {
 }
 
 
-# EQ0001 — equity-only filer: Equity = NetAssetsLiabilities, no goodwill/intangibles.
+# EQ000001 — equity-only filer: Equity = NetAssetsLiabilities, no goodwill/intangibles.
 # The engine would compute tangible_book_value = equity − 0 − 0 = equity, which would
 # overstate true TBV for any filer carrying intangibles.  The shared _SUPPRESSED_CONCEPTS
 # filter must drop it before the row is written.
@@ -465,7 +465,7 @@ def test_build_ch_financials_unbalanced(monkeypatch, tmp_path):
     unbalanced_bytes = b"<html>unbalanced</html>"
     zip_path = tmp_path / "unbalanced_bulk.zip"
     with zipfile.ZipFile(zip_path, "w") as zf:
-        zf.writestr("Prod223_4212_UNBAL01_20260331.html", unbalanced_bytes)
+        zf.writestr("Prod223_4212_UNBAL001_20260331.html", unbalanced_bytes)
 
     def fake_oim(html_path, *, cntlr=None):
         return _OIM_UNBALANCED
@@ -482,14 +482,14 @@ def test_build_ch_financials_unbalanced(monkeypatch, tmp_path):
     assert rep["entities"] == 1
 
     # No JSONL written for the unbalanced entity
-    assert not (tmp_path / "financials_register" / "UNBAL01.jsonl").exists()
+    assert not (tmp_path / "financials_register" / "UNBAL001.jsonl").exists()
 
     # Coverage row for this entity must carry status='unbalanced'
     cov_path = tmp_path / "reports" / "register_coverage_companies_house.jsonl"
     assert cov_path.exists(), "coverage file must be written"
     rows = [json.loads(x) for x in cov_path.read_text().splitlines()]
     assert len(rows) == 1
-    assert rows[0]["ch_number"] == "UNBAL01"
+    assert rows[0]["ch_number"] == "UNBAL001"
     assert rows[0]["status"] == "unbalanced"
 
 
@@ -509,7 +509,7 @@ def test_uk_tangible_book_value_suppressed(monkeypatch, tmp_path):
     equity_bytes = b"<html>equity-only</html>"
     zip_path = tmp_path / "equity_bulk.zip"
     with zipfile.ZipFile(zip_path, "w") as zf:
-        zf.writestr("Prod223_4212_EQ0001_20251231.html", equity_bytes)
+        zf.writestr("Prod223_4212_EQ000001_20251231.html", equity_bytes)
 
     def fake_oim(html_path, *, cntlr=None):
         return _OIM_EQUITY_ONLY
@@ -520,9 +520,9 @@ def test_uk_tangible_book_value_suppressed(monkeypatch, tmp_path):
     rep = build_ch_financials(str(zip_path), config=cfg, write=True, cntlr=_FakeCntlr())
 
     assert rep["with_financials"] == 1
-    path = tmp_path / "financials_register" / "EQ0001.jsonl"
+    path = tmp_path / "financials_register" / "EQ000001.jsonl"
     rows = [json.loads(x) for x in path.read_text().splitlines()]
-    assert rows, "EQ0001.jsonl must be written"
+    assert rows, "EQ000001.jsonl must be written"
 
     concepts = {r.get("concept") for r in rows}
     assert "tangible_book_value" not in concepts, (
@@ -615,8 +615,12 @@ def test_cli_ch_bulk_with_write(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cli, "build_ch_financials", fake_build)
 
+    # --limit with --write is a partial producer run: it must be acknowledged
+    # (see cli._check_limit_guard), because its coverage file reports a status
+    # for only part of the bulk file.
     args = cli.build_parser().parse_args(
-        ["register-financials", "--ch-bulk", str(zip_path), "--write", "--limit", "5"])
+        ["register-financials", "--ch-bulk", str(zip_path), "--write", "--limit", "5",
+         "--allow-partial-write"])
     rc = args.func(args)
     assert rc == 0
     assert captured["write"] is True

@@ -11,6 +11,11 @@ Doctrine: a run that did no useful work must never exit 0.
   3 = degraded = any truncation, OR zero useful work (zero new documents)
       while errors occurred (save errors and/or fetch errors) —
       recovered transient errors alongside actual new documents do NOT degrade.
+
+A refusal the corpus made itself (the no-shrink guard, an identity collision)
+is a failure of the RUN, not of any authority: it is counted by
+`record_local_refusal` under `local_refusals` and in `totals.docs_failed`, with
+no per-source row — see `source_codes.LOCAL_SOURCES`.
 """
 from __future__ import annotations
 
@@ -73,18 +78,34 @@ class RunReport:
         self.exit_code: int | None = None
         self._sources: dict[str, SourceStats] = {}
         self._fatal: str | None = None
+        self.local_refusals = 0
+        self.local_refusal_samples: list = []
 
     def source(self, code: str) -> SourceStats:
         if code not in self._sources:
             self._sources[code] = SourceStats(code)
         return self._sources[code]
 
+    def record_local_refusal(self, msg: str) -> None:
+        """Count a refusal this corpus made itself, under no source row.
+
+        The no-shrink guard and the identity checks refuse work locally: no
+        backend failed, so no authority may carry the count (see
+        ``source_codes.LOCAL_SOURCES`` -- a local refusal has no authority, and
+        the registry holds only authorities). It still counts as a failure of
+        the run: it folds into ``totals.docs_failed`` and therefore into the
+        zero-useful-work rule, exactly like a source's ``docs_failed``.
+        """
+        self.local_refusals += 1
+        if len(self.local_refusal_samples) < _SAMPLE_CAP:
+            self.local_refusal_samples.append(str(msg)[:300])
+
     def finish(self, fatal: str | None = None) -> int:
         self.finished_at = _now()
         self._fatal = fatal
         srcs = self._sources.values()
         total_new = sum(s.docs_new for s in srcs)
-        total_failed = sum(s.docs_failed for s in srcs)
+        total_failed = sum(s.docs_failed for s in srcs) + self.local_refusals
         any_fetch_errors = any(s.fetch_errors for s in srcs)
         if fatal is not None:
             self.outcome, self.exit_code = "failed", 1
@@ -109,10 +130,16 @@ class RunReport:
             "totals": {
                 "docs_seen": sum(s.docs_seen for s in self._sources.values()),
                 "docs_new": sum(s.docs_new for s in self._sources.values()),
-                "docs_failed": sum(s.docs_failed for s in self._sources.values()),
+                "docs_failed": (sum(s.docs_failed for s in self._sources.values())
+                                + self.local_refusals),
             },
             "sources": [s.to_dict() for s in self._sources.values()],
         }
+        if self.local_refusals:
+            # Only when there are any: a key on every line of runs.jsonl would
+            # be noise, and its absence reads as "the corpus refused nothing".
+            d["local_refusals"] = {"count": self.local_refusals,
+                                   "samples": list(self.local_refusal_samples)}
         if self._fatal:
             d["fatal"] = self._fatal[:500]
         return d

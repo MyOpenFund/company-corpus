@@ -33,7 +33,7 @@ from __future__ import annotations
 import unicodedata
 from datetime import date, datetime, timezone
 
-from ..documents import Document
+from ..documents import Document, source_key
 from ..entities import Entity
 from ..oam_base import OamSource
 
@@ -260,8 +260,9 @@ class NewsWebNO(OamSource):
                 raw_cats = msg.get("category") or []
                 cat_ids = [c["id"] for c in raw_cats if isinstance(c, dict) and "id" in c]
 
-                doc = Document(
-                    doc_id=f"no-{mid}",
+                doc = self._emit(
+                    error_url=files[0].get("url") if files else None,
+                    native_id=source_key(mid),
                     lei=entity.lei,
                     country="NO",
                     doc_type=_doc_type(cat_ids),
@@ -277,7 +278,8 @@ class NewsWebNO(OamSource):
                         "category": raw_cats,
                     },
                 )
-                docs.append(doc)
+                if doc is not None:
+                    docs.append(doc)
 
             if not overflow:
                 break

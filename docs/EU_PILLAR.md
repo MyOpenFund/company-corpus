@@ -80,7 +80,7 @@ subclass + one entry in `COUNTRY_BACKENDS` (in
 
 ### The `Document` model
 
-A [`Document`](../company_corpus/eu/documents.py) carries `doc_id`, `lei`,
+A [`Document`](../company_corpus/eu/documents.py) carries `native_id`, `lei`,
 `country`, `doc_type`, `period_end`, `published_ts`, `source`, a list of `files`
 (each `{name, kind, url|content, sha256, …}`), and `native_meta`. `doc_type` is one
 of:
@@ -93,6 +93,58 @@ holding_notification · prospectus · governance · other
 A file can be a downloadable `url`, an inline `content` blob (capture-at-discovery,
 for sources whose links are session-bound), or index-only (metadata, no file) —
 which is recorded, never a silent drop.
+
+#### Document identity — `doc_id` is computed, never minted
+
+`Document.doc_id` is a read-only property:
+
+```
+doc_id = sha1("<source>|<country>|<native_id>")[:16]
+```
+
+`native_id` is the **source's own stable handle** on the document (an OAM row id,
+a disclosure id, a register number) — the only field a backend supplies. It must
+be stable across runs; a backend that has no id of its own builds one with
+`stable_native_id(*parts)` from the publication's own facts (its artefact URL, its
+title, its publication date), and `source_key(*parts)` guards a source key that is
+present but falsy (`0` is a key; `None` is not). Neither helper will invent an id:
+when every part is empty they raise, the backend records the gap through its
+`errors` list and skips the document. An id minted from the wall clock, from a
+page offset or from `len(files)` — which three backends used to do — renames the
+same document on every run, and a renamed document is a re-download into a fresh
+directory that never converges.
+
+Three consequences worth knowing:
+
+- Because the source and the country are inside the hash basis, they are **not**
+  in the id string: there are no more `se-…` / `fi-…` prefixes.
+- `doc_id` is 16 hex characters, so it can never be a hostile path component. The
+  `safe_filename` call in `download.py` is now belt-and-braces for it (it still
+  earns its keep for the LEI and for file names).
+- **No compatibility shim.** Documents acquired before this rule keep their old
+  directory under `data/raw/…` and their old `data/manifest/<LEI>/<doc_id>.json`,
+  and nothing will read them again. Re-run `eu-acquire` and delete the orphans;
+  the two spellings will never converge on their own.
+
+The basis is normalised so a cosmetic difference cannot fork one document in two:
+the native id is stripped, the country is upper-cased. Each manifest carries the
+`native_id` beside the `doc_id`, so the one-way hash stays traceable back to the
+row of the register it came from (and recomputable to check).
+
+**A collision is an error, never a dedup.** Two *different* documents that compute
+one `doc_id` would share one raw directory and one manifest path, so one of them
+cannot be acquired at all. [`merge_documents`](../company_corpus/eu/dispatcher.py)
+compares the two (files, `published_ts`, title) and reports the clash to
+`acquire`, which records it against the losing backend and degrades that entity's
+coverage row to `source-error` — the run continues for every other issuer. Only
+byte-identical copies (equal `sha256` sets) merge, and that merge is near-nil at
+discovery time by design: the authoritative cross-backend dedup runs *after*
+download, on `(lei, published-day, sha256)`, where the bytes actually exist.
+
+**One bad row costs one row.** A listing row whose source gives no key at all is
+skipped through `OamSource._emit`, which records a `native-id` error for that
+document and keeps the rest of the listing. Previously the `ValueError` escaped
+`discover()` and cost the entity its whole listing on that backend.
 
 ## Identity resolution (no-guess)
 
@@ -205,7 +257,11 @@ Specs accept `{"lei": …}`, `{"isin": …}`, or `{"name": …, "country": …}`
 first; with `write=False` nothing at all is written (no entity index, no coverage
 file; `coverage_path` is `None`), and `download=True` with `write=False` raises.
 The coverage report (`data/reports/eu_coverage.jsonl`) lists every entity with its
-doc count, doc types, and any gap. The summary also carries `unresolved` (specs
+doc count, doc types, and any gap. It is **merged across runs**, keyed by entity,
+so an incremental acquire over a slice of the universe updates that slice and
+leaves every other issuer's evidence intact — and the rows of an issuer you stop
+crawling persist until you clear them. `eu-acquire --replace` (with
+`--allow-shrink` to confirm the loss) resets the file to what the run produced. The summary also carries `unresolved` (specs
 that resolved to no LEI) and `sources` — per backend `name`, the entities it was
 asked about, the kept documents it contributed and its errors — and every entry
 of `errors` is tagged with the backend's `source` (a raised discovery under the

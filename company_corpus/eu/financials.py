@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
 from datetime import datetime, timezone
 
-from ..config import Config
+from ..config import Config, normalize_lei
 from ..financials import attach_ttm_from_flat, make_row_base, rows_from_base, summaries_from_flat
-from ..storage import Storage
+from ..storage import ShrinkGuardError, Storage
 from ..xbrl import IFRS_CONCEPTS, IFRS_CONCEPTS_BY_KEY, flatten_oim_json
 from .arelle_esef import oim_from_esef_zip
 from .entities import Entity, resolve_entities
@@ -29,6 +30,25 @@ def _record_error(errors: "list[dict] | None", lei: "str | None", message: str) 
         return
     errors.append({
         "entity_id": lei, "source": "esef", "error": message,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+def _record_refusal(errors: "list[dict] | None", lei: "str | None", message: str) -> None:
+    """Record a write the corpus itself refused (the no-shrink guard).
+
+    Tagged ``source: "storage"`` — the tag the register producers already use
+    (:func:`company_corpus.registers._common._record_shrink_refusal`) and the
+    one :data:`company_corpus.source_codes.LOCAL_SOURCES` holds. Tagging it
+    ``esef`` and logging "esef: source error" said the aggregator failed about a
+    file the aggregator was never asked for: the refusal is ours, and the error
+    trail must not read as a dead source.
+    """
+    log.error("refused write for %s: %s", lei, message)
+    if errors is None:
+        return
+    errors.append({
+        "entity_id": lei, "source": "storage", "error": message,
         "ts": datetime.now(timezone.utc).isoformat(),
     })
 
@@ -164,6 +184,18 @@ def build_eu_financials(specs, *, fetcher, config: Config, write: bool = True, u
             # only guards a resolver stub that returns a different shape.
             unresolved_specs.append(specs[i] if i < len(specs) else {"name": ent.name})
             continue
+        try:
+            # One canonical spelling per issuer, adopted here so the whole body
+            # below -- the raw/manifest lookups, the rows, the table filename and
+            # the coverage row -- agrees on it, and so a malformed LEI costs this
+            # issuer and not the run: the writer raises on it and nothing used to
+            # catch that (DI-I7).
+            ent = replace(ent, lei=normalize_lei(ent.lei))
+        except ValueError as exc:
+            coverage.append({"lei": ent.lei, "name": ent.name,
+                             "status": "invalid-identifier", "error": str(exc)})
+            _record_error(error_items, ent.lei, str(exc))
+            continue
         n_errors_before = len(error_items)
         flat = facts_for_entity(ent, fetcher=fetcher, errors=error_items)
         own_errors = error_items[n_errors_before:]
@@ -193,21 +225,37 @@ def build_eu_financials(specs, *, fetcher, config: Config, write: bool = True, u
         rows: list[dict] = []
         for s in summaries:
             rows.extend(rows_from_base(_eu_base(ent.lei, ent.country or None, s), s))
+        if write:
+            try:
+                out["paths"].append(storage.write_eu_financials_table(ent.lei, rows))
+            except ShrinkGuardError as exc:
+                # One issuer's refused write, not the run's death (same doctrine
+                # as the F1 IdentityCollisionError in ``pipeline.run``).
+                coverage.append({"lei": ent.lei, "name": ent.name,
+                                 "status": "source-error", "error": str(exc)})
+                _record_refusal(error_items, ent.lei, str(exc))
+                continue
         out["periods"] += len(summaries)
         out["with_financials"] += 1
-        if write:
-            out["paths"].append(storage.write_eu_financials_table(ent.lei, rows))
         cov_ok = {"lei": ent.lei, "name": ent.name, "status": "ok",
                   "periods": len(summaries), "fy_range": [summaries[-1].fy, summaries[0].fy]}
         if use_arelle:
             cov_ok["arelle"] = bool(arelle_flat)
         coverage.append(cov_ok)
-    out["errors"] = len(error_items)
-    cov_path = config.data_dir / "reports" / "eu_financials_coverage.jsonl"
+    cov_path = config.reports_dir / "eu_financials_coverage.jsonl"
+    out["coverage_path"] = None
     if write:
-        cov_path.parent.mkdir(parents=True, exist_ok=True)
-        cov_path.write_text("\n".join(json.dumps(r, default=str) for r in coverage))
-        out["coverage_path"] = str(cov_path)
-    else:
-        out["coverage_path"] = None
+        # Merged and atomic (Rob-I14): the plain, non-atomic ``write_text`` this
+        # replaces truncated the file to the current run's entities, so a run
+        # over a handful of LEIs erased the coverage of every other filer and an
+        # interrupt left a half-written report behind.
+        try:
+            storage.write_coverage(cov_path, coverage)
+            out["coverage_path"] = str(cov_path)
+        except ShrinkGuardError as exc:
+            # The last write of the run: an uncaught refusal here threw away the
+            # whole run's summary, tables included, as a traceback. Reported as
+            # an error item; ``coverage_path`` stays None because nothing landed.
+            _record_refusal(error_items, None, str(exc))
+    out["errors"] = len(error_items)
     return out

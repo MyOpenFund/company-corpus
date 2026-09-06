@@ -33,7 +33,7 @@ import unicodedata
 from datetime import datetime, timezone
 from urllib.parse import quote
 
-from ..documents import Document
+from ..documents import Document, stable_native_id
 from ..entities import Entity
 from ..oam_base import OamSource
 
@@ -118,7 +118,7 @@ _ROW_LINK_RE = re.compile(
 # We look for a date inside the <li class="fecha-con-hora"> element.
 _DATE_RE = re.compile(r'(\d{2})/(\d{2})/(\d{4})')
 
-# The verdocumento GUID — extract from the URL for use as doc_id component.
+# The verdocumento GUID — extract from the URL for use as native_id component.
 # URL form: …/ver?t=%7b<GUID>%7d   (URL-encoded curly braces)
 _GUID_RE = re.compile(r'[Tt]=%7[Bb]([0-9a-fA-F\-]+)%7[Dd]')
 
@@ -280,10 +280,15 @@ class CnmvES(OamSource):
             if not files:
                 continue
 
+            # ``str(len(docs))`` used to fill this blank: an id from the row's
+            # POSITION in the table, so one older report appearing above renamed
+            # every document below it on the next run. The artefact URL is the
+            # stable natural fact to fall back on instead.
             nreg = _WS_RE.sub('', _TAG_STRIP_RE.sub('', cells.get('Nº Registro Oficial', ''))) \
-                or (period_end.isoformat() if period_end else str(len(docs)))
+                or (period_end.isoformat() if period_end else '')
             docs.append(Document(
-                doc_id=f'es-{nif}-ifa-{nreg}',
+                native_id=(f'{nif}-ifa-{nreg}' if nreg
+                           else stable_native_id(nif, files[0]['url'])),
                 lei=entity.lei, country='ES', doc_type='annual_report',
                 period_end=period_end, published_ts=published_ts, discovered_ts=now,
                 language='es', source=self.name, files=files,
@@ -477,11 +482,10 @@ class CnmvES(OamSource):
                 except ValueError:
                     pass
 
-            doc_id = f'es-{nif}-{guid}'
             file_name = f'{guid}.pdf'
 
             doc = Document(
-                doc_id=doc_id,
+                native_id=f'{nif}-{guid}',
                 lei=entity.lei,
                 country='ES',
                 doc_type=doc_type,

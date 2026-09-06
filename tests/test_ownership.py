@@ -214,3 +214,70 @@ def test_thirteenf_rows_value_unit_boundary():
     assert len(post_rows) == 1
     assert post_rows[0]["value_unit"] == "USD"
     assert post_rows[0]["value"] == 1000
+
+
+# ---- --limit caps NEW DOWNLOADS, never repairs (mirror of download_universe) ----
+def _e1(accession: str, day: int) -> FilingRecord:
+    return FilingRecord(
+        cik="320193", form_type=FormType.E1, sec_form="4", accession=accession,
+        company="Apple Inc.", filing_date=date(2024, 5, day),
+        primary_doc_url="https://x/form4.xml",
+        submission_url="https://sec/form4sub.txt")
+
+
+def _ownership_corpus(st: Storage, fetcher) -> None:
+    """One never-downloaded filing (newest) in front of two half-processed ones."""
+    recs = [_e1("acc-f4-3", 3)]
+    for accession, day in (("acc-f4-2", 2), ("acc-f4-1", 1)):
+        rec = _e1(accession, day)
+        st.fetch_and_store(rec, fetcher, dry_run=False)
+        rec.sha256 = None  # the interrupt marker: bytes on disk, nothing stamped
+        recs.append(rec)
+    st.save_records(recs, dry_run=False)
+
+
+def test_ownership_limit_caps_downloads_but_not_repairs(make_fetcher, config):
+    """``ownership --limit 0`` converges what is on disk and fetches nothing.
+
+    The loop used to ``break`` at the cap, so a curated-tier run with a small
+    ``--limit`` never reached the half-processed filings behind it -- and those
+    filings carry no ownership rows at all until they are repaired.
+    """
+    st = Storage(config)
+    fetcher = make_fetcher({"form4sub.txt": FORM4_SUBMISSION})
+    _ownership_corpus(st, fetcher)
+
+    rep = process_ownership(["320193"], dry_run=False, limit=0, config=config,
+                            fetcher=fetcher, storage=st)
+
+    assert rep.downloaded == 0 and rep.repaired == 2
+    assert rep.parsed_insider == 2, "a repaired filing is parsed like any other"
+    by_acc = {r.accession: r for r in st.load_manifest("320193").values()}
+    assert by_acc["acc-f4-2"].sha256 and by_acc["acc-f4-1"].sha256
+    assert not by_acc["acc-f4-3"].sha256, "the new download stays capped"
+
+
+def test_ownership_limit_leaves_complete_unparsed_filings_behind_the_cap(
+        make_fetcher, config):
+    """The boundary the ``--limit`` help states: past the cap only a REPAIR is
+    let through (it costs no network), and a filing that is already complete on
+    disk is not a repair -- it is skipped, ownership rows and all, until a run
+    without the cap reaches it. ``--limit 0`` therefore converges the
+    half-processed filings, not everything on disk.
+    """
+    st = Storage(config)
+    fetcher = make_fetcher({"form4sub.txt": FORM4_SUBMISSION})
+    rec = _e1("acc-f4-9", 9)
+    st.fetch_and_store(rec, fetcher, dry_run=False)  # complete: bytes + sha256
+    st.save_records([rec], dry_run=False)
+    assert rec.sha256, "the filing is complete on disk, so no repair is due"
+
+    capped = process_ownership(["320193"], dry_run=False, limit=0, config=config,
+                               fetcher=fetcher, storage=st)
+    assert capped.parsed_insider == 0 and capped.repaired == 0
+    assert not (config.ownership_dir / "0000320193.jsonl").exists()
+
+    uncapped = process_ownership(["320193"], dry_run=False, config=config,
+                                 fetcher=fetcher, storage=st)
+    assert uncapped.parsed_insider == 1, "an uncapped run parses it"
+    assert (config.ownership_dir / "0000320193.jsonl").exists()

@@ -21,6 +21,7 @@ from pathlib import Path
 from .config import Config, cusip6 as to_cusip6, cusip_full as to_cusip_full, normalize_cik
 from .http import Fetcher
 from .naming import canonical_name, name_as_of, parse_former_names
+from .storage import _atomic_write_text
 
 COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 
@@ -575,6 +576,10 @@ def resolve_ciks(ciks: Iterable[str], fetcher: Fetcher) -> list[Issuer]:
             tks = data.get("tickers") or []
             ticker = tks[0] if tks else ""
         except Exception:  # noqa: BLE001 - keep the CIK even if metadata is unavailable
+            # FOLLOW-UP: this swallows an upstream failure. It costs metadata
+            # only (the CIK still resolves and still counts as useful work), so
+            # surfacing it in the run report needs an errors out-param here and
+            # at both call sites -- deliberately not done in this wave.
             pass
         issuers.append(Issuer(cik=cik, ticker=ticker, company=name))
     return issuers
@@ -674,18 +679,21 @@ class Universe:
         return self.config.universe_dir / f"{name}.jsonl"
 
     def save(self, name: str, issuers: Iterable[Issuer]) -> Path:
-        path = self.path(name)
-        path.parent.mkdir(parents=True, exist_ok=True)
         # De-duplicate by CIK when present, else by ticker (unresolved members),
         # preserving order.
         seen: set[str] = set()
-        with path.open("w", encoding="utf-8") as fh:
-            for issuer in issuers:
-                key = issuer.cik or f"ticker:{issuer.ticker}"
-                if key in seen:
-                    continue
-                seen.add(key)
-                fh.write(json.dumps(asdict(issuer), ensure_ascii=False) + "\n")
+        rows: list[str] = []
+        for issuer in issuers:
+            key = issuer.cik or f"ticker:{issuer.ticker}"
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(json.dumps(asdict(issuer), ensure_ascii=False) + "\n")
+        path = self.path(name)
+        # Same atomic tmp+rename as every other corpus write: a truncating
+        # open("w") that dies mid-rebuild left a half-written universe on disk,
+        # and every later command reads this file as authoritative.
+        _atomic_write_text(path, "".join(rows))
         return path
 
     def load(self, name: str) -> list[Issuer]:

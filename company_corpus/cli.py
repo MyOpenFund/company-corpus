@@ -26,6 +26,10 @@ render-pdf            sec        rendered+would+skipped+
 xbrl                  sec        issuers processed            period summaries        companyfacts errors
 ownership             sec        issuers processed            insider+13F+passthrough ownership errors
                                                               + would_download (dry)
+build-universe        sec        distinct inputs examined     issuers resolved        (none: see below --
+                                                                                      an upstream fetch
+                                                                                      failure is a fetch
+                                                                                      error)
 enrich-openfigi       sec        identifiers submitted        identifiers mapped      (none: see below)
 eu-financials         xbrlorg    entities resolved            period summaries        ``out["errors"]``
 eu-acquire            per        entities dispatched to       documents kept from     that backend's
@@ -43,6 +47,21 @@ Three deliberate choices:
   a dry run with errors and zero candidates is ``degraded`` — never a green
   "nothing to do". ``download`` is the one exception: its producer has no
   would-download counter, so a dry-run download reports ``docs_new=0``.
+* **``build-universe`` counts resolutions, never files.** It is in this set for
+  the corpus lock (it rewrites ``data/universe/*.jsonl``, which every later
+  command reads as authoritative) and for the trail; its useful work is an issuer
+  resolved to a CIK. An identifier that resolves to nothing is *not* an error —
+  a delisted index member is deliberately kept with ``cik=""`` — so
+  ``docs_failed`` stays 0 and an all-unresolved input file is a clean "nothing
+  new" that still exits 0, as it always has. The shortfall stays visible as
+  ``docs_seen - docs_new`` and in the command's own stderr notes. **An upstream
+  fetch failure is not a no-match**: a dead cik-lookup (the name tier never ran)
+  and an EFTS lookup that errored out are recorded as *fetch errors*, so a run
+  left with nothing resolved by a dead upstream is ``degraded`` (exit 3), while
+  the same failure beside real resolutions stays ``ok`` with the error named in
+  the report. ``docs_seen`` counts each input once: the index branch keeps an
+  unresolved member in ``issuers`` *and* in ``unresolved``, and counting both
+  doubled the member count of an all-unresolved build.
 * **``enrich-openfigi`` is recorded under ``sec``.** OpenFIGI is a mapping
   service, not a document authority, so it gets no code of its own (``one code
   per real-world regulatory authority``, see :mod:`company_corpus.source_codes`);
@@ -67,6 +86,7 @@ Three deliberate choices:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import json
 import logging
@@ -81,6 +101,7 @@ from .completeness import build_matrix, summarize
 from .config import Config, normalize_cik
 from .entity import EntityRegistry
 from .http import Fetcher
+from .lock import CorpusLocked, corpus_lock
 from .pipeline import (
     discover_universe,
     download_universe,
@@ -108,12 +129,17 @@ from .registers.financials import (
 from .openfigi import coverage_hint, map_identifiers
 from .rag import iter_items
 from .runreport import RunReport as DoctrineReport
-from .source_codes import source_code_for
+from .source_codes import is_local_source, source_code_for
 from .sources.cik_lookup import fetch_cik_lookup, parse_cik_lookup
 from .sources.edgar_fts import EdgarFTS
 from .sources.edgar_index import EdgarFullIndex
-from .storage import Storage
+from .storage import Storage, _atomic_write_text, _jsonl as _jsonl_text
 from .taxonomy import FULL_SCOPE, parse_scope
+from .verify import (
+    as_json as verify_as_json,
+    format_text as verify_text,
+    scan as verify_scan,
+)
 from .universe import (
     Issuer,
     Universe,
@@ -139,7 +165,7 @@ from .universe import (
 REPORTING_CMDS = {
     "discover", "discover-index", "download", "render-pdf", "xbrl",
     "ownership", "enrich-openfigi", "eu-financials", "register-financials",
-    "eu-acquire",
+    "eu-acquire", "build-universe",
 }
 
 
@@ -208,6 +234,21 @@ def _feed_report(
         msgs = [f"{code}: backend reported a truncated result"]
     for msg in msgs:
         stats.record_fetch_error(msg, truncated=truncated)
+
+
+def _feed_local_refusals(report, items) -> None:
+    """Fold refusals the corpus made itself into the report, under no source row.
+
+    ``items`` carry a :data:`company_corpus.source_codes.LOCAL_SOURCES` tag
+    (``"storage"`` today): the no-shrink guard refused a write, so nothing was
+    asked of any backend and no authority may be charged for it. Counted as
+    failures of the run (``local_refusals`` + ``totals.docs_failed``), which is
+    what the exit-code doctrine reads.
+    """
+    if report is None:
+        return
+    for msg in _error_messages(items):
+        report.record_local_refusal(msg)
 
 
 def _feed_from_out(report, code: str, out: dict) -> None:
@@ -303,6 +344,56 @@ def _add_period_flags(p: argparse.ArgumentParser) -> None:
     p.add_argument("--until", default=None, help="end date filter (YYYY-MM-DD)")
 
 
+def _add_table_write_flags(p: argparse.ArgumentParser, *, partial_write: bool = False) -> None:
+    """Add the escape hatches out of the group-replace table merge.
+
+    The merge is the default because a narrowed re-run used to delete the
+    periods it did not look at (DI-C3 / Rob-C8). ``--replace`` gets the
+    destructive write back for an operator who genuinely wants to rebuild a
+    table from scratch -- the RUN replaces, so a producer that writes one
+    entity's table once per zip member or once per yearly file still ends up
+    with everything the run produced -- and ``--allow-shrink`` confirms the loss
+    the no-shrink guard would otherwise refuse. ``--allow-partial-write`` is
+    offered only by the commands whose ``--limit`` narrows the rows they emit.
+    """
+    p.add_argument("--replace", action="store_true",
+                   help="the run replaces each table it writes instead of merging into "
+                        "it (destructive: drops periods this run did not produce). "
+                        "Replacement is once per table per run: a table this run writes "
+                        "several times is replaced by the first write and merged after")
+    p.add_argument("--allow-shrink", action="store_true", dest="allow_shrink",
+                   help="with --replace: accept a write that drops stored record groups")
+    if partial_write:
+        p.add_argument("--allow-partial-write", action="store_true", dest="allow_partial_write",
+                       help="accept --limit with --write (a partial run's coverage file "
+                            "reports on a subset of the universe)")
+
+
+#: Flags that mean "this invocation writes into the corpus". Only writers take
+#: the corpus lock; a read-only command must never block on a running crawl.
+_WRITING_FLAGS = ("write", "download")
+
+
+def _is_writing_run(args: argparse.Namespace) -> bool:
+    return any(bool(getattr(args, flag, False)) for flag in _WRITING_FLAGS)
+
+
+@contextlib.contextmanager
+def _corpus_lock_if_writing(args: argparse.Namespace):
+    """Hold the single-writer corpus lock for a writing run, and only then.
+
+    Two overlapping writers used to interleave read-modify-rewrite passes over
+    the same manifest and tables, losing rows with no error anywhere (DI-I1 /
+    Rob-I9 / Contract I-7). A dry run mutates nothing, so it neither takes nor
+    waits for the lock -- and so never creates the lock file either.
+    """
+    if not _is_writing_run(args):
+        yield
+        return
+    with corpus_lock(_config(args), purpose=args.cmd):
+        yield
+
+
 def _config(args: argparse.Namespace) -> Config:
     """Build a Config, honoring the top-level --data-dir / --contact overrides.
 
@@ -316,7 +407,41 @@ def _config(args: argparse.Namespace) -> Config:
         kw["contact"] = args.contact
     if getattr(args, "insecure", False):
         kw["verify_tls"] = False
+    # Table-writing commands only: --replace makes the run (not each write)
+    # replace the tables it touches, --allow-shrink lifts the no-shrink guard
+    # that replacement then trips (see Storage._write_table).
+    if getattr(args, "replace", False):
+        kw["replace_tables"] = True
+    if getattr(args, "allow_shrink", False):
+        kw["no_shrink_fraction"] = 1.0
     return Config(**kw)
+
+
+#: Commands whose ``--limit`` narrows what a TABLE producer emits (as opposed to
+#: capping downloads against an already-merged manifest).
+_LIMIT_NARROWS_A_TABLE = ("ownership", "register-financials")
+
+
+def _check_limit_guard(args: argparse.Namespace) -> None:
+    """``--limit`` narrows a table producer's output.
+
+    With the merge core in place a limited run can no longer delete history, so
+    the ``--write`` refusal is defence in depth -- but a limited run still
+    writes a coverage file claiming a status for a subset of the universe, and
+    under ``--replace`` it is once again the Rob-C8 truncation (an operator
+    smoke test with ``--limit 2`` used to destroy two fiscal years). Only the
+    non-replacing case has an override.
+    """
+    if getattr(args, "limit", None) is None:
+        return
+    if getattr(args, "replace", False):
+        print("error: --limit cannot be combined with --replace", file=sys.stderr)
+        raise SystemExit(2)
+    if (args.cmd in _LIMIT_NARROWS_A_TABLE and getattr(args, "write", False)
+            and not getattr(args, "allow_partial_write", False)):
+        print("error: --limit with --write narrows a table producer; pass "
+              "--allow-partial-write to accept a partial run", file=sys.stderr)
+        raise SystemExit(2)
 
 
 def _ciks_for(args: argparse.Namespace, config: Config) -> list[str]:
@@ -430,8 +555,41 @@ def _name_tier(args, cfg, fetcher):
             "building from ticker/CUSIP only",
             file=sys.stderr,
         )
+        # An unreadable cik-lookup is an upstream failure, not a no-match: the
+        # name tier never ran, so the rows it would have resolved are missing
+        # work. Recorded as a fetch error (not ``docs_failed``), which degrades
+        # the run only if nothing else resolved.
+        _feed_report(getattr(args, "report", None), "sec",
+                     errors=[f"cik-lookup: {exc}"])
         return None, None, ledger_path
     return parse_cik_lookup(text), load_name_cache(ledger_path), ledger_path
+
+
+def _feed_universe_report(args: argparse.Namespace, issuers, unresolved) -> None:
+    """Fold a build-universe leg into the run report.
+
+    ``docs_new`` is the issuers carrying a CIK -- the unit of useful work here is
+    a resolved issuer, not a written file, so a dry run is counted like the other
+    dry runs (what it *would* persist). ``docs_failed`` stays 0 on purpose: an
+    input that resolves to nothing is a documented, recorded outcome of this
+    command (a delisted member is kept with ``cik=""``), not an upstream failure,
+    and treating it as one would degrade every historical index build. The count
+    is still visible as ``docs_seen - docs_new``, and on stderr. An *upstream*
+    failure is a different thing and is fed separately, as a fetch error, by the
+    callers (a dead cik-lookup, an unreadable EFTS).
+
+    ``docs_seen`` is distinct inputs examined. The two branches disagree on what
+    ``unresolved`` holds: the index branch keeps every member in ``issuers``
+    (with ``cik=""``) *and* names it in ``unresolved``, while the from-file branch
+    drops the row and names it only in ``unresolved``. So the entries already
+    carried by a CIK-less issuer are subtracted -- counting them twice inflated
+    an all-unresolved S&P build to twice its member count.
+    """
+    resolved = sum(1 for it in issuers if getattr(it, "cik", ""))
+    cikless = {getattr(it, "ticker", "") for it in issuers if not getattr(it, "cik", "")}
+    extra = sum(1 for u in (unresolved or ()) if u not in cikless)
+    _feed_report(getattr(args, "report", None), "sec",
+                 seen=len(issuers) + extra, new=resolved)
 
 
 def _cmd_build_universe(args: argparse.Namespace) -> int:
@@ -476,9 +634,7 @@ def _cmd_build_universe(args: argparse.Namespace) -> int:
             crows = 0
             if changes:
                 cpath = uni.path(name).with_name(f"{name}_changes.jsonl")
-                with cpath.open("w", encoding="utf-8") as fh:
-                    for ch in changes:
-                        fh.write(json.dumps(ch, ensure_ascii=False) + "\n")
+                _atomic_write_text(cpath, _jsonl_text(changes))
                 crows = len(changes)
             print(f"wrote {len(issuers)} issuers ({mode}) -> {path}"
                   + (f"; {crows} dated changes -> {cpath}" if crows else ""))
@@ -487,9 +643,11 @@ def _cmd_build_universe(args: argparse.Namespace) -> int:
             print(f"[dry-run] S&P 500 {mode}: {len(issuers)} members "
                   f"({resolved} with CIK, {len(issuers) - resolved} unresolved), "
                   f"{len(changes)} dated changes. Re-run with --write to persist.")
+        _feed_universe_report(args, issuers, unresolved)
         return 0
 
     issuers: list = []
+    unresolved: list = []
     if args.tickers:
         tickers = [t for t in args.tickers.split(",") if t.strip()]
         resolved, unresolved = resolve_tickers(tickers, fetcher)
@@ -510,6 +668,9 @@ def _cmd_build_universe(args: argparse.Namespace) -> int:
         for it in issuers:
             print(f"  {it.cik}  {it.ticker:<8} {it.company}")
         print("re-run with --write to persist")
+    # Fed after the save, like the two other branches, so the report is written
+    # from what the run actually got through.
+    _feed_universe_report(args, issuers, unresolved)
     return 0
 
 
@@ -580,14 +741,18 @@ def _build_universe_from_file(args: argparse.Namespace, cfg, fetcher) -> int:
         msg = f"wrote {len(issuers)} issuers -> {path}"
         if collisions:
             cpath = uni.path(args.name).with_name(f"{args.name}_collisions.jsonl")
-            with cpath.open("w", encoding="utf-8") as fh:
-                for c in collisions:
-                    fh.write(json.dumps(c, ensure_ascii=False) + "\n")
+            _atomic_write_text(cpath, _jsonl_text(collisions))
             msg += f"; {len(collisions)} collisions -> {cpath}"
         print(msg)
     else:
         print(f"[dry-run] {len(issuers)} issuers for universe '{args.name}' "
               f"({len(collisions)} collisions held out). Re-run with --write to persist.")
+    if fts is not None and fts.errors:
+        # EFTS lookups that never completed: the CUSIPs behind them are not
+        # "no such issuer", they were never asked. Fetch errors, not failures.
+        _feed_report(getattr(args, "report", None), "sec",
+                     errors=[e["error"] for e in fts.errors])
+    _feed_universe_report(args, issuers, unresolved)
     return 0
 
 
@@ -646,13 +811,14 @@ def _cmd_discover(args: argparse.Namespace) -> int:
             dry_run=False, overwrite=args.overwrite, limit=args.limit, config=cfg,
             run_id=_run_id(args),
         )
-        print(f"download — got={dl.downloaded} skipped={dl.skipped} errors={dl.errors} "
-              f"bytes={dl.bytes:,}")
+        print(f"download — got={dl.downloaded} repaired={dl.repaired} "
+              f"skipped={dl.skipped} errors={dl.errors} bytes={dl.bytes:,}")
         # The download leg folds into the same `sec` source: both legs of a
-        # `discover --download` run are work on SEC documents.
+        # `discover --download` run are work on SEC documents. A repair adopts
+        # bytes that were previously unusable, so it counts as new work.
         _feed_report(getattr(args, "report", None), "sec",
-                     seen=dl.downloaded + dl.skipped + dl.empty + dl.errors,
-                     new=dl.downloaded, failed=dl.errors, errors=dl.error_items)
+                     seen=dl.downloaded + dl.repaired + dl.skipped + dl.empty + dl.errors,
+                     new=dl.downloaded + dl.repaired, failed=dl.errors, errors=dl.error_items)
     return 0
 
 
@@ -668,15 +834,18 @@ def _cmd_download(args: argparse.Namespace) -> int:
         run_id=_run_id(args),
     )
     mode = "DRY-RUN (nothing written)" if dry_run else "WROTE"
-    print(f"download [{mode}] — got={dl.downloaded} skipped={dl.skipped} "
-          f"empty={dl.empty} errors={dl.errors} bytes={dl.bytes:,}")
+    # `repaired` is the adoption signal an operator needs: those documents were
+    # already on disk but unusable, and no byte was re-fetched to recover them.
+    repaired = dl.would_repair if dry_run else dl.repaired
+    print(f"download [{mode}] — got={dl.downloaded} repaired={repaired} "
+          f"skipped={dl.skipped} empty={dl.empty} errors={dl.errors} bytes={dl.bytes:,}")
     if dl.error_items:
         print(f"  errors logged: {len(dl.error_items)} (see discovery_errors.jsonl)")
     # No would-download counter exists, so a dry run legitimately reports
     # docs_new=0 (documented in the module docstring).
     _feed_report(getattr(args, "report", None), "sec",
-                 seen=dl.downloaded + dl.skipped + dl.empty + dl.errors,
-                 new=dl.downloaded, failed=dl.errors, errors=dl.error_items)
+                 seen=dl.downloaded + dl.repaired + dl.skipped + dl.empty + dl.errors,
+                 new=dl.downloaded + dl.repaired, failed=dl.errors, errors=dl.error_items)
     return 0
 
 
@@ -802,6 +971,8 @@ def _cmd_eu_acquire(args: argparse.Namespace) -> int:
     documents that WOULD be acquired and any dead backend. ``--write`` downloads
     and writes everything; ``--write --no-download`` is a discovery-only run
     that still leaves the entity index, the coverage file and the error trail.
+    The coverage file is merged across runs like every other one; ``--replace``
+    (plus ``--allow-shrink``) resets it to what this run produced.
 
     The run report gets one row per backend (see the module docstring). A spec
     that resolved to no LEI reaches no backend and therefore no report row, so
@@ -852,11 +1023,20 @@ def _cmd_eu_acquire(args: argparse.Namespace) -> int:
                      truncated=bool(st.get("truncated", False)))
     # An error tagged with a backend that reported no counts (cannot happen by
     # construction) is still fed under that backend's code — never dropped; an
-    # untagged one is a producer bug and raises rather than vanish.
+    # untagged one is a producer bug and raises rather than vanish. A LOCAL
+    # refusal (the coverage write the no-shrink guard refused, tagged
+    # ``source: "storage"``) is neither: it is the corpus's own decision, so it
+    # goes to the report's local-refusal counter instead of an authority's row.
+    # Feeding it as a backend raised ``KeyError: 'storage'`` and turned a
+    # contained refusal into a fatal run — the one failure mode this whole
+    # containment work exists to prevent.
     for name, items in items_by_source.items():
         if not name:
             raise RuntimeError(f"eu-acquire: {len(items)} error item(s) carry no backend "
                                f"source: {items[0]!r}")
+        if is_local_source(name):
+            _feed_local_refusals(report, items)
+            continue
         _feed_report(report, name, failed=len(items), errors=items)
     return _unresolved_verdict("eu-acquire", out)
 
@@ -885,6 +1065,7 @@ def _print_reg_result(rep: dict, args: argparse.Namespace) -> None:
 
 
 def _cmd_register_financials(args: argparse.Namespace) -> int:
+    _check_limit_guard(args)
     cfg = _config(args)
     if getattr(args, "limit", None) is not None and not (
         getattr(args, "ch_bulk", None)
@@ -988,6 +1169,7 @@ def _cmd_register_financials(args: argparse.Namespace) -> int:
 
 
 def _cmd_ownership(args: argparse.Namespace) -> int:
+    _check_limit_guard(args)
     cfg = _config(args)
     ciks = _ciks_for(args, cfg)
     scope = parse_scope(args.forms) if args.forms else None
@@ -1012,6 +1194,40 @@ def _cmd_ownership(args: argparse.Namespace) -> int:
                  + rep.would_download,
                  failed=rep.errors, errors=rep.error_items)
     return 0
+
+
+def _cmd_verify(args: argparse.Namespace) -> int:
+    """Report corpus integrity findings. Reads; never writes, never locks.
+
+    Exit codes follow the doctrine of the run commands even though this one
+    keeps no run-report: ``0`` clean, ``3`` degraded (findings — the corpus can
+    be read but is not what it claims to be), ``1`` fatal (the data directory
+    itself cannot be read, so nothing was checked and a ``0`` would be a lie).
+    """
+    config = _config(args)
+    if not config.data_dir.is_dir():
+        print(f"error: not a readable data directory: {config.data_dir}",
+              file=sys.stderr)
+        return 1
+    try:
+        ciks = [normalize_cik(c) for c in args.ciks.split(",") if c.strip()] \
+            if getattr(args, "ciks", None) else None
+    except ValueError as exc:
+        # A bad flag is a usage error (2), not a corpus verdict: exiting 3 here
+        # would report a healthy corpus as degraded on a typo.
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    try:
+        result = verify_scan(config, ciks=ciks, check_hashes=args.check_hashes)
+    except OSError as exc:
+        print(f"error: cannot read {config.data_dir}: {exc}", file=sys.stderr)
+        return 1
+
+    if args.as_json:
+        print(json.dumps(verify_as_json(result), ensure_ascii=False))
+    else:
+        print(verify_text(result))
+    return 3 if result.findings else 0
 
 
 def _cmd_rag_items(args: argparse.Namespace) -> int:
@@ -1199,7 +1415,10 @@ def build_parser() -> argparse.ArgumentParser:
     di.add_argument("--write", action="store_true", help="persist manifests (else dry-run)")
     di.add_argument("--download", action="store_true", help="also download+decompose (implies --write)")
     di.add_argument("--overwrite", action="store_true", help="re-download already-stored filings")
-    di.add_argument("--limit", type=int, default=None, help="cap number of new downloads")
+    di.add_argument("--limit", type=int, default=None,
+                    help="cap number of new downloads in the --download step (repairs "
+                         "are not capped: they cost no network and the run still walks "
+                         "the whole selection; reported as repaired=)")
     di.set_defaults(func=_cmd_discover)
 
     dl = sub.add_parser("download", help="download+decompose filings from existing manifests")
@@ -1210,7 +1429,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_period_flags(dl)
     dl.add_argument("--write", action="store_true", help="persist files+manifest (else dry-run)")
     dl.add_argument("--overwrite", action="store_true", help="re-download already-stored filings")
-    dl.add_argument("--limit", type=int, default=None, help="cap number of new downloads")
+    dl.add_argument("--limit", type=int, default=None,
+                    help="cap number of new downloads (repairs are not capped: the run "
+                         "walks the whole selection and re-derives every half-processed "
+                         "document from bytes already on disk, reported as repaired=. "
+                         "--limit 0 is therefore a download-free convergence pass)")
     dl.set_defaults(func=_cmd_download)
 
     rp = sub.add_parser("report", help="completeness matrix (issuer x form x year)")
@@ -1250,6 +1473,7 @@ def build_parser() -> argparse.ArgumentParser:
     xb.add_argument("--years", default=None,
                     help="keep periods whose fiscal year is in this range, e.g. 2015-2025 or 2024")
     xb.add_argument("--write", action="store_true", help="persist summaries+facts (else dry-run)")
+    _add_table_write_flags(xb)
     xb.set_defaults(func=_cmd_xbrl)
 
     euf = sub.add_parser("eu-financials",
@@ -1260,6 +1484,7 @@ def build_parser() -> argparse.ArgumentParser:
     euf.add_argument("--write", action="store_true", help="persist tables (else dry-run)")
     euf.add_argument("--arelle", action="store_true",
                      help="also parse local ESEF .zip packages with Arelle (Tier B; needs the eu-financials extra)")
+    _add_table_write_flags(euf)
     euf.set_defaults(func=_cmd_eu_financials)
 
     eua = sub.add_parser("eu-acquire",
@@ -1273,6 +1498,11 @@ def build_parser() -> argparse.ArgumentParser:
                           "file and the error trail (else dry-run: discovery only, nothing written)")
     eua.add_argument("--no-download", action="store_true", dest="no_download",
                      help="with --write: discovery only (entity index + coverage + trail, no files)")
+    # eu-acquire writes reports/eu_coverage.jsonl, which is merged across runs
+    # like every other coverage file -- so it needs the same reset. Without it an
+    # operator rebuilding a universe from scratch had no way to drop the rows of
+    # the issuers no longer in it, and stale rows read as coverage forever.
+    _add_table_write_flags(eua)
     eua.set_defaults(func=_cmd_eu_acquire)
 
     rf = sub.add_parser("register-financials",
@@ -1315,6 +1545,7 @@ def build_parser() -> argparse.ArgumentParser:
     rf.add_argument("--limit", type=int, default=None,
                     help="cap number of entities/reports processed (--ch-bulk, --ee-file, --ee-year)")
     rf.add_argument("--write", action="store_true", help="persist tables (else dry-run)")
+    _add_table_write_flags(rf, partial_write=True)
     rf.set_defaults(func=_cmd_register_financials)
 
     ow = sub.add_parser("ownership", help="download+structure ownership filings (family E)")
@@ -1325,8 +1556,27 @@ def build_parser() -> argparse.ArgumentParser:
     _add_period_flags(ow)
     ow.add_argument("--write", action="store_true", help="download+persist summaries (else dry-run)")
     ow.add_argument("--overwrite", action="store_true", help="re-download already-stored filings")
-    ow.add_argument("--limit", type=int, default=None, help="cap number of new downloads")
+    ow.add_argument("--limit", type=int, default=None,
+                    help="cap number of new downloads (repairs are not capped; "
+                         "--limit 0 is a download-free pass that converges and "
+                         "parses every HALF-PROCESSED filing on disk — a filing "
+                         "already complete on disk needs no repair and is left "
+                         "for an uncapped run)")
+    _add_table_write_flags(ow, partial_write=True)
     ow.set_defaults(func=_cmd_ownership)
+
+    vf = sub.add_parser(
+        "verify",
+        help="check corpus invariants (read-only: writes nothing, takes no lock, "
+             "safe beside a running crawl)")
+    vf.add_argument("--ciks", help="comma-separated CIKs (default: every manifest; "
+                                   "a CIK filter skips the LEI-keyed EU pillar)")
+    vf.add_argument("--hash", action="store_true", dest="check_hashes",
+                    help="re-hash every stored artefact (slow: re-reads the whole "
+                         "corpus; the default pass is metadata only)")
+    vf.add_argument("--json", action="store_true", dest="as_json",
+                    help="emit findings as JSON")
+    vf.set_defaults(func=_cmd_verify)
 
     ri = sub.add_parser("rag-items", help="preview SourceItems the RAG would ingest")
     risrc = ri.add_mutually_exclusive_group(required=False)
@@ -1359,7 +1609,14 @@ def main(argv: list[str] | None = None) -> int:
     report = DoctrineReport("company-corpus", args.cmd)
     args.report = report
     try:
-        func_rc = args.func(args)
+        with _corpus_lock_if_writing(args):
+            func_rc = args.func(args)
+    except CorpusLocked as exc:
+        # Its own branch, before the generic handler: a refused start is not a
+        # crash, and the operator needs the holder named rather than a traceback.
+        print(f"error: {exc}", file=sys.stderr)
+        rc = report.finish(fatal=str(exc))
+        return _write_report(report, args, rc)
     except Exception as exc:
         rc = report.finish(fatal=f"{type(exc).__name__}: {exc}")
         rc = _write_report(report, args, rc)

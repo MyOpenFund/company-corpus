@@ -10,7 +10,7 @@ from datetime import date, datetime, timezone
 
 import requests
 
-from ..documents import Document
+from ..documents import Document, source_key
 from ..entities import Entity
 from ..oam_base import OamSource
 
@@ -54,13 +54,17 @@ class FilingsXbrlOrg(OamSource):
             files = [{"name": (a.get(k) or "").rsplit("/", 1)[-1],
                       "url": self.BASE + a[k], "kind": k}
                      for k in ("package_url", "report_url", "json_url") if a.get(k)]
-            out.append(Document(
-                doc_id=f"fxo-{row.get('id')}", lei=entity.lei, country=a.get("country", entity.country),
+            doc = self._emit(
+                error_url=url,
+                native_id=source_key(row.get("id")), lei=entity.lei,
+                country=a.get("country", entity.country),
                 doc_type="annual_report", period_end=_to_date(a.get("period_end")),
                 published_ts=a.get("date_added"), discovered_ts=now, language=None,
                 source=self.name,
                 files=[dict(f, sha256=a.get("sha256") if f["kind"] == "package_url" else None) for f in files],
-                native_meta=a))
+                native_meta=a)
+            if doc is not None:
+                out.append(doc)
         return out
 
 

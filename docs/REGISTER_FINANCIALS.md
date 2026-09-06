@@ -1999,7 +1999,7 @@ company-corpus register-financials \
 # cap to the first N reports (bounded test run)
 company-corpus register-financials \
   --ee-file 4.2024_aruannete_elemendid.zip 1.aruannete_yldandmed.zip \
-  --limit 1000 --write
+  --limit 1000 --write --allow-partial-write
 
 # online path: download bulk zips for a given year (explicit URLs required)
 company-corpus register-financials --ee-year 2024 \
@@ -2010,7 +2010,11 @@ company-corpus register-financials --ee-year 2024 \
 
 `--write` is the only side-effecting flag. Omitting it is a safe dry-run that prints
 entity / period / unbalanced counts without touching disk. `--limit N` caps the number
-of reports processed and is available for both `--ee-file` and `--ee-year`.
+of reports processed and is available for both `--ee-file` and `--ee-year`; combining it
+with `--write` needs `--allow-partial-write`, because a capped run's coverage report
+describes only the slice it processed. The table write itself merges rather than
+replaces (see `docs/ARCHITECTURE.md` §3), so a capped run no longer deletes the
+periods it did not process.
 
 The `--ee-file` and `--ee-year` flags are mutually exclusive with each other and with
 `--orgnrs`, `--leis`, `--ch-bulk`, `--be-file`, `--be-numbers`, `--fi-file`,
@@ -2377,7 +2381,8 @@ company-corpus register-financials \
 company-corpus register-financials --sk-id 12345 67890
 
 # traverse API: multiple entity IDs, bounded batch, persist to disk
-company-corpus register-financials --sk-id 12345 67890 --limit 100 --write
+company-corpus register-financials --sk-id 12345 67890 --limit 100 --write \
+  --allow-partial-write
 ```
 
 `--write` is the only side-effecting flag. Omitting it is a safe dry-run that prints

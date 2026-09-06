@@ -12,33 +12,195 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import tempfile
 import warnings
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from .config import Config, normalize_cik
+from .config import Config, normalize_cik, normalize_lei
 from .extract import clean_text
 from .models import FilingRecord
+from .paths import safe_component
 from .submission import filename_from_url, parse_submission, select_primary
 
 
-def _atomic_write_text(path: Path, data: str) -> None:
-    """Write ``data`` to ``path`` atomically: a tmp sibling + ``os.replace``.
+def _read_umask() -> int:
+    """The process umask, read once at import.
 
-    An interrupt (Ctrl-C, crash, disk-full) mid-write leaves the tmp file behind,
-    never a truncated destination, so readers and idempotent re-runs always see a
-    complete prior version rather than a half-written file that fails to parse.
+    ``os.umask`` is a set-and-return call with no getter, so the only way to read
+    the mask is to set it and put it back. That two-step is not atomic, so it is
+    done here at import time -- before this process has spawned any thread that
+    could create a file while the mask is momentarily 0o077.
+    """
+    value = os.umask(0o077)
+    os.umask(value)
+    return value
+
+
+_UMASK = _read_umask()
+
+
+def data_file_mode() -> int:
+    """The permissions a corpus file must end up with.
+
+    ``tempfile.mkstemp`` hardcodes 0o600 (it is built for secrets), so an atomic
+    write through it produced manifests, tables, extracts and raw downloads that
+    only the crawling account could read -- the RAG ingester and the NAS share
+    consumers run as other accounts. Reapply what a plain ``open()`` would have
+    given: 0o666 masked by the umask, i.e. the operator's own policy.
+
+    The umask is the module-level ``_UMASK``, SNAPSHOT AT IMPORT and never read
+    again -- ``os.umask`` has no getter, so reading it means setting it and
+    putting it back, which is not atomic and must not happen once threads exist
+    (see :func:`_read_umask`). The consequence to know: a process that changes
+    its umask after importing this module keeps getting the modes the umask had
+    at import. That is the right trade for a CLI (one process, one policy, set
+    by the shell that launched it), and the wrong assumption for a long-lived
+    server embedding this library and flipping umask per request -- such a
+    caller should set its umask before the import, or set the modes itself.
+    """
+    return 0o666 & ~_UMASK
+
+
+def _atomic_write_text(path: Path, data: str) -> None:
+    """Write ``data`` to ``path`` atomically: a UNIQUE tmp sibling + ``os.replace``.
+
+    An interrupt mid-write leaves a tmp file behind, never a truncated
+    destination. The tmp name is unique per call: a fixed ``<name>.tmp`` sibling
+    meant two writers of the same destination shared one temp path, so whichever
+    called ``os.replace`` second died with FileNotFoundError and lost its whole
+    write (DI-I1 / Rob-I9).
     """
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.tmp")
-    tmp.write_text(data, encoding="utf-8")
-    os.replace(tmp, path)  # atomic on the same filesystem (tmp is a sibling)
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name}.", suffix=".tmp")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(data)
+            # Undo mkstemp's 0o600 before the rename, so the destination is never
+            # visible under its final name with owner-only permissions.
+            os.fchmod(fd, data_file_mode())
+        os.replace(tmp, path)  # atomic on the same filesystem (tmp is a sibling)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _jsonl(rows: Iterable[dict]) -> str:
     return "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)
+
+
+#: Natural key of a financials row *within* one entity's file: the period, its
+#: frequency, the source that reported it, and the register's company /
+#: consolidated basis. The entity is the file, so it is not part of the key.
+#: This is the table's schema, not a tunable.
+FINANCIALS_GROUP_KEY: tuple[str, ...] = ("source", "period_end", "frequency", "basis")
+
+#: Natural key of an ownership row: the SEC accession. One filing is one
+#: indivisible parse -- a Form 4 may legitimately carry two byte-identical
+#: transaction lines, which a finer key would silently dedupe.
+OWNERSHIP_GROUP_KEY: tuple[str, ...] = ("accession",)
+
+
+#: Fields that identify a coverage row, most specific first. Each producer names
+#: its subject differently (`orgnr`, `ch_number`, `ico`, `lei`, ...) and each
+#: coverage file is per source, so one ordered list keys them all without a
+#: per-producer literal. ``lei`` leads because it is the only identifier an
+#: entity already has *before* the register resolves it: keying on the register
+#: id first would file an entity's `unresolved` row and its later `ok` row as two
+#: different entities. ``name`` is the last resort, for an unresolved spec that
+#: never got an identifier. This is the coverage schema, not a tunable.
+COVERAGE_KEY_FIELDS: tuple[str, ...] = (
+    "lei", "orgnr", "ch_number", "be_number", "business_id", "rcs", "cvr",
+    "registrikood", "ico", "entity_id", "name",
+)
+
+
+def coverage_key(row: dict) -> tuple:
+    """Natural key of one coverage row: its first present identifier.
+
+    A row carrying none of them (an unresolved spec with no name at all) keys on
+    its own content, so identifier-less rows stay distinct instead of collapsing
+    onto one another.
+    """
+    for field_name in COVERAGE_KEY_FIELDS:
+        value = row.get(field_name)
+        if value:
+            return (field_name, value)
+    return ("row", json.dumps(row, sort_keys=True, default=str))
+
+
+class ShrinkGuardError(RuntimeError):
+    """A write would drop more of a table than ``no_shrink_fraction`` allows."""
+
+
+def group_key(fields: tuple[str, ...]):
+    """Return a key function reading ``fields`` off a row, in order."""
+
+    def _key(row: dict) -> tuple:
+        return tuple(row.get(f) for f in fields)
+
+    return _key
+
+
+def merge_rows(existing: list[dict], incoming: list[dict], *, key) -> list[dict]:
+    """Group-replace merge: the incoming batch replaces whole natural-key groups.
+
+    A group the batch mentions is replaced by the batch's version of it, so a
+    concept an issuer stopped reporting disappears with its period instead of
+    surviving as a stale row from an older vintage. A group the batch does NOT
+    mention is carried forward untouched, so a run narrowed by ``--years``,
+    ``--ciks`` or ``--limit`` can no longer delete history: ``xbrl --years 2024``
+    used to replace an issuer's whole table with 2024 (DI-C3), and a transient
+    5xx on one register call used to erode a year per night (Rob-C8).
+
+    Order is stable: stored groups keep their position, new groups are appended
+    in the order the batch produced them.
+    """
+    order: list[tuple] = []
+    groups: dict[tuple, list[dict]] = {}
+    for row in existing:
+        k = key(row)
+        if k not in groups:
+            groups[k] = []
+            order.append(k)
+        groups[k].append(row)
+    replacement: dict[tuple, list[dict]] = {}
+    for row in incoming:
+        k = key(row)
+        if k not in replacement:
+            replacement[k] = []
+            if k not in groups:
+                order.append(k)
+        replacement[k].append(row)
+    groups.update(replacement)
+    return [row for k in order for row in groups[k]]
+
+
+def _check_no_shrink(path: Path, before: set, after: set, *, fraction: float) -> None:
+    """Refuse a write that loses more of a table than ``fraction`` allows.
+
+    A merged write is monotone, so this can only fire under ``--replace`` --
+    which is exactly the operation whose purpose is destruction and therefore
+    the one that deserves a confirmation.
+
+    The message names ``--replace --allow-shrink`` because every command that
+    can reach this guard offers both flags: ``xbrl``, ``ownership``,
+    ``eu-financials``, ``register-financials`` and (since this chantier)
+    ``eu-acquire``, all through ``cli._add_table_write_flags``. A future writer
+    reachable from a command WITHOUT them would make the remedy a lie, so wire
+    the flags in with the command.
+    """
+    if len(after) >= len(before):
+        return
+    lost = len(before) - len(after)
+    if lost > len(before) * fraction:
+        raise ShrinkGuardError(
+            f"{path}: refusing to drop {lost} of {len(before)} record group(s) "
+            f"(no_shrink_fraction={fraction}). "
+            "Re-run with --replace --allow-shrink to force.")
 
 
 @dataclass
@@ -63,7 +225,8 @@ class DownloadResult:
     """Outcome of fetching + decomposing a single filing."""
 
     doc_id: str
-    status: str  # downloaded | skipped | would-download | empty | error
+    # downloaded | repaired | skipped | would-download | would-repair | empty | error
+    status: str
     bytes: int = 0
     error: str | None = None
 
@@ -82,6 +245,10 @@ class Storage:
 
     def __init__(self, config: Config | None = None):
         self.config = config or Config()
+        #: Tables this Storage has already replaced, under ``replace_tables``.
+        #: One Storage is one run, so replacement is spent once per table and
+        #: every later write of that table merges (see ``_write_table``).
+        self._replaced: set[Path] = set()
 
     # ---- manifests ----
     def load_manifest(self, cik: str) -> dict[str, FilingRecord]:
@@ -123,6 +290,22 @@ class Storage:
             total += self._save_cik(cik, recs, dry_run=dry_run)
         return total
 
+    def _carry_sticky(self, prior: FilingRecord, rec: FilingRecord) -> None:
+        """Fill the incoming record's empty artefact pointers from the stored one.
+
+        ``EdgarSubmissions.discover`` builds a fresh record on every run with
+        ``local_path``/``sha256``/``primary_path``/``text_path``/``pdf_path``
+        unset -- those are only ever written by ``fetch_and_store`` and
+        ``render_record``. The merge used to REPLACE the stored record with that
+        fresh one, so a second ``discover --write`` orphaned every downloaded
+        byte and destroyed the corpus's hash chain (DI-C1). Only *empty*
+        incoming fields are filled, so a run that genuinely re-derives an
+        artefact still wins.
+        """
+        for name in self.config.sticky_manifest_fields:
+            if not getattr(rec, name, None) and getattr(prior, name, None):
+                setattr(rec, name, getattr(prior, name))
+
     def _save_cik(
         self, cik: str, records: list[FilingRecord], *, dry_run: bool
     ) -> SaveStats:
@@ -136,9 +319,14 @@ class Storage:
                 stats.added += 1
                 changed = True
             elif prior.to_row() != rec.to_row():
-                existing[rec.doc_id] = rec
-                stats.updated += 1
-                changed = True
+                self._carry_sticky(prior, rec)
+                if prior.to_row() != rec.to_row():
+                    existing[rec.doc_id] = rec
+                    stats.updated += 1
+                    changed = True
+                else:
+                    # Nothing but the pointers differed: not an update.
+                    stats.unchanged += 1
             else:
                 stats.unchanged += 1
 
@@ -163,6 +351,97 @@ class Storage:
     def _rel(self, path: Path) -> str:
         return str(path.relative_to(self.config.data_dir))
 
+    def _needs_repair(self, record: FilingRecord) -> bool:
+        """Is a stored submission only half-processed?
+
+        The skip test used to be ``sub_path.exists()`` alone, so an interrupt
+        (SIGTERM, OOM, disk-full) between writing the submission and saving the
+        manifest left the document permanently stuck: no primary, no cleaned
+        text, no hash, invisible to ``rag.iter_items`` forever, recoverable only
+        by re-downloading every byte with ``--overwrite`` (Rob-C4). A missing
+        ``sha256`` is the marker: it is set by every complete pass, and it is
+        also what a wiped record (DI-C1) or a legacy row lacks (DI-M10). A
+        pointer aimed at bytes that are no longer on disk counts too -- since
+        DI-C1 made the pointers sticky, a dangling one can never clear itself.
+
+        "Complete" therefore means: a hash is stamped and *every SET pointer
+        exists*. An UNSET pointer is not incompleteness -- a legacy row whose
+        ``text_path`` is None is complete and must not be re-worked every night.
+        The hash is deliberately NOT recomputed from the bytes on disk: every
+        write this tool makes is atomic (``_atomic_write_text``), so a truncated
+        file cannot come from the tool, and re-hashing every stored submission
+        would turn a metadata check into a full corpus re-read.
+
+        ``record.local_path`` is not checked: the only caller sets it from a
+        ``sub_path`` it has just seen on disk, so that pointer is live by
+        construction.
+        """
+        if not record.sha256:
+            return True
+        for rel in (record.primary_path, record.text_path):
+            if rel and not (self.config.data_dir / rel).exists():
+                return True
+        return False
+
+    def _decompose(self, record: FilingRecord, raw: str, dest_dir: Path) -> None:
+        """Hash the submission and write the primary + cleaned-text artefacts.
+
+        Shared by the download and the repair paths, and -- unlike the inline
+        version it replaces -- always called from INSIDE the caller's ``try``:
+        one malformed submission used to abort the whole nightly download run
+        mid-issuer, which is precisely how a half-processed document is created
+        (Rob-C4).
+
+        The record is mutated only once every byte is parsed and written. The
+        old inline version stamped ``sha256`` before parsing, so a parse that
+        blew up left a record that ``_needs_repair`` would call complete --
+        stuck forever, because DI-C1 made the pointers sticky and a later save
+        can no longer clear them.
+        """
+        if not raw.strip():
+            # A truncated or interrupted transfer. Adopting it would stamp the
+            # hash of nothing on the record and declare the document done.
+            raise ValueError(
+                "stored submission is empty (re-download with --overwrite)"
+            )
+
+        sha256 = hashlib.sha256(raw.encode("utf-8", "replace")).hexdigest()
+        primary = select_primary(
+            parse_submission(raw),
+            primary_filename=filename_from_url(record.primary_doc_url),
+            sec_form=record.sec_form,
+        )
+        primary_rel = text_rel = None
+        if primary and primary.text:
+            ext = Path(primary.filename).suffix or ".txt"
+            primary_path = dest_dir / f"{record.doc_id}.primary{ext}"
+            _atomic_write_text(primary_path, primary.text)
+            primary_rel = self._rel(primary_path)
+
+            text_path = dest_dir / f"{record.doc_id}.txt"
+            _atomic_write_text(text_path, clean_text(primary.text, primary.filename))
+            text_rel = self._rel(text_path)
+
+        if not primary_rel:
+            # No primary came out of these bytes, and the record still points at
+            # a derived file that is not on disk. Stamping the hash here would
+            # call the document repaired while leaving the dangling pointer in
+            # place (it is sticky since DI-C1, so clearing it would not help
+            # either): `_needs_repair` fires again next run and the same
+            # document is reported as `repaired` every night, inflating
+            # `docs_new` forever. Only a re-fetch can settle it.
+            for rel in (record.primary_path, record.text_path):
+                if rel and not (self.config.data_dir / rel).exists():
+                    raise ValueError(
+                        "submission yields no primary document but the record "
+                        f"points at missing {rel}; re-download with --overwrite"
+                    )
+
+        record.sha256 = sha256
+        if primary_rel:
+            record.primary_path = primary_rel
+            record.text_path = text_rel
+
     def fetch_and_store(
         self,
         record: FilingRecord,
@@ -176,15 +455,34 @@ class Storage:
         Writes three layered artifacts under ``data/raw/<cik>/<form>/<year>/``:
         the full submission (``.submission.txt``), the decomposed primary
         document (``.primary<ext>``), and cleaned text (``.txt``). Mutates
-        ``record`` with the resulting paths + sha256. Idempotent: an existing
-        submission is skipped unless ``overwrite`` is set.
+        ``record`` with the resulting paths + sha256.
+
+        Idempotent *and* convergent: an existing submission is skipped only when
+        the derived artefacts are actually there, otherwise it is repaired from
+        the bytes already on disk -- no network, no ``--overwrite`` (Rob-C4).
+
+        A stored submission that is empty, or that yields no primary while the
+        record still points at a missing artefact, cannot be settled from disk:
+        it is returned as an ``error`` (never a repeating ``repaired``) and its
+        remedy is in the error text -- re-download it with ``--overwrite``.
         """
         dest_dir = self.raw_dir_for(record)
         sub_path = dest_dir / f"{record.doc_id}.submission.txt"
 
         if sub_path.exists() and not overwrite:
             record.local_path = self._rel(sub_path)
-            return DownloadResult(record.doc_id, "skipped")
+            if not self._needs_repair(record):
+                return DownloadResult(record.doc_id, "skipped")
+            if dry_run:
+                return DownloadResult(record.doc_id, "would-repair")
+            try:
+                raw = sub_path.read_text(encoding="utf-8")
+                self._decompose(record, raw, dest_dir)
+            except Exception as exc:  # noqa: BLE001
+                return DownloadResult(record.doc_id, "error",
+                                      error=f"repairing stored submission: {exc}")
+            return DownloadResult(record.doc_id, "repaired")
+
         if dry_run:
             return DownloadResult(record.doc_id, "would-download")
         if not record.submission_url:
@@ -192,28 +490,12 @@ class Storage:
 
         try:
             raw = fetcher.get_text(record.submission_url)
+            data = raw.encode("utf-8", "replace")
+            _atomic_write_text(sub_path, raw)
+            record.local_path = self._rel(sub_path)
+            self._decompose(record, raw, dest_dir)
         except Exception as exc:  # noqa: BLE001
             return DownloadResult(record.doc_id, "error", error=str(exc))
-
-        data = raw.encode("utf-8", "replace")
-        _atomic_write_text(sub_path, raw)
-        record.local_path = self._rel(sub_path)
-        record.sha256 = hashlib.sha256(data).hexdigest()
-
-        primary = select_primary(
-            parse_submission(raw),
-            primary_filename=filename_from_url(record.primary_doc_url),
-            sec_form=record.sec_form,
-        )
-        if primary and primary.text:
-            ext = Path(primary.filename).suffix or ".txt"
-            primary_path = dest_dir / f"{record.doc_id}.primary{ext}"
-            _atomic_write_text(primary_path, primary.text)
-            record.primary_path = self._rel(primary_path)
-
-            text_path = dest_dir / f"{record.doc_id}.txt"
-            _atomic_write_text(text_path, clean_text(primary.text, primary.filename))
-            record.text_path = self._rel(text_path)
 
         return DownloadResult(record.doc_id, "downloaded", bytes=len(data))
 
@@ -266,16 +548,74 @@ class Storage:
         _atomic_write_text(path, blob)
         return self._rel(path), hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
+    # ---- the read-merge-write table core ----
+    def _read_table(self, path: Path) -> list[dict]:
+        """Read a JSONL table. An unparseable line is skipped with a warning --
+        the same tolerance ``load_manifest`` has -- rather than aborting a merge
+        and thereby turning one bad line into a full-table replacement."""
+        if not path.exists():
+            return []
+        rows: list[dict] = []
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                warnings.warn(f"{path}:{lineno}: skipping unparseable table row ({exc})",
+                              stacklevel=2)
+        return rows
+
+    def _write_table(self, path: Path, rows: Iterable[dict], *, key) -> Path:
+        """Read-merge-write one JSONL table, atomically, with the no-shrink guard.
+
+        ``Config.replace_tables`` (the CLI's ``--replace``) restores the old
+        wholesale-replacement behaviour; the guard then refuses a write that
+        drops more than ``Config.no_shrink_fraction`` of the table's groups.
+
+        Replacement is by the RUN, not by the write: the first write of a table
+        in this run replaces what was stored, every later write of that same
+        table merges into the run's own output. Several producers write one
+        entity's table many times per run -- ``build_ch_financials`` once per zip
+        member, ``build_lu_financials`` once per yearly file, BE/DK/FI likewise
+        -- so a per-write replacement made ``--replace`` either a wall of shrink
+        errors or (with ``--allow-shrink``) a silent "last member wins" that kept
+        one year of the years the run had just produced.
+        """
+        rows = list(rows)
+        existing = self._read_table(path)
+        replace = self.config.replace_tables and path not in self._replaced
+        merged = rows if replace else merge_rows(existing, rows, key=key)
+        _check_no_shrink(path, {key(r) for r in existing}, {key(r) for r in merged},
+                         fraction=self.config.no_shrink_fraction)
+        _atomic_write_text(path, _jsonl(merged))
+        # Marked only once the bytes are down: a write the guard refused replaced
+        # nothing, so it must not spend this table's one replacement.
+        if self.config.replace_tables:
+            self._replaced.add(path)
+        return path
+
     def _write_financials_table(
         self, ident: str, rows: Iterable[dict], *, subdir: Path
     ) -> str:
-        """Atomically write a per-entity financials JSONL table ``<subdir>/<ident>.jsonl``.
+        """Merge a per-entity financials JSONL table into ``<subdir>/<ident>.jsonl``.
 
         Shared core for the SEC/EU/register writers below: they differ only by the
-        target subdirectory (and how ``ident`` is normalized by the caller).
+        target subdirectory (and how ``ident`` is normalized by the caller). The
+        write is a group-replace merge on :data:`FINANCIALS_GROUP_KEY`, so a run
+        narrowed by ``--years`` / ``--ciks`` / ``--limit`` -- or one that lost a
+        register call to a transient 5xx -- updates the periods it saw and leaves
+        the rest of the issuer's history where it was (DI-C3, Rob-C8).
+
+        ``ident`` reaches here from a spec file or a register payload, so it is
+        checked here rather than trusted: ``write_register_financials_table(
+        "../../x")`` used to create a table two levels above ``data/`` (Rob-C7 /
+        DI-M4). One choke point, so no writer added later can skip it.
         """
-        path = subdir / f"{ident}.jsonl"
-        _atomic_write_text(path, _jsonl(rows))
+        ident = safe_component(ident, max_length=self.config.max_path_component_length)
+        path = self._write_table(subdir / f"{ident}.jsonl", rows,
+                                 key=group_key(FINANCIALS_GROUP_KEY))
         return self._rel(path)
 
     def write_financials_table(self, cik: str, rows: Iterable[dict]) -> str:
@@ -285,9 +625,16 @@ class Storage:
         )
 
     def write_eu_financials_table(self, lei: str, rows: Iterable[dict]) -> str:
-        """Write the normalized EU IFRS facts table data/financials_eu/<lei>.jsonl."""
+        """Write the normalized EU IFRS facts table data/financials_eu/<LEI>.jsonl.
+
+        The LEI is normalised the way the SEC writer normalises its CIK: this
+        writer used to pass the caller's raw LEI straight through, so a
+        lower-case LEI in a spec file opened a second file for an issuer that
+        already had one (DI-I7). :func:`~company_corpus.config.normalize_lei`
+        raises ``ValueError`` on anything that is not a 20-character LEI.
+        """
         return self._write_financials_table(
-            lei, rows, subdir=self.config.financials_eu_dir
+            normalize_lei(lei), rows, subdir=self.config.financials_eu_dir
         )
 
     def write_register_financials_table(self, entity_id: str, rows: Iterable[dict]) -> str:
@@ -309,21 +656,75 @@ class Storage:
 
     # ---- ownership summaries (Phase 4b) ----
     def write_ownership_summary(self, record: FilingRecord, html: str, text: str) -> None:
-        """Write a structured ownership summary (HTML primary + clean text)."""
+        """Write a structured ownership summary (HTML primary + clean text).
+
+        The record arrives pointing at the primary ``fetch_and_store``
+        decomposed out of the submission -- ``<doc_id>.primary.xml`` for a Form
+        4, ``.htm`` for some 13F wrappers. This summary supersedes it, so the
+        superseded file is REMOVED as the pointer moves: leaving it behind broke
+        the "every raw file is reachable from a manifest row" invariant once per
+        ownership filing, which is to say ``verify`` exited 3 on every corpus
+        ``ownership --write`` had ever touched, with no repair that could ever
+        settle it. The cleaned text keeps the same ``<doc_id>.txt`` name and is
+        simply overwritten.
+        """
         dest_dir = self.raw_dir_for(record)
+        superseded = record.primary_path
         primary = dest_dir / f"{record.doc_id}.primary.html"
         _atomic_write_text(primary, html)
         record.primary_path = self._rel(primary)
         txt = dest_dir / f"{record.doc_id}.txt"
         _atomic_write_text(txt, text)
         record.text_path = self._rel(txt)
+        self._drop_superseded_primary(record, superseded, dest_dir)
+
+    def _drop_superseded_primary(self, record: FilingRecord, superseded: str | None,
+                                 dest_dir: Path) -> None:
+        """Delete the decomposed primary a summary has just replaced.
+
+        Deliberately narrow: only a path that is this record's OWN
+        ``<doc_id>.primary.*`` in its own raw directory and is not the file just
+        written. Anything else -- a legacy pointer, a hand-laid-out corpus, a
+        pointer that escapes the data dir -- is left on disk, because deleting a
+        file we cannot prove we wrote is worse than the orphan finding it would
+        avoid. Best-effort on OSError for the same reason.
+        """
+        if not superseded or superseded == record.primary_path:
+            return
+        old = self.config.data_dir / superseded
+        if old.parent != dest_dir or not old.name.startswith(f"{record.doc_id}.primary"):
+            return
+        try:
+            old.unlink(missing_ok=True)
+        except OSError:  # a read-only share, a vanished mount: an orphan, not a crash
+            pass
 
     def write_ownership_table(self, cik: str, rows: Iterable[dict]) -> str:
-        """Write the normalized ownership rows data/ownership/<cik>.jsonl."""
+        """Merge the normalized ownership rows into data/ownership/<cik>.jsonl.
+
+        Grouped by :data:`OWNERSHIP_GROUP_KEY` (the accession), so a re-parsed
+        filing replaces its own rows wholesale while every other filing already
+        in the table survives -- an ``ownership --limit 2`` smoke test used to
+        leave the issuer with two filings' worth of holdings (Rob-C8).
+        """
         cik = normalize_cik(cik)
-        path = self.config.ownership_dir / f"{cik}.jsonl"
-        _atomic_write_text(path, _jsonl(rows))
+        path = self._write_table(self.config.ownership_dir / f"{cik}.jsonl", rows,
+                                 key=group_key(OWNERSHIP_GROUP_KEY))
         return self._rel(path)
+
+    # ---- coverage reports ----
+    def write_coverage(self, path: Path, rows: Iterable[dict]) -> str:
+        """Merge a coverage file instead of truncating it.
+
+        All three coverage writers used to replace the whole file with the
+        current run's rows -- two of them not even atomically -- so last night's
+        evidence was destroyed by tonight's, an incremental run over a slice of
+        the universe wiped the rest, and "was ok yesterday, source-error today"
+        was unobservable (Rob-I14). Rows are keyed by :func:`coverage_key`, so a
+        re-run of one entity replaces that entity's row and leaves every entity
+        it did not touch exactly where it was.
+        """
+        return str(self._write_table(path, rows, key=coverage_key))
 
     # ---- discovery errors ----
     def record_errors(self, errors: Iterable[dict], *, run_id: str | None = None) -> int:

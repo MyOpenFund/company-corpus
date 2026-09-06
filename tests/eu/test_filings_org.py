@@ -89,3 +89,19 @@ def test_discover_http_404_is_not_indexed_not_an_error():
     assert src.errors == []
     assert src.notes and src.notes[0]["context"] == "not-indexed"
     assert src.notes[0]["source"] == "filings.xbrl.org" and "404" in src.notes[0]["note"]
+
+
+def test_a_row_with_no_id_costs_only_itself(caplog):
+    """One blank id used to raise out of ``Document.__post_init__``, abort the
+    whole listing and degrade the entity to ``source-error`` — losing the rows
+    that were perfectly fine. The skip is now per document."""
+    rows = [{"id": "f-1", "attributes": {"country": "DE", "period_end": "2023-12-31",
+                                         "report_url": "/a/1.xhtml"}},
+            {"id": None, "attributes": {"country": "DE", "period_end": "2023-12-31",
+                                        "report_url": "/a/2.xhtml"}},
+            {"id": "f-3", "attributes": {"country": "DE", "period_end": "2023-12-31",
+                                         "report_url": "/a/3.xhtml"}}]
+    src = FilingsXbrlOrg(fetcher=_Fetcher({"/filings": {"data": rows}}))
+    docs = src.discover(Entity(lei="529900D6BF99LW9R2E68", name="SAP SE", country="DE"))
+    assert [d.native_id for d in docs] == ["f-1", "f-3"]
+    assert [e["context"] for e in src.errors] == ["native-id"]

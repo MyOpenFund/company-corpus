@@ -159,11 +159,11 @@ def test_reconcile_flags_source_error_over_no_documents():
     from company_corpus.eu.entities import Entity
     from company_corpus.eu.reconcile import reconcile
 
-    ents = [Entity("LEI1", "A", "DE", resolution="lei"),
-            Entity("LEI2", "B", "DE", resolution="lei")]
-    rows = {r["lei"]: r for r in reconcile(ents, [], errors={"LEI1": "boom"})}
-    assert rows["LEI1"]["gap"] == "source-error" and rows["LEI1"]["error"] == "boom"
-    assert rows["LEI2"]["gap"] == "no-documents"
+    ents = [Entity("5493001KJTIIGC8Y1R12", "A", "DE", resolution="lei"),
+            Entity("213800WAVVOPS85N2205", "B", "DE", resolution="lei")]
+    rows = {r["lei"]: r for r in reconcile(ents, [], errors={"5493001KJTIIGC8Y1R12": "boom"})}
+    assert rows["5493001KJTIIGC8Y1R12"]["gap"] == "source-error" and rows["5493001KJTIIGC8Y1R12"]["error"] == "boom"
+    assert rows["213800WAVVOPS85N2205"]["gap"] == "no-documents"
 
 
 def test_acquire_backend_failure_surfaces_in_coverage(monkeypatch, tmp_path):
@@ -171,7 +171,7 @@ def test_acquire_backend_failure_surfaces_in_coverage(monkeypatch, tmp_path):
     from company_corpus.eu.entities import Entity
 
     cfg = Config(data_dir=tmp_path / "data", contact="t@e.com")
-    ent = Entity("LEI1", "SAP SE", "DE", resolution="lei")
+    ent = Entity("5493001KJTIIGC8Y1R12", "SAP SE", "DE", resolution="lei")
     monkeypatch.setattr(acq, "resolve_entities", lambda specs, *, fetcher: [ent])
 
     class _DeadBackend:
@@ -191,7 +191,7 @@ def test_acquire_backend_failure_surfaces_in_coverage(monkeypatch, tmp_path):
     monkeypatch.setattr(acq, "COUNTRY_BACKENDS", {"DE": _DeadBackend})
     monkeypatch.setattr(acq, "FilingsXbrlOrg", _EmptyBackend)
 
-    summary = acq.acquire([{"lei": "LEI1"}], fetcher=object(), config=cfg, download=False)
+    summary = acq.acquire([{"lei": "5493001KJTIIGC8Y1R12"}], fetcher=object(), config=cfg, download=False)
     assert len(summary["errors"]) == 1
     assert summary["error_items"] == summary["errors"]
     cov = [json.loads(x) for x in
@@ -205,7 +205,7 @@ def test_acquire_backend_failure_surfaces_in_coverage(monkeypatch, tmp_path):
 def _esef_doc():
     from company_corpus.eu.documents import Document
 
-    return Document("f1", "LEI1", "DE", "annual_report", date(2023, 12, 31),
+    return Document("f1", "5493001KJTIIGC8Y1R12", "DE", "annual_report", date(2023, 12, 31),
                     "2024-04-01", "x", "en", "filings.xbrl.org",
                     [{"kind": "json_url", "url": "https://x/report.json"}], {})
 
@@ -225,7 +225,7 @@ def _dead_esef(monkeypatch):
 
     monkeypatch.setattr(euf, "FilingsXbrlOrg", _Src)
     monkeypatch.setattr(euf, "resolve_entities",
-                        lambda specs, *, fetcher: [Entity("LEI1", "A", "DE", resolution="lei")])
+                        lambda specs, *, fetcher: [Entity("5493001KJTIIGC8Y1R12", "A", "DE", resolution="lei")])
     return _RaisingFetcher()
 
 
@@ -233,17 +233,17 @@ def test_eu_financials_counts_dead_filing(tmp_path, _dead_esef):
     from company_corpus.eu.financials import build_eu_financials
 
     cfg = Config(data_dir=tmp_path)
-    out = build_eu_financials([{"lei": "LEI1"}], fetcher=_dead_esef, config=cfg, write=True)
+    out = build_eu_financials([{"lei": "5493001KJTIIGC8Y1R12"}], fetcher=_dead_esef, config=cfg, write=True)
     assert out["errors"] == 1
     item = out["error_items"][0]
-    assert item["entity_id"] == "LEI1" and item["source"] == "esef"
+    assert item["entity_id"] == "5493001KJTIIGC8Y1R12" and item["source"] == "esef"
     assert item["error"] and datetime.fromisoformat(item["ts"])
 
 
 def test_eu_financials_cli_degraded_and_logged(monkeypatch, tmp_path, _dead_esef):
     monkeypatch.setattr(cli, "Fetcher", lambda cfg: _dead_esef)
     monkeypatch.setenv("COMPANY_DATA_DIR", str(tmp_path))
-    rc = cli.main(["--data-dir", str(tmp_path), "eu-financials", "--leis", "LEI1", "--write"])
+    rc = cli.main(["--data-dir", str(tmp_path), "eu-financials", "--leis", "5493001KJTIIGC8Y1R12", "--write"])
     rep = json.loads((tmp_path / "runs.jsonl").read_text().strip().split("\n")[-1])
 
     assert rc == 3 and rep["outcome"] == "degraded"
@@ -262,7 +262,7 @@ def _dead_esef_listing(monkeypatch):
     from company_corpus.eu.entities import Entity
 
     monkeypatch.setattr(euf, "resolve_entities",
-                        lambda specs, *, fetcher: [Entity("LEI1", "A", "DE", resolution="lei")])
+                        lambda specs, *, fetcher: [Entity("5493001KJTIIGC8Y1R12", "A", "DE", resolution="lei")])
     return _RaisingFetcher()
 
 
@@ -271,13 +271,13 @@ def test_eu_financials_dead_listing_is_source_error(tmp_path, _dead_esef_listing
     aggregator: a dead LISTING is the aggregator's failure, never no-financials."""
     from company_corpus.eu.financials import build_eu_financials
 
-    out = build_eu_financials([{"lei": "LEI1"}], fetcher=_dead_esef_listing,
+    out = build_eu_financials([{"lei": "5493001KJTIIGC8Y1R12"}], fetcher=_dead_esef_listing,
                               config=Config(data_dir=tmp_path), write=True)
     assert out["entities"] == 1
     assert out["no_financials"] == 0, "a dead aggregator must not read as 'filed nothing'"
     assert out["errors"] == 1
     item = out["error_items"][0]
-    assert item["entity_id"] == "LEI1" and item["source"] == "esef"
+    assert item["entity_id"] == "5493001KJTIIGC8Y1R12" and item["source"] == "esef"
     assert "discover" in item["error"] and "simulated network error" in item["error"]
     cov = [json.loads(x) for x in
            (tmp_path / "reports" / "eu_financials_coverage.jsonl").read_text().splitlines() if x]
@@ -287,7 +287,7 @@ def test_eu_financials_dead_listing_is_source_error(tmp_path, _dead_esef_listing
 def test_eu_financials_cli_dead_listing_is_degraded(monkeypatch, tmp_path, _dead_esef_listing):
     monkeypatch.setattr(cli, "Fetcher", lambda cfg: _dead_esef_listing)
     monkeypatch.setenv("COMPANY_DATA_DIR", str(tmp_path))
-    rc = cli.main(["--data-dir", str(tmp_path), "eu-financials", "--leis", "LEI1", "--write"])
+    rc = cli.main(["--data-dir", str(tmp_path), "eu-financials", "--leis", "5493001KJTIIGC8Y1R12", "--write"])
     rep = json.loads((tmp_path / "runs.jsonl").read_text().strip().split("\n")[-1])
 
     assert rc == 3 and rep["outcome"] == "degraded"
@@ -308,25 +308,25 @@ def test_eu_financials_counts_unresolved_specs(tmp_path):
     between 'filed nothing' and 'could not even resolve'."""
     from company_corpus.eu.financials import build_eu_financials
 
-    out = build_eu_financials([{"lei": "LEI1"}, {"lei": "LEI2"}], fetcher=_RaisingFetcher(),
+    out = build_eu_financials([{"lei": "5493001KJTIIGC8Y1R12"}, {"lei": "213800WAVVOPS85N2205"}], fetcher=_RaisingFetcher(),
                               config=Config(data_dir=tmp_path), write=False)
     assert out["entities"] == 2 and out["with_financials"] == 0
     assert out["unresolved"] == 2
-    assert out["unresolved_specs"] == [{"lei": "LEI1"}, {"lei": "LEI2"}]
+    assert out["unresolved_specs"] == [{"lei": "5493001KJTIIGC8Y1R12"}, {"lei": "213800WAVVOPS85N2205"}]
 
 
 def test_register_financials_counts_unresolved_specs(tmp_path):
     from company_corpus.registers.financials import build_register_financials
 
-    out = build_register_financials([{"lei": "LEI1"}], fetcher=_RaisingFetcher(),
+    out = build_register_financials([{"lei": "5493001KJTIIGC8Y1R12"}], fetcher=_RaisingFetcher(),
                                     config=Config(data_dir=tmp_path), write=False)
     assert out["entities"] == 1 and out["unresolved"] == 1
-    assert out["unresolved_specs"] == [{"lei": "LEI1"}]
+    assert out["unresolved_specs"] == [{"lei": "5493001KJTIIGC8Y1R12"}]
 
 
 @pytest.mark.parametrize("argv", [
-    ["eu-financials", "--leis", "LEI1,LEI2"],
-    ["register-financials", "--leis", "LEI1,LEI2"],
+    ["eu-financials", "--leis", "5493001KJTIIGC8Y1R12,213800WAVVOPS85N2205"],
+    ["register-financials", "--leis", "5493001KJTIIGC8Y1R12,213800WAVVOPS85N2205"],
 ])
 def test_cli_dead_gleif_every_spec_unresolved_is_failed(argv, monkeypatch, tmp_path, capsys):
     """Dead GLEIF: nothing resolves, no source is queried, and the run would
@@ -339,7 +339,7 @@ def test_cli_dead_gleif_every_spec_unresolved_is_failed(argv, monkeypatch, tmp_p
     assert rc == 1 and rep["outcome"] == "failed"
     captured = capsys.readouterr()
     assert "unresolved" in captured.err and "GLEIF" in captured.err
-    assert "unresolved: LEI LEI1, LEI LEI2" in captured.out
+    assert "unresolved: LEI 5493001KJTIIGC8Y1R12, LEI 213800WAVVOPS85N2205" in captured.out
 
 
 def test_eu_financials_cli_prints_partially_unresolved_specs(monkeypatch, tmp_path, capsys):
@@ -530,7 +530,7 @@ def test_register_cli_dry_run_writes_no_trail(monkeypatch, tmp_path):
 def test_eu_financials_cli_dry_run_writes_no_trail(monkeypatch, tmp_path, _dead_esef):
     monkeypatch.setattr(cli, "Fetcher", lambda cfg: _dead_esef)
     monkeypatch.setenv("COMPANY_DATA_DIR", str(tmp_path))
-    rc = cli.main(["--data-dir", str(tmp_path), "eu-financials", "--leis", "LEI1"])
+    rc = cli.main(["--data-dir", str(tmp_path), "eu-financials", "--leis", "5493001KJTIIGC8Y1R12"])
     rep = json.loads((tmp_path / "runs.jsonl").read_text().strip().split("\n")[-1])
     assert rc == 3 and rep["outcome"] == "degraded"
     assert not (tmp_path / "discovery_errors.jsonl").exists()

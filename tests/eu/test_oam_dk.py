@@ -495,3 +495,46 @@ def test_doc_type_maps_english_detail_labels():
     ]}]}
     assert _category_from_detail(detail) == "Inside information"
     assert _doc_type(_category_from_detail(detail)) == "inside_information"
+
+
+class _RowIdStub:
+    """Serves one page of rows with caller-chosen ids, then an empty page."""
+
+    def __init__(self, ids):
+        self._ids = ids
+        self._config = json.loads((FIX / "dk_config.json").read_text())
+        self._details = json.loads((FIX / "dk_details.json").read_text())
+        self.detail_urls: list[str] = []
+
+    def get_json(self, url, **_):
+        if "/config" in url:
+            return self._config
+        self.detail_urls.append(url)
+        return self._details
+
+    def post_json(self, url, body, **_):
+        page = body.get("page", 1)
+        rows = [] if page > 1 else [
+            {"id": i, "HeadlineColumn": f"Doc {n}", "IssuerColumn": "NOVO NORDISK A/S",
+             "CategoryColumn": "YearlyFinancialReport",
+             "PublicationDateColumn": "01-01-2025 00:00:00"}
+            for n, i in enumerate(self._ids)]
+        return {"paging": {"page": page, "pageSize": 100, "totalPages": 2},
+                "data": {"type": "table", "rows": rows}}
+
+
+def test_row_zero_is_a_row_and_not_a_missing_id():
+    """``str(row.get("id") or "")`` threw away a legitimate row 0 — silently, and
+    before the detail hop, so the document never existed."""
+    stub = _RowIdStub([0])
+    src = OamDK(fetcher=stub)
+    docs = src.discover(NOVO_ENTITY)
+    assert [d.native_id for d in docs] == ["0"]
+    assert any(u.endswith("/details/0") for u in stub.detail_urls)
+
+
+def test_a_row_with_no_id_is_recorded_and_costs_only_itself():
+    src = OamDK(fetcher=_RowIdStub(["r-1", None, "r-3"]))
+    docs = src.discover(NOVO_ENTITY)
+    assert [d.native_id for d in docs] == ["r-1", "r-3"]
+    assert [e["context"] for e in src.errors] == ["native-id"]

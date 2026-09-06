@@ -11,7 +11,7 @@ Flow per entity:
    consumed (cap _MAX_PAGES=60). Pages are 1-indexed.
 4. **Detail hop:** GET https://oam.fi/view/{view_id}?lang=en → parse attachment links
    (<nef-link class="attachment-link" href="/cns-web/oam/viewAttachment.action?messageAttachmentId={att_id}">).
-5. **Emit Document** per view_id: doc_id=f"fi-{view_id}", files pointing at
+5. **Emit Document** per view_id: native_id=view_id, files pointing at
    viewAttachment.action URLs.
 
 Every step wrapped; one failure recorded, never aborts the rest.
@@ -24,7 +24,7 @@ import re
 import unicodedata
 from datetime import datetime, timezone
 
-from ..documents import DOC_TYPES, Document
+from ..documents import DOC_TYPES, Document, source_key
 from ..entities import Entity
 from ..oam_base import IssuerRef, OamSource
 
@@ -441,8 +441,9 @@ class OamFI(OamSource):
         files = self._parse_attachments(view_html)
         published_ts = _parse_published_ts(raw_date)
 
-        return Document(
-            doc_id=f"fi-{view_id}",
+        return self._emit(
+            error_url=view_url,
+            native_id=source_key(view_id),
             lei=entity.lei,
             country="FI",
             doc_type=_doc_type(category),

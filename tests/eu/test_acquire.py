@@ -405,3 +405,35 @@ def test_acquire_document_with_every_file_failed_is_not_useful_work(monkeypatch,
     cov = [json.loads(x) for x in
            (cfg.data_dir / "reports" / "eu_coverage.jsonl").read_text().splitlines() if x]
     assert cov[0]["gap"] == "source-error" and "403" in cov[0]["error"]
+
+
+def test_a_doc_id_collision_degrades_the_entity_instead_of_deduping_it(monkeypatch, tmp_path):
+    """Two backends handing back different documents that compute one doc_id
+    would share one raw directory and one manifest. The run keeps going (the
+    other entities are fine) but the entity is a ``source-error``, never a
+    silently-shorter listing."""
+    cfg = Config(data_dir=tmp_path / "data", contact="t@e.com")
+    ent = Entity("L1", "SAP SE", "DE", resolution="lei")
+    monkeypatch.setattr(acq, "resolve_entities", lambda specs, *, fetcher: [ent])
+
+    def _mk(url):
+        class _B:
+            name = "oam-de"
+
+            def __init__(self, *a, **k):
+                self.errors = []
+
+            def discover(self, e):
+                return [Document("dup", "L1", "DE", "other", None, "2024-01-01", "x",
+                                 "de", "oam-de", [{"url": url}], {})]
+        return _B
+
+    monkeypatch.setattr(acq, "COUNTRY_BACKENDS", {"DE": _mk("https://a.invalid/1.pdf")})
+    monkeypatch.setattr(acq, "FilingsXbrlOrg", _mk("https://b.invalid/2.pdf"))
+
+    summary = acq.acquire([{"lei": "L1"}], fetcher=object(), config=cfg, download=False)
+    assert any(x.get("context") == "identity-collision" for x in summary["errors"]), \
+        summary["errors"]
+    rows = [json.loads(line) for line in
+            (cfg.data_dir / "reports" / "eu_coverage.jsonl").read_text().splitlines()]
+    assert [r["gap"] for r in rows] == ["source-error"]

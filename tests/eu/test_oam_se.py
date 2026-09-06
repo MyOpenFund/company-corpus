@@ -169,12 +169,15 @@ def test_discover_financial_report_file_urls_contain_getfile():
             )
 
 
-def test_doc_id_prefixed_se():
-    """doc_id must start with 'se-'."""
+def test_native_ids_name_the_grid_row_and_doc_ids_are_distinct():
+    """Every SE row keys on its own grid handle (a flagging id, a stockaffect id
+    or a period). The country/source prefix moved into the doc_id hash basis, so
+    what matters here is that no two rows share an identity."""
     src = OamSE(fetcher=_StubFetcher())
     docs = src.discover(Entity(lei="L1", name="Atlas Copco", country="SE"))
-    assert all(d.doc_id.startswith("se-") for d in docs), \
-        "all doc_ids must start with 'se-'"
+    assert docs
+    assert all(d.native_id.strip() for d in docs)
+    assert len({d.doc_id for d in docs}) == len(docs), "SE rows must not collide"
 
 
 def test_native_meta_carries_grid():

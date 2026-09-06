@@ -12,11 +12,11 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 
-from .config import Config
+from .config import Config, normalize_cik
 from .entity import EntityRegistry
 from .financials import normalized_rows, render_summary_html
 from .http import Fetcher
-from .models import FilingRecord
+from .models import FilingRecord, IdentityCollisionError
 from .ownership import (
     find_ownership_doc,
     form345_rows,
@@ -30,7 +30,7 @@ from .ownership import (
 )
 from .sources.edgar_submissions import EdgarSubmissions
 from .sources.edgar_xbrl import EdgarXBRL
-from .storage import SaveStats, Storage
+from .storage import SaveStats, ShrinkGuardError, Storage
 from .taxonomy import FULL_SCOPE, FormType
 
 
@@ -134,6 +134,8 @@ class DownloadReport:
     """Aggregate outcome of a download run."""
 
     downloaded: int = 0
+    repaired: int = 0        # half-processed documents re-derived from disk
+    would_repair: int = 0    # dry run: documents that WOULD be repaired
     skipped: int = 0
     empty: int = 0
     errors: int = 0
@@ -161,8 +163,17 @@ def download_universe(
 
     Reads each issuer's manifest, fetches the complete submission for each record
     (optionally filtered by ``scope`` and a year/date window), decomposes it, and
-    persists the updated record. ``limit`` caps the number of *new* downloads
-    across the run. Idempotent: already-downloaded filings are skipped.
+    persists the updated record. Idempotent: already-downloaded filings are
+    skipped.
+
+    ``limit`` caps the number of *new downloads* across the run and nothing
+    else: repairs are not capped by ``--limit`` (they cost no network -- they
+    re-derive artefacts from bytes already on disk), so a limited run walks the
+    whole selection and converges every half-processed document in it.
+    ``DownloadReport.repaired`` reports them, and they stay counted in
+    ``docs_new`` because a repair adopts bytes that were previously unusable.
+    ``limit=0`` is therefore the download-free convergence pass: it repairs
+    everything on disk and fetches nothing.
     """
     config = config or Config()
     fetcher = fetcher or Fetcher(config)
@@ -181,13 +192,27 @@ def download_universe(
 
         touched = []
         for rec in records:
+            # Only `downloaded` is weighed against the limit: a repair costs no
+            # network, so capping it would leave documents half-processed for no
+            # gain (see the docstring). Past the cap the walk therefore CONTINUES
+            # -- it used to `break`, which made the documented contract false and
+            # made `--limit 0` (the download-free adoption pass) a no-op. A
+            # dry-run probe decides: only `would-repair` earns the real call, so
+            # nothing behind the cap can reach the network.
             if limit is not None and report.downloaded >= limit:
-                break
+                probe = storage.fetch_and_store(rec, fetcher, dry_run=True,
+                                                overwrite=overwrite)
+                if probe.status != "would-repair":
+                    continue
             res = storage.fetch_and_store(rec, fetcher, dry_run=dry_run, overwrite=overwrite)
             touched.append(rec)
             if res.status == "downloaded":
                 report.downloaded += 1
                 report.bytes += res.bytes
+            elif res.status == "repaired":
+                report.repaired += 1
+            elif res.status == "would-repair":
+                report.would_repair += 1
             elif res.status == "skipped":
                 report.skipped += 1
             elif res.status == "error":
@@ -317,6 +342,16 @@ def fetch_financials(
     a normalized facts table, and an HTML summary per period (so the existing
     ``render_universe`` / ``rag.iter_items`` handle PDF + ingestion). The summaries
     feed the RAG; the raw JSON preserves exhaustivity.
+
+    If two of an issuer's period summaries compute the same ``doc_id`` -- which
+    would overwrite one period's summary with another's -- THAT issuer is skipped
+    without writing anything and recorded as an error item in the report, rather
+    than being deduped away silently (DI-C2) or aborting the whole run: the other
+    issuers still produce, and the exit-code doctrine
+    (:meth:`runreport.RunReport.finish`) decides what the run is worth. A write
+    the no-shrink guard refuses (:class:`storage.ShrinkGuardError`, reachable
+    under ``--replace``) is handled the same way: that issuer's remaining writes
+    are skipped and reported, the run goes on.
     """
     config = config or Config()
     fetcher = fetcher or Fetcher(config)
@@ -341,23 +376,63 @@ def fetch_financials(
                 title=f"{ps.company} — {ps.period_label} financial summary",
                 company=ps.company, company_current=ps.company_current,
                 filing_date=ps.publication_date, period_of_report=ps.period_end,
-                provenance="edgar_xbrl",
+                frequency=ps.frequency, provenance="edgar_xbrl",
             )
-            if not dry_run:
-                storage.write_financial_summary(rec, render_summary_html(ps),
-                                                _summary_text(ps))
             records.append(rec)
             rows.extend(normalized_rows(cik, ps))
 
+        # Identity is checked BEFORE anything is written: the summaries are named
+        # by doc_id on disk and keyed by doc_id in the manifest, so two records
+        # sharing an id silently overwrite one fiscal year with another (DI-C2).
+        # The previous code wrote each summary inside the loop above, which
+        # destroyed the artefact before any check could see the clash.
+        try:
+            _assert_unique_doc_ids(cik, records)
+        except IdentityCollisionError as exc:
+            # Fail loud, write nothing -- for THIS issuer only. A corrupt issuer
+            # must not cost the run its other issuers' work.
+            report.errors.append({"source": "edgar_xbrl", "context": normalize_cik(cik),
+                                  "doc_ids": exc.doc_ids, "error": str(exc)})
+            continue
+
         report.periods += len(records)
-        if not dry_run:
-            storage.store_companyfacts(cik, facts)
-            storage.write_financials_table(cik, rows)
-        report.stats += storage.save_records(records, dry_run=dry_run)
+        try:
+            if not dry_run:
+                for rec, ps in zip(records, summaries, strict=True):
+                    storage.write_financial_summary(rec, render_summary_html(ps),
+                                                    _summary_text(ps))
+                storage.store_companyfacts(cik, facts)
+                storage.write_financials_table(cik, rows)
+            report.stats += storage.save_records(records, dry_run=dry_run)
+        except ShrinkGuardError as exc:
+            # A tripped no-shrink guard is one issuer's refused write, not the
+            # run's death (same doctrine as the identity collision above): the
+            # issuer's remaining writes are skipped, the error is reported, and
+            # the other issuers still produce.
+            report.errors.append({"source": "edgar_xbrl", "context": normalize_cik(cik),
+                                  "error": str(exc)})
+            continue
 
     if not dry_run and report.errors:
         storage.record_errors(report.errors, run_id=run_id)
     return report
+
+
+def _assert_unique_doc_ids(cik: str, records: Sequence[FilingRecord]) -> None:
+    """Raise :class:`IdentityCollisionError` if two records share a ``doc_id``.
+
+    A shared id means one record's artefact overwrites the other's on disk and
+    its manifest row, so the clash must never be deduped away silently (DI-C2).
+    """
+    ids = [r.doc_id for r in records]
+    if len(set(ids)) == len(ids):
+        return
+    duplicates = sorted({i for i in ids if ids.count(i) > 1})
+    raise IdentityCollisionError(
+        f"{normalize_cik(cik)}: {len(ids) - len(set(ids))} colliding doc_id(s) among "
+        f"{len(ids)} period summaries ({duplicates[:5]}). A collision "
+        f"silently overwrites a fiscal year's summary and must fail loudly.",
+        doc_ids=duplicates)
 
 
 def _summary_text(ps) -> str:
@@ -382,6 +457,8 @@ class OwnershipReport:
     issuers: int = 0
     downloaded: int = 0
     would_download: int = 0   # dry run: filings that WOULD be downloaded
+    repaired: int = 0         # half-processed submissions re-derived from disk
+    would_repair: int = 0     # dry run: submissions that WOULD be repaired
     parsed_insider: int = 0   # E1 Form 3/4/5
     parsed_13f: int = 0       # E2 13F-HR
     passthrough: int = 0      # E3 SC 13D/G (narrative, generic text)
@@ -415,7 +492,9 @@ def process_ownership(
     13F (E2) parses the structured XML into a readable summary (overriding the
     poor raw-XML text) and appends normalized rows to ``data/ownership/<cik>.jsonl``.
     SC 13D/G (E3) keep the generic narrative text. Idempotent; ``limit`` caps new
-    downloads (curated tier is the default usage).
+    downloads and nothing else (curated tier is the default usage): repairs cost
+    no network and are never capped, so ``limit=0`` is a download-free pass that
+    converges -- and finally parses -- every half-processed filing on disk.
     """
     config = config or Config()
     fetcher = fetcher or Fetcher(config)
@@ -438,8 +517,15 @@ def process_ownership(
         touched: list[FilingRecord] = []
         rows: list[dict] = []
         for rec in records:
+            # As in ``download_universe``: the cap is on NEW DOWNLOADS, so the
+            # walk continues past it and only a repair (no network) is allowed
+            # through. A ``break`` here left every half-processed filing behind
+            # the cap without ownership rows, run after run.
             if limit is not None and report.downloaded >= limit:
-                break
+                probe = storage.fetch_and_store(rec, fetcher, dry_run=True,
+                                                overwrite=overwrite)
+                if probe.status != "would-repair":
+                    continue
             res = storage.fetch_and_store(rec, fetcher, dry_run=dry_run, overwrite=overwrite)
             touched.append(rec)
             if res.status == "error":
@@ -452,6 +538,10 @@ def process_ownership(
                 report.downloaded += 1
             elif res.status == "would-download":
                 report.would_download += 1
+            elif res.status == "repaired":
+                report.repaired += 1
+            elif res.status == "would-repair":
+                report.would_repair += 1
             if dry_run or not rec.local_path:
                 continue
 
@@ -481,10 +571,21 @@ def process_ownership(
                 report.passthrough += 1
 
         if not dry_run:
-            if touched:
-                storage.save_records(touched, dry_run=False)
-            if rows:
-                storage.write_ownership_table(cik, rows)
+            try:
+                if touched:
+                    storage.save_records(touched, dry_run=False)
+                if rows:
+                    storage.write_ownership_table(cik, rows)
+            except ShrinkGuardError as exc:
+                # This issuer's refused write, not the run's death: the guard
+                # only fires under ``--replace``, and an uncaught refusal on the
+                # first issuer used to cost every issuer behind it -- including
+                # the error trail, written after the loop. Same doctrine as the
+                # F1 IdentityCollisionError above.
+                report.errors += 1
+                report.error_items.append(
+                    {"source": "ownership", "context": normalize_cik(cik),
+                     "error": str(exc)})
 
     if not dry_run and report.error_items:
         storage.record_errors(report.error_items, run_id=run_id)

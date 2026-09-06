@@ -14,6 +14,7 @@ email address is sent.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -26,6 +27,17 @@ _DEFAULT_RPS = 8.0
 def _default_contact() -> str:
     # No hardcoded default: an unset env var means no contact is sent at all.
     return os.environ.get("COMPANY_CORPUS_CONTACT", "")
+
+
+#: Manifest fields only the download and render phases can produce. A discovery
+#: record leaves them empty by construction, so the manifest merge carries the
+#: stored value forward instead of letting a second ``discover --write`` erase
+#: every download pointer and hash the corpus already had (DI-C1). Not a
+#: generic "carry forward anything empty": a name legitimately corrected to ""
+#: or a withdrawn ``period_of_report`` must still be clearable.
+STICKY_MANIFEST_FIELDS: tuple[str, ...] = (
+    "local_path", "sha256", "primary_path", "text_path", "pdf_path",
+)
 
 
 @dataclass
@@ -46,6 +58,13 @@ class Config:
     store_full_submission: bool = True  # keep the complete-submission .txt
     store_primary_doc: bool = True      # decompose + keep the primary document
     store_clean_text: bool = True       # extract RAG-ready plaintext
+
+    # Convergence behaviour (chantier 3).
+    sticky_manifest_fields: tuple[str, ...] = STICKY_MANIFEST_FIELDS
+    replace_tables: bool = False      # True = a run's rows replace the table wholesale
+    no_shrink_fraction: float = 0.0   # largest fraction of a table's groups a write may drop
+    lock_wait_seconds: float = 0.0    # 0.0 = a second writer fails immediately
+    max_path_component_length: int = 128  # longest real identifier is a 20-char LEI
 
     def __post_init__(self) -> None:
         if isinstance(self.data_dir, str):
@@ -131,11 +150,40 @@ def normalize_cik(cik: str | int) -> str:
     """Return a CIK as a zero-padded 10-digit string (EDGAR canonical form).
 
     Tolerates inputs like ``320193``, ``"0000320193"``, or ``"CIK0000320193"``.
+
+    An all-zero input is REFUSED rather than padded. EDGAR assigns no CIK 0, so
+    ``"0"`` / ``"0000000000"`` is always a placeholder a feed put where an
+    identifier belonged; padding it minted one plausible key that every
+    degenerate row in a run then shared, so they overwrote each other's manifest
+    and financials table (DI-I4 / DI-M4).
     """
     digits = "".join(ch for ch in str(cik) if ch.isdigit())
-    if not digits:
+    if not digits or not digits.strip("0"):
         raise ValueError(f"not a valid CIK: {cik!r}")
     return digits.zfill(10)
+
+
+#: ISO-17442: a LEI is exactly 20 upper-case alphanumerics.
+LEI_RE = re.compile(r"\A[A-Z0-9]{20}\Z")
+
+
+def normalize_lei(lei: str) -> str:
+    """Return a LEI upper-cased and trimmed; validate the ISO-17442 shape.
+
+    The EU financials writer used to pass the caller's raw LEI straight through
+    as a filename while the SEC writer normalised its CIK, so a lower-case LEI
+    in a spec file split one issuer's periods across two files on a
+    case-sensitive filesystem, and recorded a path that does not exist as
+    spelled on a case-folding one (DI-I7).
+
+    The SHAPE is checked, not the ISO 7064 mod-97-10 check digits: whether a
+    well-formed LEI exists is GLEIF's authority, not this function's, and the
+    canonical spelling is all a path component needs.
+    """
+    value = str(lei).strip().upper()
+    if not LEI_RE.match(value):
+        raise ValueError(f"not a valid LEI: {lei!r}")
+    return value
 
 
 def normalize_cusip(cusip: str) -> str:

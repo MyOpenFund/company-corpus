@@ -25,6 +25,7 @@ from company_corpus.pipeline import (
 )
 from company_corpus.source_codes import source_code_for
 from company_corpus.storage import SaveStats
+from company_corpus.universe import Issuer
 
 
 def _run(monkeypatch, tmp_path, argv: list[str]) -> int:
@@ -266,6 +267,106 @@ def test_enrich_openfigi_counts_mapped_rows(monkeypatch, tmp_path):
     assert rc == 0 and rep["outcome"] == "ok"
     assert rep["totals"] == {"docs_seen": 2, "docs_new": 1, "docs_failed": 0}
     assert _source(rep, "sec")
+
+
+# --------------------------------------------------------------------------
+# build-universe (a no-match is not an error; an upstream failure is)
+# --------------------------------------------------------------------------
+def _raise_cik_lookup(fetcher, path):
+    raise RuntimeError("HTTP 503 on cik-lookup-data.txt")
+
+
+class _FailingFTS:
+    """Same contract as EdgarFTS: a fetch failure lands in ``.errors``."""
+
+    def __init__(self, *a, **k):
+        self.errors: list[dict] = []
+
+    def resolve(self, cusip):
+        self.errors.append({"source": "edgar_fts", "context": "fts",
+                            "url": f"efts?q={cusip}", "error": "HTTP 503 on EFTS"})
+        return None
+
+
+def test_build_universe_sp500_counts_each_member_once(monkeypatch, tmp_path):
+    """An unresolved S&P member is one member seen, not two: it is kept in
+    ``issuers`` with ``cik=""`` *and* named in ``unresolved``."""
+    members = [Issuer(cik="0000320193", ticker="AAPL"),
+               Issuer(cik="0000789019", ticker="MSFT"),
+               Issuer(cik="", ticker="GONE"),
+               Issuer(cik="", ticker="OLD")]
+    monkeypatch.setattr(cli, "issuers_from_sp500",
+                        lambda fetcher, **kw: (members, [], ["GONE", "OLD"]))
+    rc = _run(monkeypatch, tmp_path,
+              ["build-universe", "--equity-index", "sp500", "--current-only"])
+    rep = _report(tmp_path)
+    assert rc == 0 and rep["outcome"] == "ok"
+    assert rep["totals"] == {"docs_seen": 4, "docs_new": 2, "docs_failed": 0}
+
+
+def test_build_universe_from_file_counts_unresolved_rows(monkeypatch, tmp_path):
+    """The from-file branch keeps no row for an unresolved identifier, so those
+    rows are only visible through ``unresolved`` and must still be counted."""
+    monkeypatch.setattr(cli, "fetch_cik_lookup", lambda fetcher, path: "")
+    monkeypatch.setattr(cli, "load_company_tickers",
+                        lambda fetcher: {"AAPL": Issuer(cik="0000320193", ticker="AAPL")})
+    csv_path = tmp_path / "ids.csv"
+    csv_path.write_text("Ticker\nAAPL\nZZZZ\n", encoding="utf-8")
+    rc = _run(monkeypatch, tmp_path,
+              ["build-universe", "--from-file", str(csv_path), "--name", "u"])
+    rep = _report(tmp_path)
+    assert rc == 0 and rep["outcome"] == "ok"
+    assert rep["totals"] == {"docs_seen": 2, "docs_new": 1, "docs_failed": 0}
+
+
+def test_build_universe_cik_lookup_failure_is_a_fetch_error(monkeypatch, tmp_path):
+    """A dead cik-lookup that leaves every row unresolved is a degraded run, not
+    a clean 'nothing new' -- the name tier never ran."""
+    monkeypatch.setattr(cli, "fetch_cik_lookup", _raise_cik_lookup)
+    monkeypatch.setattr(cli, "load_company_tickers", lambda fetcher: {})
+    csv_path = tmp_path / "names.csv"
+    csv_path.write_text("Ticker,Name\nZZZZ,Widget Inc\n", encoding="utf-8")
+    rc = _run(monkeypatch, tmp_path,
+              ["build-universe", "--from-file", str(csv_path), "--name", "u"])
+    rep = _report(tmp_path)
+    sec = _source(rep, "sec")
+    assert sec["fetch_errors"] == 1
+    assert any("cik-lookup" in s for s in sec["error_samples"])
+    assert sec["docs_failed"] == 0, "a no-match is still not a failed document"
+    assert rc == 3 and rep["outcome"] == "degraded"
+
+
+def test_build_universe_cik_lookup_failure_beside_resolutions_stays_ok(monkeypatch, tmp_path):
+    """The same failure next to real work is an ``ok`` run that names the error."""
+    monkeypatch.setattr(cli, "fetch_cik_lookup", _raise_cik_lookup)
+    monkeypatch.setattr(cli, "load_company_tickers",
+                        lambda fetcher: {"AAPL": Issuer(cik="0000320193", ticker="AAPL")})
+    csv_path = tmp_path / "names.csv"
+    csv_path.write_text("Ticker,Name\nAAPL,Apple Inc\n", encoding="utf-8")
+    rc = _run(monkeypatch, tmp_path,
+              ["build-universe", "--from-file", str(csv_path), "--name", "u"])
+    rep = _report(tmp_path)
+    sec = _source(rep, "sec")
+    assert rc == 0 and rep["outcome"] == "ok"
+    assert sec["docs_new"] == 1 and sec["fetch_errors"] == 1
+    assert any("cik-lookup" in s for s in sec["error_samples"])
+
+
+def test_build_universe_fts_errors_are_fetch_errors(monkeypatch, tmp_path):
+    """``EdgarFTS`` records its failures in ``.errors`` -- an unreadable EFTS must
+    not read back as 'this CUSIP has no issuer'."""
+    monkeypatch.setattr(cli, "fetch_cik_lookup", lambda fetcher, path: "")
+    monkeypatch.setattr(cli, "load_company_tickers", lambda fetcher: {})
+    monkeypatch.setattr(cli, "EdgarFTS", _FailingFTS)
+    csv_path = tmp_path / "bonds.csv"
+    csv_path.write_text("Ticker,CUSIP\nZZZZ,25156PAA0\n", encoding="utf-8")
+    rc = _run(monkeypatch, tmp_path,
+              ["build-universe", "--from-file", str(csv_path), "--name", "u", "--fts"])
+    rep = _report(tmp_path)
+    sec = _source(rep, "sec")
+    assert sec["fetch_errors"] == 1
+    assert any("EFTS" in s for s in sec["error_samples"])
+    assert rc == 3 and rep["outcome"] == "degraded"
 
 
 # --------------------------------------------------------------------------

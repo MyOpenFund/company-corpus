@@ -384,19 +384,19 @@ def _row_to_document(
         })
 
     if flagging_id:
-        doc_id = f'se-flagging-{flagging_id}'
+        native_id = f'flagging-{flagging_id}'
     elif stockaffect_id:
-        doc_id = f'se-stockaffect-{stockaffect_id}'
+        native_id = f'stockaffect-{stockaffect_id}'
     elif period and files:
         fids_str = '-'.join(f['fid'] for f in files)
-        doc_id = f'se-{grid_suffix.lower()}-{period}-{fids_str}'
+        native_id = f'{grid_suffix.lower()}-{period}-{fids_str}'
     elif period:
-        doc_id = f'se-{grid_suffix.lower()}-{period}-nofid'
+        native_id = f'{grid_suffix.lower()}-{period}-nofid'
     else:
         return None
 
     return Document(
-        doc_id=doc_id,
+        native_id=native_id,
         lei=entity.lei,
         country='SE',
         doc_type=doc_type,

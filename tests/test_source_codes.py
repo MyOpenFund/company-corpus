@@ -4,7 +4,14 @@ import pytest
 
 from company_corpus.eu.acquire import COUNTRY_BACKENDS
 from company_corpus.registers._common import _SOURCE_ID_SCHEME
-from company_corpus.source_codes import CODE_RE, SOURCE_CODES, SourceCode, source_code_for
+from company_corpus.source_codes import (
+    CODE_RE,
+    LOCAL_SOURCES,
+    SOURCE_CODES,
+    SourceCode,
+    is_local_source,
+    source_code_for,
+)
 
 
 def test_exactly_23_codes():
@@ -73,3 +80,21 @@ def test_fca_covers_gb_and_ie():
     # issuers (COUNTRY_BACKENDS maps "IE" to the same NsmGB backend class as
     # "GB"), so its country field must reflect both, not just "GB".
     assert SOURCE_CODES["fca"].country == "GB/IE"
+
+
+# ---- local refusals are not authorities ------------------------------------
+def test_local_sources_are_not_codes_and_do_not_resolve():
+    """``storage`` tags the corpus's own refusal (the no-shrink guard), not a
+    publisher: it must never become a 24th "authority", and resolving it as one
+    must keep raising — the caller has to route it, not report it as a source."""
+    for name in LOCAL_SOURCES:
+        assert name not in SOURCE_CODES
+        assert is_local_source(name)
+        with pytest.raises(KeyError):
+            source_code_for(name)
+
+
+def test_backend_tags_are_not_local_sources():
+    for name in (*COUNTRY_BACKENDS.keys(), *SOURCE_CODES, "esef", "sec"):
+        assert not is_local_source(name)
+    assert not is_local_source(None)

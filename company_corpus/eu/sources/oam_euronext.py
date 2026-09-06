@@ -25,7 +25,7 @@ import re
 from datetime import datetime, timezone
 from urllib.parse import parse_qs
 
-from ..documents import Document
+from ..documents import Document, source_key
 from ..entities import Entity
 from ..oam_base import OamSource
 
@@ -196,7 +196,9 @@ class EuronextSource(OamSource):
                 seen.add(notice_id)
                 if listing and not _instrument_matches(row, want):
                     continue  # market-wide noise / wrong issuer — never bind
-                docs.append(self._to_document(notice_id, row, entity, mic, now))
+                doc = self._to_document(notice_id, row, entity, mic, now)
+                if doc is not None:
+                    docs.append(doc)
         return docs
 
     def _fetch_notices(self, isin: str, mic: str):
@@ -243,7 +245,7 @@ class EuronextSource(OamSource):
 
     def _to_document(
         self, notice_id: str, row: str, entity: Entity, mic: str, now: str
-    ) -> Document:
+    ) -> Document | None:
         """Build a :class:`Document` from one notice row.
 
         A row with a PDF attachment gets a downloadable file; one without is kept
@@ -280,8 +282,9 @@ class EuronextSource(OamSource):
                     RuntimeError(f"notice {notice_number}: unparseable download link"),
                 )
 
-        return Document(
-            doc_id=f"euronext-{notice_id}",
+        return self._emit(
+            error_url=files[0].get("url") if files else None,
+            native_id=source_key(notice_id),
             lei=entity.lei,
             country=entity.country,
             doc_type=_doc_type(notice_name),

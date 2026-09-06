@@ -88,15 +88,15 @@ never exit `0`.
 - `1` — fatal: an uncaught exception, or a command that itself returned non-zero.
 - `3` — degraded: any source reported a `truncated` (partial) result, OR zero
   new documents were produced while errors occurred (save errors and/or fetch
-  errors). Recovered transient errors alongside real new documents do **not**
-  degrade a run.
+  errors, plus any write the corpus itself refused). Recovered transient errors
+  alongside real new documents do **not** degrade a run.
 
 ### `data/runs.jsonl`
 
-Every work command — `discover`, `discover-index`, `download`, `render-pdf`,
-`xbrl`, `ownership`, `enrich-openfigi`, `eu-financials`, `eu-acquire`,
-`register-financials` — appends one JSON line (atomic `O_APPEND` write) before
-returning:
+Every work command — `build-universe`, `discover`, `discover-index`, `download`,
+`render-pdf`, `xbrl`, `ownership`, `enrich-openfigi`, `eu-financials`,
+`eu-acquire`, `register-financials` — appends one JSON line (atomic `O_APPEND`
+write) before returning:
 
 ```json
 {"run_id": "...", "tool": "company-corpus", "command": "discover",
@@ -108,7 +108,11 @@ returning:
 ```
 
 A `failed` run also carries a `fatal` field (the exception, capped at 500
-chars). The MyOpenFund vault ingests this file **unchanged** — the schema is
+chars). A run in which the corpus refused one of its own writes (the no-shrink
+guard) also carries `local_refusals` — `{"count": n, "samples": [...]}` — and
+those refusals are included in `totals.docs_failed`: they are failures of the
+run under **no** `source_code`, because no authority was involved (see
+`SOURCE_CODES` below). The key is absent when there were none. The MyOpenFund vault ingests this file **unchanged** — the schema is
 deliberately flat and stable, so it feeds a `runs` table with no transform step.
 
 `COMPANY_DATA_DIR` is a test/ops override of the **run-report path only**
@@ -127,6 +131,7 @@ a green "nothing to do":
 
 | command | source | docs_new (useful work) |
 |---|---|---|
+| `build-universe` | sec | issuers resolved to a CIK (an unresolved identifier ≠ error; each input counted once; upstream fetch failures — a dead cik-lookup, an EFTS error — are recorded as fetch errors, so a run left with nothing resolved by a dead upstream is degraded) |
 | `discover` (`--download`) | sec | records added (+ files downloaded); both legs fold into the one `sec` row, so exit 3 needs both legs empty and either leg failing |
 | `discover-index` | sec | records added |
 | `download` | sec | files downloaded |
@@ -140,6 +145,117 @@ a green "nothing to do":
 
 Full detail (every column, plus the three deliberate policy choices behind
 this table) is documented in the `cli.py` module docstring.
+
+### One writer at a time
+
+A run that writes (`--write`, or `discover --download`) takes an exclusive
+`flock` on `data/.corpus.lock` for its whole duration; a second writer refuses
+to start and names the holder (pid, host, command, start time) instead of
+interleaving read-modify-rewrite passes over the same manifests. Read-only runs
+never take, wait for, or create the lock. `Config.lock_wait_seconds` (default
+`0.0`; library callers only) turns the refusal into a bounded wait. There is no
+stale-lock timeout: the kernel drops the lock when the holder dies.
+
+Two caveats. The lock is **advisory** — it stops another company-corpus run, not
+an unrelated process editing the same files — and it needs a filesystem that
+implements `flock`: **SMB/CIFS does not**, and a data directory on such a mount
+now fails immediately with a message naming it, rather than pretending the
+corpus is busy. Write the corpus from **one host**; other hosts may read it.
+
+Files land with the permissions your umask implies (`0666 & ~umask`, so `0644`
+under the usual `022`), not the `0600` that the atomic-write temp file is
+created with — the corpus is meant to be readable by the ingester and by share
+consumers running as other accounts.
+
+### `verify`: the read-only self-check
+
+```bash
+python -m company_corpus verify                 # human summary, exit 0 / 3
+python -m company_corpus verify --json          # every finding, machine-readable
+python -m company_corpus verify --ciks 320193   # one issuer (skips the LEI-keyed EU pillar)
+python -m company_corpus verify --hash          # also re-hash every stored artefact (slow)
+```
+
+Asks the corpus on disk whether it is what it claims to be, and answers with
+findings — never a repair. It **writes nothing**, creates no directory, and
+takes **no corpus lock**, so it is safe to run beside a nightly crawl.
+
+| kind | what it means |
+|---|---|
+| `missing-artefact` | a manifest row points at bytes that are not on disk (or outside the data dir) |
+| `orphan-artefact` | a file under `raw/` that no manifest row points at |
+| `duplicate-doc-id` | one `doc_id` on two rows (or under two LEI manifests) |
+| `stale-doc-id` | a stored id the current identity rule does not reproduce (a pre-period-keyed F1 id, an EU manifest with no `native_id`) |
+| `foreign-row` | a row filed under an entity other than the one naming its file |
+| `invalid-identifier` | a filename or row id that is not a usable CIK / LEI / path component |
+| `incomplete-record` | an artefact is stored but `sha256` is unset (half-processed; `download` repairs it from disk) |
+| `hash-mismatch` | `--hash` only: stored bytes no longer hash to the recorded `sha256` |
+| `unreadable-row` / `unreadable-file` | a line or a file that could not be parsed or read — reported, never a crash |
+
+Exit codes follow the doctrine: `0` clean, `3` findings, `1` the data
+directory itself cannot be read. The default pass is metadata-only — every
+pointer is resolved against **one** listing of `raw/`, so a 9 GB corpus is a
+directory walk, not a re-read; `--hash` is the opposite and is not a nightly
+job. When part of the index cannot be read the orphan check is **skipped**
+entirely (unreferenced could not be told from unknown) and says so. A corpus
+with no `data/manifest/` at all gets one `note` saying that in a sentence,
+beside the per-file findings.
+
+### Adoption / migration: taking over an existing corpus
+
+Pointing this tool at a directory an earlier version (or an earlier tool) wrote
+is a supported move, and it costs far less bandwidth than it looks. The bytes
+under `raw/` are the expensive part and they are kept: what is rebuilt is the
+index that points at them.
+
+```bash
+python -m company_corpus verify --json > before.json   # measure, change nothing
+python -m company_corpus discover --universe u --write # rebuild the manifest index
+python -m company_corpus download  --universe u --write --limit 0   # repairs only
+python -m company_corpus verify --json > after.json    # measure again
+```
+
+1. **Measure first.** `verify --json` writes nothing and takes no lock, so it is
+   safe on a live corpus. Its `notes` say what is missing wholesale (no
+   `data/manifest/` at all, no tables at all) instead of drowning you in one
+   finding per file.
+2. **Rebuild the index** with `discover --write`. Downloaded bytes are never
+   orphaned by this: the artefact pointers are *sticky*, so a fresh discovery
+   record cannot blank the pointers a stored one already carries.
+3. **Adopt what is on disk** with `download --write`. `--limit` caps *new
+   downloads only* — repairs cost no network, since they re-derive the primary,
+   the cleaned text and the hash from the submission already stored — so
+   `--limit 0` is a download-free convergence pass over the whole selection.
+   Report the `repaired=` count; scope the pass with `--forms` / `--since` /
+   `--years` if the corpus is large. Drop `--limit` when you also want the
+   filings that were never fetched.
+4. **Re-run the derived pillars.** Family **F** (XBRL period summaries) is
+   *not* repaired from disk — its ids changed basis (they are period-keyed now),
+   so old summaries are orphans: rebuild with `xbrl --write` and delete what
+   `verify` then reports under `raw/<cik>/F1/`. Likewise, EU documents acquired
+   before the computed EU identity keep their old directories: `eu-acquire
+   --write` re-acquires them under their computed `doc_id`, but — exactly as
+   with F1 — it does not delete what it replaced, so the old manifests stay on
+   disk and keep reporting `stale-doc-id` (*no native_id recorded*) until you
+   delete them by hand under `manifest/<LEI>/` and their bytes under
+   `raw/<LEI>/`. Ownership summaries are rebuilt by `ownership --write`.
+5. **Verify again** and diff the two reports. Expect `orphan-artefact` to fall
+   and `incomplete-record` to reach zero. A remaining `orphan-artefact` whose
+   detail says *interrupted atomic write, safe to delete* is a `.tmp`/`.part`
+   leftover and needs no investigation. A remaining `stale-doc-id` is a
+   superseded manifest from step 4 waiting to be deleted.
+
+Three things to know before pointing it at a share:
+
+- **Coverage files are cumulative.** `reports/*_coverage*.jsonl` are merged, not
+  truncated, so rows from the old universe survive a narrower run. Reset one
+  with `--replace --allow-shrink` on the command that writes it.
+- **SMB/CIFS is refused, not tolerated.** A writing run takes an `flock` and
+  fails immediately on a mount that cannot provide one (see *One writer at a
+  time*). Write from a local filesystem; export it for readers.
+- **File modes follow the crawler's umask** (`0666 & ~umask`), read once at
+  import. If the ingester runs as another account, set the umask in the unit
+  file or wrapper that launches the crawl, not afterwards.
 
 ### Logging
 
@@ -161,6 +277,15 @@ still reports the errors in `runs.jsonl`, but leaves no trail file — "DRY-RUN
 register could not be read" is a fact about the source, never confused with
 "the issuer filed nothing."
 
+Every coverage file (`reports/eu_coverage.jsonl`,
+`reports/eu_financials_coverage.jsonl`, `reports/register_coverage_<source>.jsonl`)
+is **merged across runs**, keyed by entity: a run over a slice of the universe
+updates that slice's rows and leaves every other entity's evidence where it was,
+which is what makes "was ok yesterday, source-error today" observable at all.
+The rows of an entity you stop crawling therefore persist. `--replace` (with
+`--allow-shrink` to confirm the loss) resets a coverage file to what the run
+itself produced — the way to rebuild a report after narrowing a universe.
+
 ### `SOURCE_CODES`: one code per authority
 
 The corpus pulls filings through three pillars — SEC EDGAR, the EU/OAM network
@@ -173,6 +298,14 @@ regulatory authority, never to a module, class, or file-format variant (e.g.
 "how it reached us" detail lives in the row's `provenance` field, not in a
 second near-duplicate code). `source_code_for()` resolves any producer/backend
 tag to its canonical code and raises rather than guess.
+
+A tag that names **this tool** rather than a publisher — `storage`, carried by
+the refusals the no-shrink guard makes — is deliberately *not* a code:
+`source_code_for()` raises on it, `is_local_source()` recognises it, and the run
+report counts it under `local_refusals` (and in `totals.docs_failed`, so the
+exit-code doctrine sees it) with **no source row at all**. Blaming an authority
+for a decision taken on this side of the network would be the report's worst
+possible lie.
 
 ## Documentation
 

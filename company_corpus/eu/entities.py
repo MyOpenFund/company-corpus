@@ -10,6 +10,7 @@ import re
 from dataclasses import dataclass
 from urllib.parse import quote
 
+from ..config import normalize_lei
 from ..gleif import fetch_gleif_record, parse_gleif_record
 from ..openfigi import OPENFIGI_URL
 
@@ -82,13 +83,31 @@ def _fetch_isins(lei: str, fetcher, *, seed: str = "", cap: int | None = None) -
     return tuple(out)
 
 
+def _canonical_lei(lei: str) -> str:
+    """The spec's LEI in its canonical spelling, or unchanged if it is not one.
+
+    The entity's ``lei`` is what the EU downloader files a document under and
+    what the financials writer names a table by, and both of those normalise
+    (DI-I7). When GLEIF answers with a record that carries no ``lei`` attribute
+    the spec's own spelling is all we have -- so it goes through the same rule
+    here rather than reaching the writers as the operator happened to type it.
+    A value that is not a LEI is left alone: refusing it here would turn a
+    downstream ``invalid-identifier`` finding into a resolver crash.
+    """
+    try:
+        return normalize_lei(lei)
+    except (ValueError, TypeError):
+        return lei
+
+
 def _lookup_lei(lei: str, fetcher, *, with_isins: bool) -> Entity | None:
     record = fetch_gleif_record(lei, fetcher=fetcher)
     if not record:
         return None
     lei_v, name, country = _from_gleif_record(record["attributes"])
-    isins = _fetch_isins(lei_v or lei, fetcher) if with_isins else ()
-    return Entity(lei=lei_v or lei, name=name, country=country, isins=isins, resolution="lei")
+    resolved = lei_v or _canonical_lei(lei)
+    isins = _fetch_isins(resolved, fetcher) if with_isins else ()
+    return Entity(lei=resolved, name=name, country=country, isins=isins, resolution="lei")
 
 
 def _openfigi_name(isin: str, fetcher) -> str | None:

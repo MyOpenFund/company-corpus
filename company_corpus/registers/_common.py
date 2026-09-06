@@ -9,20 +9,50 @@ NO-FALSE-DATA gate ordering.
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
 from datetime import date, datetime, timezone
 
-from ..config import Config
+from ..config import LEI_RE, Config
 from ..financials import PeriodSummary, make_row_base, rows_from_base, stamp_leverage_basis
-from ..storage import Storage, _atomic_write_text
+from ..paths import UnsafeIdentifier, safe_component
+from ..storage import ShrinkGuardError, Storage
 
 log = logging.getLogger(__name__)
 
+
+def _record_shrink_refusal(exc: ShrinkGuardError, cov_base: dict, *, entity_id,
+                           out: dict, coverage: "list[dict] | None" = None) -> None:
+    """Record a write the no-shrink guard refused, without ending the run.
+
+    The status is ``source-error`` -- the same one a dead register gets -- for
+    one reason: it is the status every consumer already reads as "this entity's
+    data did NOT land, and the reason is not the issuer". The message carries
+    the distinction (it names the table and the ``--allow-shrink`` remedy),
+    which is more than a new status would buy while the coverage vocabulary is
+    documented in a dozen places.
+
+    ``coverage`` is optional because the coverage finaliser itself can be the
+    thing that was refused: there is then no file to append a row to, and the
+    error item plus the counter are the whole record.
+    """
+    msg = str(exc)
+    if coverage is not None:
+        coverage.append({**cov_base, "status": "source-error", "error": msg})
+    out["errors"] = out.get("errors", 0) + 1
+    out.setdefault("error_items", []).append({
+        "entity_id": entity_id,
+        "source": "storage",
+        "error": msg,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
+    log.error("refused write: %s", msg)
+
 # ISO-17442 LEI: exactly 20 upper-case alphanumerics. Used on the DK path to
 # populate the `lei` column when the entity_id is itself a LEI (ESEF filers).
-_LEI_RE = re.compile(r"[A-Z0-9]{20}\Z")
+# One rule in the tree: this module carried its own copy of the pattern while
+# the EU writer had another, so "is this a LEI?" could be answered two ways.
+_LEI_RE = LEI_RE
 
 
 def _lei_or_none(entity_id: str) -> "str | None":
@@ -99,7 +129,8 @@ def _emit_entity_rows(
 ) -> None:
     """Shared tail: write the financials table, update counters, append coverage entry.
 
-    Handles both the ``no-financials`` (empty rows) and ``ok`` paths. Error and
+    Handles the ``invalid-identifier`` (unusable ``entity_id``, checked first),
+    ``no-financials`` (empty rows) and ``ok`` paths. Source-error and
     ``unbalanced`` paths are handled by the individual producers before calling here.
 
     Parameters
@@ -126,14 +157,44 @@ def _emit_entity_rows(
     rows = [row for row in rows if row.get("concept") not in _SUPPRESSED_CONCEPTS]
     # C1: stamp the leverage basis onto the leverage-derived rows (no-op if None).
     stamp_leverage_basis(rows, leverage_basis)
+    # An entity_id that cannot be a path component (a filename stem, a register
+    # field carrying prose or "../..") is a visible skip for that entity, never
+    # an aborted batch (Rob-C7 / DI-M4). Checked BEFORE the counters, before the
+    # ``no-financials`` early return and independently of ``write``: an unusable
+    # identifier is unusable whatever the row count, and reporting one as a bland
+    # "no-financials" both hid the outcome an operator has to act on and made the
+    # refusal depend on whether the register happened to carry figures. A
+    # dry-run therefore reports the same refusal a real run would;
+    # :meth:`Storage.write_register_financials_table` re-checks it as the last
+    # line of defence.
+    try:
+        safe_component(entity_id,
+                       max_length=storage.config.max_path_component_length)
+    except UnsafeIdentifier as exc:
+        coverage.append({**cov_base, "status": "invalid-identifier", "error": str(exc)})
+        out["errors"] += 1
+        log.warning("refusing to write a table for an unusable identifier: %s", exc)
+        return
     if not rows:
         coverage.append({**cov_base, "status": "no-financials"})
         out["no_financials"] += 1
         return
+    if write:
+        try:
+            path = storage.write_register_financials_table(entity_id, rows)
+        except ShrinkGuardError as exc:
+            # A refused write is THIS entity's failure, not the batch's. It used
+            # to escape to the top of the producer, so a single ``--replace``
+            # refusal cost the run every entity it had not reached yet -- and
+            # the coverage file, written at the very end, was never written at
+            # all. Same doctrine as the F1 IdentityCollisionError: report it
+            # against the entity, keep going.
+            _record_shrink_refusal(exc, cov_base, entity_id=entity_id, out=out,
+                                   coverage=coverage)
+            return
+        out["paths"].append(path)
     out["periods"] += n_periods
     out["with_financials"] += 1
-    if write:
-        out["paths"].append(storage.write_register_financials_table(entity_id, rows))
     coverage.append({**cov_base, "status": "ok", "periods": n_periods})
 
 
@@ -312,12 +373,24 @@ def _finalise_coverage(
     ``source`` is the coverage-file suffix (e.g. ``"brreg"``, ``"erst"``), which is
     not always the same as the row ``source`` tag — DK writes a single
     ``register_coverage_erst.jsonl`` for both ``erst-fsa`` and ``erst-ifrs`` rows.
+
+    The file is MERGED, not truncated (:meth:`Storage.write_coverage`): the old
+    wholesale rewrite meant a run narrowed by ``--limit`` or by the operator's
+    choice of entity ids erased the coverage of every entity it did not visit,
+    so "was ok yesterday, source-error today" could not be seen (Rob-I14).
     """
+    out["coverage_path"] = None
     if write:
-        cov_path = config.data_dir / "reports" / f"register_coverage_{source}.jsonl"
-        _atomic_write_text(
-            cov_path, "\n".join(json.dumps(c, default=str) for c in coverage))
+        cov_path = config.reports_dir / f"register_coverage_{source}.jsonl"
+        try:
+            Storage(config).write_coverage(cov_path, coverage)
+        except ShrinkGuardError as exc:
+            # The finaliser runs after every entity, so a refusal here used to
+            # kill the process holding the whole run's report -- the producer
+            # returned nothing, the CLI printed nothing, and the exit code was a
+            # traceback. ``coverage_path`` stays None (nothing was written, so
+            # nothing is claimed) and the refusal is an error item.
+            _record_shrink_refusal(exc, {}, entity_id=source, out=out)
+            return out
         out["coverage_path"] = str(cov_path)
-    else:
-        out["coverage_path"] = None
     return out

@@ -4,17 +4,49 @@ Parallels ``cb_corpus.models.DocRecord``. A :class:`FilingRecord` is the unit of
 the per-issuer manifest. Its ``doc_id`` is a stable, date-independent hash keyed
 on ``cik | form_type | accession`` so that re-runs are idempotent and metadata
 corrections (e.g. a refined ``filing_date``) never change a document's identity
-or force a re-download.
+or force a re-download. The families listed in
+:data:`DOC_ID_PERIOD_KEYED_FAMILIES` add the reported period -- the pair
+``period_of_report | frequency`` -- to that basis, because their records are
+synthetic pseudo-filings that share one accession across several periods.
 """
 
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import date
 
 from .config import normalize_cik
 from .taxonomy import FormType, by_code
+
+#: Taxonomy families whose ``doc_id`` also keys on the reported period, i.e. on
+#: the pair ``period_of_report | frequency``.
+#: Family F (XBRL period summaries) is a SYNTHETIC pseudo-filing: its
+#: ``accession`` is the accession of the filing that first reported the period,
+#: and one 10-K reports the current year AND its comparatives, so the accession
+#: alone collapses two or three fiscal years onto one id -- measured at 19 % of
+#: all periods across 40 real issuers (DI-C2). The period is a PAIR, not a date:
+#: ``financials.summaries_from_flat`` buckets on ``(end, frequency)``, and one
+#: 10-K tags the Q4 three-month duration alongside the twelve-month one, both
+#: ending the same day -- so ``frequency`` is part of the basis or those two
+#: summaries would be one document. ``accession`` itself keeps the real EDGAR
+#: value: it is provenance, and the vault contract reads it.
+#: Adding a family here CHANGES identity for that family; never do it for a
+#: family with artefacts already on disk.
+DOC_ID_PERIOD_KEYED_FAMILIES: frozenset[str] = frozenset({"F"})
+
+
+class IdentityCollisionError(RuntimeError):
+    """Two records of one issuer computed the same ``doc_id``.
+
+    ``doc_ids`` carries the colliding ids so a caller can report them as
+    structured data rather than re-parsing the message.
+    """
+
+    def __init__(self, message: str, doc_ids: Sequence[str] = ()) -> None:
+        super().__init__(message)
+        self.doc_ids: list[str] = list(doc_ids)
 
 
 @dataclass
@@ -33,6 +65,10 @@ class FilingRecord:
 
     filing_date: date | None = None       # date EDGAR accepted the filing (day precision)
     period_of_report: date | None = None  # fiscal period the filing covers
+    # Reporting frequency of the period (annual | quarterly | semi-annual), set
+    # only by producers of period-keyed synthetic records (family F). It is part
+    # of the doc_id basis for those families -- never derive it from a label.
+    frequency: str = ""
 
     primary_doc_url: str = ""             # the report document itself
     submission_url: str = ""              # the complete-submission .txt
@@ -55,8 +91,16 @@ class FilingRecord:
 
     @property
     def doc_id(self) -> str:
-        """Stable 16-char hex id keyed on cik|form|accession (date-independent)."""
+        """Stable 16-char hex id keyed on cik|form|accession (date-independent).
+
+        For :data:`DOC_ID_PERIOD_KEYED_FAMILIES` the period the record covers --
+        ``period_of_report`` AND ``frequency`` -- is part of the basis; see that
+        constant.
+        """
         basis = f"{self.cik}|{self.form_type.code}|{self.accession}"
+        if self.form_type.family in DOC_ID_PERIOD_KEYED_FAMILIES:
+            period = self.period_of_report.isoformat() if self.period_of_report else ""
+            basis = f"{basis}|{period}|{self.frequency}"
         return hashlib.sha1(basis.encode("utf-8")).hexdigest()[:16]
 
     @property
@@ -94,6 +138,7 @@ class FilingRecord:
             entity_id=row.get("entity_id", ""),
             filing_date=_parse_date(row.get("filing_date")),
             period_of_report=_parse_date(row.get("period_of_report")),
+            frequency=row.get("frequency") or "",
             primary_doc_url=row.get("primary_doc_url", ""),
             submission_url=row.get("submission_url", ""),
             provenance=row.get("provenance", "edgar_index"),

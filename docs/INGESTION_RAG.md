@@ -44,6 +44,7 @@ from company_corpus.rag import iter_items
 for item in iter_items(root="/path/to/corpus", ciks=["320193"],
                        doctypes="A,C", year_min=2015, year_max=2025, prefer="pdf"):
     item.doc_id   # stable id: sha1(cik|form|accession)[:16]
+                  # family F (XBRL period summaries) appends |period_of_report|frequency
     item.path     # Path to the .pdf (or .txt fallback)
     item.payload  # metadata dict, merged into every Qdrant chunk
 ```
@@ -53,7 +54,7 @@ for item in iter_items(root="/path/to/corpus", ciks=["320193"],
 | field | meaning |
 |---|---|
 | `source` | constant `"company-corpus"` (the product name, hyphenated — distinct from the `company_corpus` module/connector name below, which keeps the underscore for Python import syntax) |
-| `doc_id` | stable filing id |
+| `doc_id` | stable filing id — `sha1(cik\|form-code\|accession)[:16]`, date-independent. Family **F** (XBRL period summaries) appends `\|period_of_report\|frequency` to that basis: one accession carries a filing's comparative years, so the accession alone is not an identity there. F artefacts built before that change are named by the old basis and must be rebuilt with `xbrl --write` |
 | `cik` | zero-padded CIK (permanent issuer anchor) |
 | `company` | issuer name **as of the filing date** (point-in-time) |
 | `company_current` | current registrant name (search/joins) |

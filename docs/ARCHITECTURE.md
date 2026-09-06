@@ -136,14 +136,17 @@ Module responsibilities, one line each:
 | `config.py` / `http.py` | Runtime config + identifier parsers (`normalize_cik`, `cusip6`, …); the polite Fetcher. |
 | `openfigi.py` | **Isolated, optional** identifier enrichment/triage (no SEC, no CIK). Imported only by the CLI. |
 | `runreport.py` | `RunReport` — structured run-reports + the exit-code doctrine (see below). |
-| `source_codes.py` | `SOURCE_CODES` — the canonical authority registry (23 codes, one per real-world regulator); resolves any backend/producer tag via `source_code_for()`. |
+| `source_codes.py` | `SOURCE_CODES` — the canonical authority registry (23 codes, one per real-world regulator); resolves any backend/producer tag via `source_code_for()`. `LOCAL_SOURCES`/`is_local_source()` name the tags that are *not* authorities (the corpus's own refusals). |
 
 ### Run-report seam
 
 Every work command is wrapped by `cli.main()`: it opens a `RunReport`
 (`runreport.py`), lets the command feed it counters per source through
 `_feed_report`/`_feed_from_out` (resolving each producer tag to its canonical
-authority via `source_codes.source_code_for`), then calls `report.finish()` —
+authority via `source_codes.source_code_for`; a refusal the corpus made itself
+— the no-shrink guard's `source: "storage"` — is no authority's failure and is
+counted by `record_local_refusal` under `local_refusals`, with no source row),
+then calls `report.finish()` —
 which applies the doctrine (§8) to pick `exit_code`/`outcome` — and always
 appends the report as one JSON line to `data/runs.jsonl`, even on a caught
 exception. That file is the seam to the outside world: the MyOpenFund vault
@@ -160,11 +163,19 @@ the field-by-field reference and the per-command "unit of useful work" table.
 
 One JSON line per filing in `data/manifest/<cik>.jsonl`. Its identity is
 **date-independent**: `doc_id = sha1("<cik>|<form-code>|<accession>")[:16]`, so
-re-discovering a filing after a date correction never duplicates it.
+re-discovering a filing after a date correction never duplicates it. Family **F**
+(XBRL period summaries) appends `|<period_of_report>|<frequency>` to that basis
+(`models.DOC_ID_PERIOD_KEYED_FAMILIES`): those records are synthetic
+pseudo-filings that share one accession across a filing's comparative years, and
+a *period* there is the pair (end date, frequency) — one 10-K tags the Q4
+three-month duration alongside the twelve-month one, both ending the same day.
+Family-F artefacts produced before this change are named by the old basis: they
+are orphaned and must be regenerated with `xbrl --write`.
 
 Key fields: `cik`, `form_type` (a `FormType`), `sec_form`, `accession`, `company`
 (point-in-time) + `company_current`, `entity_id`, `filing_date`,
-`period_of_report`, `primary_doc_url`, `submission_url`, `provenance`
+`period_of_report`, `frequency` (period-keyed families only),
+`primary_doc_url`, `submission_url`, `provenance`
 (`edgar_index | edgar_fts | edgar_submissions | wayback`), and on-disk pointers
 `local_path` / `primary_path` / `text_path` / `pdf_path`. `to_row()`/`from_row()`
 round-trip it to JSONL.
@@ -214,6 +225,42 @@ data/
 The manifest is the entry point — every line carries the exact file paths, so you
 never decode a hash or browse `raw/` by hand.
 
+**The four table writers merge; they do not replace.** `financials/`,
+`financials_eu/`, `financials_register/` and `ownership/` are written through one
+read-merge-write core (`Storage._write_table`), keyed on each table's natural
+group: `(source, period_end, frequency, basis)` for a financials row, the SEC
+`accession` for an ownership row. A run replaces the groups it produced and
+carries every other group forward untouched, so a re-run narrowed by `--years`,
+`--ciks` or `--limit` — or one that lost a register call to a transient 5xx —
+updates what it saw instead of truncating an issuer's history. The group, not the
+row, is the unit: a concept an issuer stopped reporting disappears with its
+period rather than surviving as a stale row from an older vintage, and two
+legitimately identical Form 4 transaction lines both survive.
+
+`--replace` brings back wholesale replacement on `xbrl`, `ownership`,
+`eu-financials` and `register-financials`. **The run replaces, not the write:**
+the first write of a given table in a run replaces what was stored, and every
+later write of that same table in that run merges into the run's own output —
+several producers write one entity's table many times per run (`build_ch_financials`
+once per zip member, `build_lu_financials` once per yearly file, BE/DK/FI likewise),
+and a per-write replacement would have made `--replace` a wall of shrink errors or,
+with `--allow-shrink`, a silent "last file wins" that kept one year of the years the
+run had just produced. Replacement then trips a no-shrink guard, which refuses a
+write dropping more than `Config.no_shrink_fraction` (default `0.0`) of a table's
+stored groups; `--allow-shrink` raises that to 1.0. The guard counts *groups*, so a
+period that reports fewer concepts this vintage is not a shrink. A tripped guard is
+one issuer's refused write, not the run's death: like an identity collision, it is
+recorded as a per-issuer error (a `source-error` coverage row and an error item),
+that issuer's remaining writes are skipped, and the run continues. That holds on
+every producer, not only `xbrl` — including the coverage writers, which run last:
+a refused coverage write is reported as an error item and leaves `coverage_path`
+null (nothing landed, so nothing is claimed) instead of discarding the whole run's
+summary as a traceback. `--limit` may never
+be combined with `--replace`, and on the two commands whose `--limit` narrows the
+rows they emit (`ownership`, `register-financials`) combining it with `--write`
+requires `--allow-partial-write`, since a capped run's coverage report describes
+only the slice it processed.
+
 ---
 
 ## 4. The corpus lifecycle
@@ -245,6 +292,11 @@ flowchart LR
   the quarterly full-index, including delisted/merged issuers).
 - `report` and `rag-items` are read-only consumers at the tail; `entities`,
   `list-forms`, `list-universe`, `config` are inspection-only.
+- **`verify`** ([`verify.py`](../company_corpus/verify.py)) audits the whole tree
+  against these invariants — pointers resolve, ids are the ones the current
+  identity rules compute, a table holds only its own entity's rows, no raw file
+  is unreachable. Read-only by construction: no writes, no lock, exit `3` on
+  findings.
 
 ### Discovery convergence
 

@@ -863,3 +863,38 @@ def test_cli_sk_id_dead_call_plus_unbalanced_is_degraded(monkeypatch, tmp_path):
     rows = [json.loads(x) for x in
             (tmp_path / "discovery_errors.jsonl").read_text().splitlines() if x]
     assert rows and rows[-1]["run_id"] == rep["run_id"]
+
+
+def test_sk_coverage_keys_on_the_ico_when_the_caller_passed_one(tmp_path):
+    """A pre-resolution row and a post-resolution row must key the same way, so
+    the merged coverage file holds ONE row per entity (Task 6 review)."""
+    import json
+
+    from company_corpus.config import Config
+    from company_corpus.registers.financials import build_sk_financials
+
+    fetcher = MagicMock()
+    fetcher.get_json.return_value = None      # entity not found, no fetch error
+    cfg = Config(data_dir=tmp_path, contact="t@e.com")
+    out = build_sk_financials(["31322832"], fetcher=fetcher, config=cfg, write=True)
+    assert out["entities"] == 1
+    rows = [json.loads(x) for x in
+            (cfg.reports_dir / "register_coverage_registeruz.jsonl").read_text().splitlines()]
+    assert len(rows) == 1
+    assert rows[0]["ico"] == "31322832" and "entity_id" not in rows[0]
+
+
+def test_sk_coverage_keeps_entity_id_for_a_registeruz_internal_id(tmp_path):
+    """An internal registeruz id is NOT an IČO and must not be relabelled one."""
+    import json
+
+    from company_corpus.config import Config
+    from company_corpus.registers.financials import build_sk_financials
+
+    fetcher = MagicMock()
+    fetcher.get_json.return_value = None
+    cfg = Config(data_dir=tmp_path, contact="t@e.com")
+    build_sk_financials([12345], fetcher=fetcher, config=cfg, write=True)
+    rows = [json.loads(x) for x in
+            (cfg.reports_dir / "register_coverage_registeruz.jsonl").read_text().splitlines()]
+    assert rows[0]["entity_id"] == 12345 and rows[0]["ico"] is None

@@ -228,6 +228,9 @@ class _FakeFTS:
 
     def __init__(self, *a, **k):
         type(self).instantiated += 1
+        # Same contract as the real EdgarFTS (a Source): failures land here, and
+        # the CLI reads them to report them as fetch errors.
+        self.errors: list[dict] = []
 
     def resolve(self, cusip):
         return ("0000999999", "DEUTSCHE TELEKOM INTL FIN") if cusip == "25156PAA0" else None
@@ -346,7 +349,7 @@ class _BoomFTS:
     """An EdgarFTS stand-in whose resolve() must never be called."""
 
     def __init__(self, *a, **k):
-        pass
+        self.errors: list[dict] = []  # the EdgarFTS contract the CLI reads
 
     def resolve(self, cusip):
         raise AssertionError("fts.resolve called for a cached CUSIP")
@@ -372,7 +375,7 @@ class _OneHitFTS:
     """Confirmed hit for 25156PAA0; mismatched (unverified) hit for 88888XAA0."""
 
     def __init__(self, *a, **k):
-        pass
+        self.errors: list[dict] = []  # the EdgarFTS contract the CLI reads
 
     def resolve(self, cusip):
         if cusip == "25156PAA0":
@@ -406,11 +409,16 @@ def test_fts_cache_writes_confirmed_only_without_write_flag(monkeypatch, tmp_pat
 def test_name_tier_fetch_failure_degrades_gracefully(monkeypatch, tmp_path, capsys):
     """A transient SEC fetch failure in _name_tier must not abort build-universe.
 
-    rc must be 0, stderr must carry the WARNING, and the build must complete
-    (even though no name resolution happens). Overrides the autouse
+    The build completes on the tiers that are still up (here: the ticker map),
+    stderr carries the WARNING, and rc stays 0 because real work was done — the
+    failure is recorded as a fetch error, which only degrades a run that
+    resolved nothing (see tests/test_report_feeding.py). Overrides the autouse
     _stub_name_fetch with a raising stub set inside the test body.
     """
-    monkeypatch.setattr("company_corpus.cli.load_company_tickers", lambda fetcher: {})
+    monkeypatch.setattr(
+        "company_corpus.cli.load_company_tickers",
+        lambda fetcher: {"ZZZZ": Issuer(cik="0000320193", ticker="ZZZZ", company="Widget Inc")},
+    )
     # Override the autouse stub with one that raises.
     monkeypatch.setattr(
         "company_corpus.cli.fetch_cik_lookup",
@@ -422,10 +430,75 @@ def test_name_tier_fetch_failure_degrades_gracefully(monkeypatch, tmp_path, caps
     csv_path.write_text("Ticker,Name\nZZZZ,Widget Inc\n", encoding="utf-8")
     data_dir = tmp_path / "data"
     rc = main(["--data-dir", str(data_dir), "build-universe",
-               "--from-file", str(csv_path), "--name", "names"])
+               "--from-file", str(csv_path), "--name", "names", "--write"])
     assert rc == 0, "build-universe must exit 0 even when the name-tier fetch fails"
+    assert [i.cik for i in Universe(Config(data_dir=data_dir)).load("names")] == ["0000320193"]
     err = capsys.readouterr().err
     assert "WARNING" in err, f"expected a WARNING on stderr; got: {err!r}"
     assert "cik-lookup fetch failed" in err, (
         f"stderr should mention the failure reason; got: {err!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# --limit narrows a table producer (chantier 3, task 5)
+# ---------------------------------------------------------------------------
+
+def _reg_args(*extra: str):
+    from company_corpus import cli
+    return cli.build_parser().parse_args(
+        ["register-financials", "--ee-year", "2022", *extra])
+
+
+def test_limit_with_write_is_refused_by_default(capsys):
+    """A limited producer run writes a coverage file for a subset of the universe."""
+    args = _reg_args("--write", "--limit", "2")
+    with pytest.raises(SystemExit) as excinfo:
+        args.func(args)
+    assert excinfo.value.code == 2
+    assert "--allow-partial-write" in capsys.readouterr().err
+
+
+def test_limit_with_write_runs_under_allow_partial_write(monkeypatch, tmp_path, capsys):
+    from company_corpus import cli
+
+    captured = {}
+
+    def fake_build(*a, **kw):
+        captured.update(kw)
+        return {"entities": 1, "with_financials": 1, "no_financials": 0,
+                "unbalanced": 0, "errors": 0, "periods": 1, "paths": [],
+                "coverage_path": None}
+
+    monkeypatch.setattr(cli, "build_ee_financials", fake_build)
+    args = cli.build_parser().parse_args(
+        ["--data-dir", str(tmp_path), "register-financials", "--ee-year", "2022",
+         "--write", "--limit", "2", "--allow-partial-write"])
+    assert args.func(args) == 0
+    assert captured["limit"] == 2
+
+
+def test_limit_with_replace_is_always_refused(capsys):
+    """--replace + --limit is the Rob-C8 truncation; there is no override."""
+    args = _reg_args("--write", "--limit", "2", "--replace", "--allow-partial-write")
+    with pytest.raises(SystemExit) as excinfo:
+        args.func(args)
+    assert excinfo.value.code == 2
+    assert "--limit cannot be combined with --replace" in capsys.readouterr().err
+
+
+def test_allow_shrink_lifts_the_no_shrink_fraction():
+    from company_corpus import cli
+
+    args = cli.build_parser().parse_args(
+        ["xbrl", "--ciks", "320193", "--write", "--replace", "--allow-shrink"])
+    cfg = cli._config(args)
+    assert (cfg.replace_tables, cfg.no_shrink_fraction) == (True, 1.0)
+
+
+def test_table_flags_default_to_the_merging_config():
+    from company_corpus import cli
+
+    args = cli.build_parser().parse_args(["xbrl", "--ciks", "320193", "--write"])
+    cfg = cli._config(args)
+    assert (cfg.replace_tables, cfg.no_shrink_fraction) == (False, 0.0)
