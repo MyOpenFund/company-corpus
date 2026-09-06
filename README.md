@@ -88,8 +88,8 @@ never exit `0`.
 - `1` — fatal: an uncaught exception, or a command that itself returned non-zero.
 - `3` — degraded: any source reported a `truncated` (partial) result, OR zero
   new documents were produced while errors occurred (save errors and/or fetch
-  errors). Recovered transient errors alongside real new documents do **not**
-  degrade a run.
+  errors, plus any write the corpus itself refused). Recovered transient errors
+  alongside real new documents do **not** degrade a run.
 
 ### `data/runs.jsonl`
 
@@ -108,7 +108,11 @@ write) before returning:
 ```
 
 A `failed` run also carries a `fatal` field (the exception, capped at 500
-chars). The MyOpenFund vault ingests this file **unchanged** — the schema is
+chars). A run in which the corpus refused one of its own writes (the no-shrink
+guard) also carries `local_refusals` — `{"count": n, "samples": [...]}` — and
+those refusals are included in `totals.docs_failed`: they are failures of the
+run under **no** `source_code`, because no authority was involved (see
+`SOURCE_CODES` below). The key is absent when there were none. The MyOpenFund vault ingests this file **unchanged** — the schema is
 deliberately flat and stable, so it feeds a `runs` table with no transform step.
 
 `COMPANY_DATA_DIR` is a test/ops override of the **run-report path only**
@@ -229,13 +233,17 @@ python -m company_corpus verify --json > after.json    # measure again
    *not* repaired from disk — its ids changed basis (they are period-keyed now),
    so old summaries are orphans: rebuild with `xbrl --write` and delete what
    `verify` then reports under `raw/<cik>/F1/`. Likewise, EU documents acquired
-   before the computed EU identity keep their old directories and are only
-   settled by re-running `eu-acquire --write`; ownership summaries are rebuilt
-   by `ownership --write`.
+   before the computed EU identity keep their old directories: `eu-acquire
+   --write` re-acquires them under their computed `doc_id`, but — exactly as
+   with F1 — it does not delete what it replaced, so the old manifests stay on
+   disk and keep reporting `stale-doc-id` (*no native_id recorded*) until you
+   delete them by hand under `manifest/<LEI>/` and their bytes under
+   `raw/<LEI>/`. Ownership summaries are rebuilt by `ownership --write`.
 5. **Verify again** and diff the two reports. Expect `orphan-artefact` to fall
    and `incomplete-record` to reach zero. A remaining `orphan-artefact` whose
    detail says *interrupted atomic write, safe to delete* is a `.tmp`/`.part`
-   leftover and needs no investigation.
+   leftover and needs no investigation. A remaining `stale-doc-id` is a
+   superseded manifest from step 4 waiting to be deleted.
 
 Three things to know before pointing it at a share:
 
@@ -290,6 +298,14 @@ regulatory authority, never to a module, class, or file-format variant (e.g.
 "how it reached us" detail lives in the row's `provenance` field, not in a
 second near-duplicate code). `source_code_for()` resolves any producer/backend
 tag to its canonical code and raises rather than guess.
+
+A tag that names **this tool** rather than a publisher — `storage`, carried by
+the refusals the no-shrink guard makes — is deliberately *not* a code:
+`source_code_for()` raises on it, `is_local_source()` recognises it, and the run
+report counts it under `local_refusals` (and in `totals.docs_failed`, so the
+exit-code doctrine sees it) with **no source row at all**. Blaming an authority
+for a decision taken on this side of the network would be the report's worst
+possible lie.
 
 ## Documentation
 

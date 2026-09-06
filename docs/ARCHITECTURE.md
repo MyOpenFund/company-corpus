@@ -136,14 +136,17 @@ Module responsibilities, one line each:
 | `config.py` / `http.py` | Runtime config + identifier parsers (`normalize_cik`, `cusip6`, …); the polite Fetcher. |
 | `openfigi.py` | **Isolated, optional** identifier enrichment/triage (no SEC, no CIK). Imported only by the CLI. |
 | `runreport.py` | `RunReport` — structured run-reports + the exit-code doctrine (see below). |
-| `source_codes.py` | `SOURCE_CODES` — the canonical authority registry (23 codes, one per real-world regulator); resolves any backend/producer tag via `source_code_for()`. |
+| `source_codes.py` | `SOURCE_CODES` — the canonical authority registry (23 codes, one per real-world regulator); resolves any backend/producer tag via `source_code_for()`. `LOCAL_SOURCES`/`is_local_source()` name the tags that are *not* authorities (the corpus's own refusals). |
 
 ### Run-report seam
 
 Every work command is wrapped by `cli.main()`: it opens a `RunReport`
 (`runreport.py`), lets the command feed it counters per source through
 `_feed_report`/`_feed_from_out` (resolving each producer tag to its canonical
-authority via `source_codes.source_code_for`), then calls `report.finish()` —
+authority via `source_codes.source_code_for`; a refusal the corpus made itself
+— the no-shrink guard's `source: "storage"` — is no authority's failure and is
+counted by `record_local_refusal` under `local_refusals`, with no source row),
+then calls `report.finish()` —
 which applies the doctrine (§8) to pick `exit_code`/`outcome` — and always
 appends the report as one JSON line to `data/runs.jsonl`, even on a caught
 exception. That file is the seam to the outside world: the MyOpenFund vault
