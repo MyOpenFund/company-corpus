@@ -1403,8 +1403,10 @@ def build_parser() -> argparse.ArgumentParser:
     dl.add_argument("--write", action="store_true", help="persist files+manifest (else dry-run)")
     dl.add_argument("--overwrite", action="store_true", help="re-download already-stored filings")
     dl.add_argument("--limit", type=int, default=None,
-                    help="cap number of new downloads (repairs are not capped: they "
-                         "cost no network; reported as repaired=)")
+                    help="cap number of new downloads (repairs are not capped: the run "
+                         "walks the whole selection and re-derives every half-processed "
+                         "document from bytes already on disk, reported as repaired=. "
+                         "--limit 0 is therefore a download-free convergence pass)")
     dl.set_defaults(func=_cmd_download)
 
     rp = sub.add_parser("report", help="completeness matrix (issuer x form x year)")
@@ -1522,7 +1524,9 @@ def build_parser() -> argparse.ArgumentParser:
     _add_period_flags(ow)
     ow.add_argument("--write", action="store_true", help="download+persist summaries (else dry-run)")
     ow.add_argument("--overwrite", action="store_true", help="re-download already-stored filings")
-    ow.add_argument("--limit", type=int, default=None, help="cap number of new downloads")
+    ow.add_argument("--limit", type=int, default=None,
+                    help="cap number of new downloads (repairs are not capped; "
+                         "--limit 0 converges and parses what is already on disk)")
     _add_table_write_flags(ow, partial_write=True)
     ow.set_defaults(func=_cmd_ownership)
 

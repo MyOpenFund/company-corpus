@@ -168,10 +168,12 @@ def download_universe(
 
     ``limit`` caps the number of *new downloads* across the run and nothing
     else: repairs are not capped by ``--limit`` (they cost no network -- they
-    re-derive artefacts from bytes already on disk), so a limited run still
-    converges every half-processed document it walks past.
+    re-derive artefacts from bytes already on disk), so a limited run walks the
+    whole selection and converges every half-processed document in it.
     ``DownloadReport.repaired`` reports them, and they stay counted in
     ``docs_new`` because a repair adopts bytes that were previously unusable.
+    ``limit=0`` is therefore the download-free convergence pass: it repairs
+    everything on disk and fetches nothing.
     """
     config = config or Config()
     fetcher = fetcher or Fetcher(config)
@@ -192,9 +194,16 @@ def download_universe(
         for rec in records:
             # Only `downloaded` is weighed against the limit: a repair costs no
             # network, so capping it would leave documents half-processed for no
-            # gain (see the docstring).
+            # gain (see the docstring). Past the cap the walk therefore CONTINUES
+            # -- it used to `break`, which made the documented contract false and
+            # made `--limit 0` (the download-free adoption pass) a no-op. A
+            # dry-run probe decides: only `would-repair` earns the real call, so
+            # nothing behind the cap can reach the network.
             if limit is not None and report.downloaded >= limit:
-                break
+                probe = storage.fetch_and_store(rec, fetcher, dry_run=True,
+                                                overwrite=overwrite)
+                if probe.status != "would-repair":
+                    continue
             res = storage.fetch_and_store(rec, fetcher, dry_run=dry_run, overwrite=overwrite)
             touched.append(rec)
             if res.status == "downloaded":
@@ -483,7 +492,9 @@ def process_ownership(
     13F (E2) parses the structured XML into a readable summary (overriding the
     poor raw-XML text) and appends normalized rows to ``data/ownership/<cik>.jsonl``.
     SC 13D/G (E3) keep the generic narrative text. Idempotent; ``limit`` caps new
-    downloads (curated tier is the default usage).
+    downloads and nothing else (curated tier is the default usage): repairs cost
+    no network and are never capped, so ``limit=0`` is a download-free pass that
+    converges -- and finally parses -- every half-processed filing on disk.
     """
     config = config or Config()
     fetcher = fetcher or Fetcher(config)
@@ -506,8 +517,15 @@ def process_ownership(
         touched: list[FilingRecord] = []
         rows: list[dict] = []
         for rec in records:
+            # As in ``download_universe``: the cap is on NEW DOWNLOADS, so the
+            # walk continues past it and only a repair (no network) is allowed
+            # through. A ``break`` here left every half-processed filing behind
+            # the cap without ownership rows, run after run.
             if limit is not None and report.downloaded >= limit:
-                break
+                probe = storage.fetch_and_store(rec, fetcher, dry_run=True,
+                                                overwrite=overwrite)
+                if probe.status != "would-repair":
+                    continue
             res = storage.fetch_and_store(rec, fetcher, dry_run=dry_run, overwrite=overwrite)
             touched.append(rec)
             if res.status == "error":

@@ -257,3 +257,92 @@ def test_download_universe_counts_a_repair(apple_fetcher, config):
                                config=config, fetcher=_Boom(), storage=st)
     assert report.repaired == 1 and report.downloaded == 0 and report.errors == 0
     assert next(iter(st.load_manifest("320193").values())).sha256
+
+
+# ---- --limit caps NEW DOWNLOADS, never repairs ----
+def _new_record(accession: str, day: int) -> FilingRecord:
+    return FilingRecord(
+        cik="320193", form_type=FormType.A1, sec_form="10-K",
+        accession=accession, company="Apple Inc.",
+        filing_date=date(2024, 11, day),
+        primary_doc_url=PRIMARY_URL, submission_url=SUB_URL,
+    )
+
+
+def _half_processed(st: Storage, fetcher, accession: str, day: int) -> FilingRecord:
+    """A record whose submission is on disk but whose hash was never stamped.
+
+    Exactly what an interrupt between writing the bytes and saving the manifest
+    leaves behind, and what ``fetch_and_store`` repairs from disk with no
+    network at all.
+    """
+    rec = _new_record(accession, day)
+    st.fetch_and_store(rec, fetcher, dry_run=False)
+    rec.sha256 = None
+    return rec
+
+
+def _mixed_corpus(st: Storage, fetcher) -> None:
+    """Three half-processed records and two never-downloaded ones, interleaved.
+
+    The walk is newest-first, so the newest record is a new download: the cap is
+    spent on the very first record and everything the run has to converge lies
+    behind it.
+    """
+    recs = [
+        _new_record("0000320193-24-000005", 5),                 # new
+        _half_processed(st, fetcher, "0000320193-24-000004", 4),
+        _new_record("0000320193-24-000003", 3),                 # new
+        _half_processed(st, fetcher, "0000320193-24-000002", 2),
+        _half_processed(st, fetcher, "0000320193-24-000001", 1),
+    ]
+    st.save_records(recs, dry_run=False)
+
+
+def test_download_limit_caps_downloads_but_not_repairs(apple_fetcher, config):
+    """``--limit 1`` = one download AND every repair the run walks past.
+
+    The loop used to ``break`` at the cap, so the documented contract ("repairs
+    are not capped: they cost no network") was false and every half-processed
+    document behind the cap stayed half-processed run after run -- the
+    download-free adoption recipe (``--limit 0``) repaired nothing at all.
+    """
+    st = Storage(config)
+    _mixed_corpus(st, apple_fetcher)
+
+    report = download_universe(["320193"], scope=FULL_SCOPE, dry_run=False,
+                               limit=1, config=config, fetcher=apple_fetcher,
+                               storage=st)
+
+    assert report.downloaded == 1
+    assert report.repaired == 3
+    assert report.errors == 0
+    manifest = st.load_manifest("320193")
+    by_acc = {r.accession: r for r in manifest.values()}
+    assert all(by_acc[f"0000320193-24-00000{n}"].sha256 for n in (1, 2, 4)), \
+        "every half-processed document behind the cap is converged"
+    assert not by_acc["0000320193-24-000003"].sha256, \
+        "the second NEW download is still capped: it would cost network"
+
+
+def test_download_limit_zero_is_a_repair_only_run(apple_fetcher, config):
+    """``--limit 0``: the download-free convergence pass the README recommends."""
+    st = Storage(config)
+    _mixed_corpus(st, apple_fetcher)
+
+    report = download_universe(["320193"], scope=FULL_SCOPE, dry_run=False,
+                               limit=0, config=config, fetcher=_Boom(), storage=st)
+
+    assert report.downloaded == 0 and report.repaired == 3 and report.errors == 0
+
+
+def test_download_limit_zero_dry_run_reports_the_repairs(apple_fetcher, config):
+    st = Storage(config)
+    _mixed_corpus(st, apple_fetcher)
+
+    report = download_universe(["320193"], scope=FULL_SCOPE, dry_run=True,
+                               limit=0, config=config, fetcher=_Boom(), storage=st)
+
+    assert report.would_repair == 3 and report.repaired == 0 and report.downloaded == 0
+    assert not any(r.sha256 for r in st.load_manifest("320193").values()
+                   if r.accession.endswith(("1", "2", "4"))), "a dry run writes nothing"
