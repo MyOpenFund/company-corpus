@@ -66,6 +66,12 @@ class Config:
     lock_wait_seconds: float = 0.0    # 0.0 = a second writer fails immediately
     max_path_component_length: int = 128  # longest real identifier is a 20-char LEI
 
+    # Self-check behaviour.
+    #: ``verify`` skips unreferenced files whose path under ``raw/`` has a
+    #: component starting with "." (.DS_Store, AppleDouble ``._*``, .Trashes):
+    #: OS metadata, never written by the corpus. Referenced files are unaffected.
+    verify_ignore_hidden: bool = True
+
     def __post_init__(self) -> None:
         if isinstance(self.data_dir, str):
             self.data_dir = Path(self.data_dir)

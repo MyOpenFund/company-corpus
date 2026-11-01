@@ -580,7 +580,18 @@ class _Scan:
             name = Path(rel).name
             if name in UNREFERENCED_RAW_NAMES:
                 continue
+            if self.config.verify_ignore_hidden and _is_hidden(rel):
+                continue
             self._add("orphan-artefact", rel, _orphan_detail(name))
+
+
+def _is_hidden(rel: str) -> bool:
+    """True when any component of ``rel`` starts with "." -- OS metadata.
+
+    The corpus never writes such a name: both staging writers prefix the
+    temp file with the destination's own (visible) name.
+    """
+    return any(part.startswith(".") for part in Path(rel).parts)
 
 
 #: Suffixes both atomic writers stage through before ``os.replace``:
