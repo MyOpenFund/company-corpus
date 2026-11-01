@@ -183,7 +183,7 @@ takes **no corpus lock**, so it is safe to run beside a nightly crawl.
 | kind | what it means |
 |---|---|
 | `missing-artefact` | a manifest row points at bytes that are not on disk (or outside the data dir) |
-| `orphan-artefact` | a file under `raw/` that no manifest row points at |
+| `orphan-artefact` | a file under `raw/` that no manifest row points at (OS metadata such as `.DS_Store`, `._*` or anything under a dot-directory is skipped; `Config.verify_ignore_hidden=False` reports it too) |
 | `duplicate-doc-id` | one `doc_id` on two rows (or under two LEI manifests) |
 | `stale-doc-id` | a stored id the current identity rule does not reproduce (a pre-period-keyed F1 id, an EU manifest with no `native_id`) |
 | `foreign-row` | a row filed under an entity other than the one naming its file |

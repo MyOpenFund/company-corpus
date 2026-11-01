@@ -203,6 +203,45 @@ def test_companyfacts_is_not_an_orphan(corpus):
 # ---------------------------------------------------------------------------
 # what the deployed corpus actually looks like (spec section 5)
 # ---------------------------------------------------------------------------
+def test_os_metadata_files_are_not_orphans(corpus):
+    """Finder/iCloud droppings are not documents the index lost (25 .DS_Store
+    were reported as orphans on the real Mac corpus, 2026-09)."""
+    issuer = corpus.raw_dir / "0000320193"
+    (corpus.raw_dir / ".DS_Store").write_bytes(b"\0")
+    (issuer / ".DS_Store").write_bytes(b"\0")
+    (issuer / "A1" / "._leftover.primary.htm").write_bytes(b"\0")  # AppleDouble
+    assert verify(corpus) == []
+
+
+def test_files_under_a_hidden_directory_are_not_orphans(corpus):
+    hidden = corpus.raw_dir / "0000320193" / ".Trashes"
+    hidden.mkdir()
+    (hidden / "x.primary.htm").write_text("<html/>")
+    assert verify(corpus) == []
+
+
+def test_hidden_files_are_still_counted_as_raw_files(corpus):
+    before = verify_scan(corpus).scanned["raw_files"]
+    (corpus.raw_dir / ".DS_Store").write_bytes(b"\0")
+    assert verify_scan(corpus).scanned["raw_files"] == before + 1
+
+
+def test_hidden_files_are_orphans_when_the_knob_is_off(corpus):
+    (corpus.raw_dir / ".DS_Store").write_bytes(b"\0")
+    corpus.verify_ignore_hidden = False
+    findings = verify(corpus)
+    assert _kinds(findings) == ["orphan-artefact"]
+    assert findings[0].subject == "raw/.DS_Store"
+
+
+def test_a_visible_orphan_next_to_hidden_files_is_still_reported(corpus):
+    issuer = corpus.raw_dir / "0000320193"
+    (issuer / ".DS_Store").write_bytes(b"\0")
+    (issuer / "A1" / "2024" / "leftover.primary.htm").write_text("<html/>")
+    findings = verify(corpus)
+    assert [f.subject for f in findings] == ["raw/0000320193/A1/2024/leftover.primary.htm"]
+
+
 def test_raw_bytes_with_no_manifest_at_all_are_all_orphans(config, sample_submission):
     """The measured migration case: 9 GB of raw bytes, no data/manifest/."""
     for name in ("a.submission.txt", "a.txt", "b.primary.html"):
