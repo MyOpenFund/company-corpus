@@ -76,6 +76,71 @@ python -m company_corpus register-financials --orgnrs 923609016 --write
 python -m company_corpus register-financials --ch-bulk accounts_monthly_2024_01.zip --limit 100
 ```
 
+## Feeding my-open-data (`store-batches`)
+
+`store-batches` turns layer 0 (the stored `companyfacts.json` and the EDGAR
+submissions archive) into [my-open-data](https://github.com/MyOpenFund/my-open-data)
+batches. For each issuer it emits one `entity_observations` batch and one
+`fundamentals` 2.0.0 batch, always the full history; replaying the same inputs is a
+no-op in the store. It writes into a landing zone and never publishes: you run
+`myopendata publish` afterwards. It is a dry run unless `--write`.
+
+```bash
+pip install ".[store]"          # my-open-data with its publisher (optional extra)
+company-corpus --contact "$SEC_CONTACT" store-batches --universe sp_curated \
+    --landing "$MYOPENDATA_DATA_ROOT/landing" --write
+myopendata publish
+```
+
+The CLI stays importable without the extra; `store-batches` then fails cleanly
+(exit 1) and says what to install.
+
+**Submissions archive.** Identity observations come from `raw/<cik>/submissions/`
+(the main `submissions` JSON plus its paginated files, each with a sidecar). A
+missing archive is fetched on `--write`; `--refresh-submissions` re-fetches it to
+pick up new observations; `--offline` never fetches, so an issuer without an archive
+fails. `--refresh-submissions` with `--offline` is a usage error. `verify` treats
+the archive as layer 0, like `companyfacts.json`. A dry run reports an issuer
+without an archive as `pending_fetch` and writes nothing.
+
+**Point selection and `known_at`.** Fundamentals durations are classified by
+fiscal-week bands (`Config.store_duration_bands`); fiscal year-ends come from the
+annual-report forms in `Config.store_annual_report_forms` (default prefixes `10-K`,
+`20-F`, `40-F`). `known_at` is the filing's acceptance time. When a filing has no
+acceptance time, a fallback is used (`Config.store_known_at_fallback_tz` /
+`store_known_at_fallback_time`); when that filing was filed on the run day, the
+fallback is capped at run time, so a later run records another version with a later
+`known_at` (a new vintage, not a conflict) -- visible as `known_at_capped`.
+`Config.store_fiscal_year_slack_days` (`0 <= slack < 365`) tolerates period ends that
+drift from the fiscal year-end and also drives the backward projection before the
+first year-end. `Config.edgar_country_codes` maps EDGAR state/country codes to
+countries; an unmapped code is reported, never guessed.
+
+**Run report.** `data/runs.jsonl` carries `details.store_batches` (per-issuer status,
+rows, batch ids, counters, plus totals). Counters:
+
+| counter | meaning |
+|---|---|
+| `dropped:ytd9`, `dropped:odd_duration`, `dropped:period_shape` | duration points outside the configured bands or shape |
+| `dropped:non_reporting_currency`, `dropped:unexpected_unit` | unit filters |
+| `dropped:bad_point`, `dropped:no_known_at`, `dropped:value_out_of_range` | unusable points |
+| `ambiguous_observation` | competing points the selection could not separate |
+| `known_at_fallback`, `known_at_capped`, `known_at_naive` | `known_at` derived without an acceptance time (capped at run time / naive timestamp) |
+| `source_doc_id_null`, `filing_not_in_manifest` | filing not resolvable to a stored document |
+| `value_rounded` | value rounded to fit the contract |
+| `country_unknown[:code]` | unmapped EDGAR country code |
+| `former_name_shadowed`, `former_name_undated` | former-name handling in identity rows |
+
+An unexpected exception in one issuer is recorded as `failed` with
+`unexpected: <Type>: <msg>` and the run continues with the next issuer.
+
+**Exit codes.** `0` every issuer emitted (or pending, in a dry run); `3` at least one
+issuer failed (the run is `degraded`); `1` fatal (landing zone not writable,
+my-open-data not installed, corpus lock held); `2` usage error.
+
+The end-to-end test (writer, then publisher) needs the DuckDB `ducklake` extension
+and skips when it cannot be installed; the CI `store` job pre-installs it.
+
 ## Operations
 
 **Doctrine, in one sentence:** every work command folds its own counters into a
@@ -183,7 +248,7 @@ takes **no corpus lock**, so it is safe to run beside a nightly crawl.
 | kind | what it means |
 |---|---|
 | `missing-artefact` | a manifest row points at bytes that are not on disk (or outside the data dir) |
-| `orphan-artefact` | a file under `raw/` that no manifest row points at (OS metadata such as `.DS_Store`, `._*` or anything under a dot-directory is skipped; `Config.verify_ignore_hidden=False` reports it too) |
+| `orphan-artefact` | a file under `raw/` that no manifest row points at (`raw/<cik>/submissions/` is layer 0, like `F1/companyfacts.json`, and never an orphan; OS metadata such as `.DS_Store`, `._*` or anything under a dot-directory is skipped; `Config.verify_ignore_hidden=False` reports it too) |
 | `duplicate-doc-id` | one `doc_id` on two rows (or under two LEI manifests) |
 | `stale-doc-id` | a stored id the current identity rule does not reproduce (a pre-period-keyed F1 id, an EU manifest with no `native_id`) |
 | `foreign-row` | a row filed under an entity other than the one naming its file |
