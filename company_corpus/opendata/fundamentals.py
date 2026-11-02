@@ -266,9 +266,10 @@ def _row(cik: str, pt: Point, known_at: datetime, manifest_doc_ids,
 def fiscal_year_of(valid_date: date, fiscal_year_ends: list[date],
                    slack_days: int) -> int | None:
     """Year of the first fiscal year-end on or after ``valid_date`` (not companyfacts ``fy``,
-    which is the filing's fiscal year). After the last known year-end, that year-end is
-    projected by whole years; a period ending within ``slack_days`` after a projected
-    year-end belongs to it (52/53-week drift). None when the issuer reports no annual period.
+    which is the filing's fiscal year). Before the first known year-end (opening balances) and
+    after the last one, the nearest known year-end is projected by whole years; a period ending
+    within ``slack_days`` after a projected year-end belongs to it (52/53-week drift). None when
+    the issuer reports no annual period.
     """
     if not fiscal_year_ends:
         return None
