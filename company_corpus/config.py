@@ -121,10 +121,16 @@ class Config:
     #: acceptance), capped at the run's own time.
     store_known_at_fallback_tz: str = "America/New_York"
     store_known_at_fallback_time: str = "23:59:59"
-    #: fiscal_year after the issuer's last reported fiscal year-end: that year-end projected
-    #: by whole years; a period ending up to this many days after a projected year-end still
-    #: belongs to it (52/53-week calendars drift by a few days).
+    #: fiscal_year before the issuer's first and after its last reported fiscal year-end: the
+    #: nearest year-end projected backward / forward by whole years; a period ending up to this
+    #: many days after a projected year-end still belongs to it (52/53-week calendars drift
+    #: by a few days). Must satisfy 0 <= slack < 365.
     store_fiscal_year_slack_days: int = 7
+    #: Form-type prefixes (case-insensitive) whose annual-duration points give the issuer's
+    #: fiscal year-ends: 10-K (incl. 10-K405, 10-KSB, 10-KT), 20-F, 40-F and their /A
+    #: amendments. 10-Q, 6-K, 8-K and the like are excluded (a 12-months figure in them is
+    #: not a year-end). Non-empty tuple of non-empty strings.
+    store_annual_report_forms: tuple[str, ...] = ("10-K", "20-F", "40-F")
     edgar_country_codes: dict[str, str] = field(
         default_factory=lambda: dict(DEFAULT_EDGAR_COUNTRY_CODES))
 
@@ -137,6 +143,13 @@ class Config:
                 f"limit of {SEC_MAX_REQUESTS_PER_SECOND}/s"
             )
         _check_duration_bands(self.store_duration_bands)
+        forms = self.store_annual_report_forms
+        if (not isinstance(forms, tuple) or not forms
+                or not all(isinstance(f, str) and f.strip() for f in forms)):
+            raise ValueError("store_annual_report_forms must be a non-empty tuple of "
+                             "non-empty strings")
+        if not 0 <= self.store_fiscal_year_slack_days < 365:
+            raise ValueError("store_fiscal_year_slack_days must satisfy 0 <= slack < 365")
         try:
             ZoneInfo(self.store_known_at_fallback_tz)
         except (ZoneInfoNotFoundError, ValueError) as exc:

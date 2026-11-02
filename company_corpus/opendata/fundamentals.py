@@ -206,7 +206,7 @@ def fundamentals_rows(cik: str, facts: dict, *, acceptance: Mapping[str, datetim
             by_key[(pt.concept, pt.end, pt.frequency, min(fallback, now))].append((pt, True))
         else:
             by_key[(pt.concept, pt.end, pt.frequency, known_at)].append((pt, False))
-    rows, annual_ends = [], set()
+    rows = []
     for (_, _, _, known_at), cands in by_key.items():
         if len({_quantized(pt.value) for pt, _ in cands}) > 1:
             counters["ambiguous_observation"] += 1
@@ -216,11 +216,14 @@ def fundamentals_rows(cik: str, facts: dict, *, acceptance: Mapping[str, datetim
         if fell_back:
             counters["known_at_fallback"] += 1
         rows.append(_row(cik, pt, known_at, manifest_doc_ids, counters))
-        if pt.frequency == "annual" and pt.form.upper().startswith("10-K"):
-            annual_ends.add(pt.end)
-    # Fiscal year-ends: ends of annual periods of 10-K-family filings (a 12-months figure in
-    # a 10-Q/8-K is not a year-end), plus the end of every transition period (10-KT), so a
-    # fiscal-year change labels both sides right (spec §4, §9).
+    # Fiscal year-ends: ends of annual periods of annual-report filings (10-K/20-F/40-F
+    # family, ``store_annual_report_forms``; a 12-months figure in a 10-Q/6-K/8-K is not a
+    # year-end), taken from every selected point, whether or not its key later became a row,
+    # plus the end of every transition period (10-KT), so a fiscal-year change labels both
+    # sides right (spec §4, §9).
+    prefixes = tuple(f.strip().upper() for f in config.store_annual_report_forms)
+    annual_ends = {pt.end for pt in points
+                   if pt.frequency == "annual" and pt.form.upper().startswith(prefixes)}
     fyes = sorted(annual_ends | set(transitions.values()))
     for r in rows:
         r["fiscal_year"] = fiscal_year_of(r["valid_date"], fyes,

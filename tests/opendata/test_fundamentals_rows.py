@@ -180,11 +180,86 @@ def test_year_ends_come_only_from_10k_family_annual_points():
         point(400, "2024-06-30", start="2023-07-01", accn=K24),
         point(410, "2024-12-31", start="2024-01-01", accn=K25, form="10-Q"),   # 366 days: annual
         point(100, "2024-09-30", start="2024-07-01", accn=K25, form="10-Q"),
-        point(420, "2025-06-30", start="2024-07-01", accn=K26, form="10-K/A"),
     ]}})
     fy = {(r["valid_date"], r["frequency"]): r["fiscal_year"] for r in rows}
     assert fy[(date(2024, 9, 30), "quarterly")] == 2025
     assert fy[(date(2024, 12, 31), "annual")] == 2025
+
+
+def test_a_10k_amendment_year_end_counts():
+    # Only the 10-K/A reports the 2024-12-31 year-end; projection from 2024-06-30 alone would
+    # label the 2024-09-30 quarter 2025.
+    rows, _ = _rows({"Revenues": {"USD": [
+        point(400, "2024-06-30", start="2023-07-01", accn=K24),
+        point(100, "2024-09-30", start="2024-07-01", accn=K25, form="10-Q"),
+        point(410, "2024-12-31", start="2024-01-01", accn=K26, form="10-K/A"),
+    ]}})
+    fy = {(r["valid_date"], r["frequency"]): r["fiscal_year"] for r in rows}
+    assert fy[(date(2024, 9, 30), "quarterly")] == 2024
+
+
+# ---- fix round 2 ----
+
+F20, F20B, F40 = "0000000042-25-000020", "0000000042-25-000021", "0000000042-25-000040"
+
+
+def test_all_20f_issuer_gets_fiscal_years():
+    rows, _ = _rows({"Revenues": {"USD": [
+        point(400, "2024-03-31", start="2023-04-01", accn=F20, form="20-F"),
+        point(300, "2025-03-31", start="2024-04-01", accn=F20B, form="20-F/A"),
+    ]}}, acceptance={})
+    assert [r["fiscal_year"] for r in rows] == [2024, 2025]
+
+
+def test_40f_year_ends_count():
+    rows, _ = _rows({"Revenues": {"USD": [
+        point(400, "2024-12-31", start="2024-01-01", accn=F40, form="40-F")]},
+        "LongTermDebt": {"USD": [point(5, "2024-09-30", accn=F40, form="40-F")]}},
+        acceptance={})
+    assert {r["concept"]: r["fiscal_year"] for r in rows}["long_term_debt"] == 2024
+
+
+def test_6k_semiannual_and_ttm_points_are_not_year_ends():
+    rows, _ = _rows({"Revenues": {"USD": [
+        point(400, "2024-03-31", start="2023-04-01", accn=F20, form="20-F"),
+        point(150, "2024-09-30", start="2024-04-01", accn=F20B, form="6-K"),   # semiannual
+        point(390, "2024-12-31", start="2024-01-01", accn=F40, form="6-K"),    # TTM
+    ]}}, acceptance={})
+    fy = {r["valid_date"]: r["fiscal_year"] for r in rows}
+    assert fy[date(2024, 9, 30)] == 2025 and fy[date(2024, 12, 31)] == 2025
+
+
+def test_ambiguous_annual_key_still_contributes_its_year_end():
+    same = {K24: ACCEPT[K24], K25: ACCEPT[K24]}
+    rows, c = _rows({"Revenues": {"USD": [
+        point(100, "2024-12-31", start="2024-01-01", accn=K24),
+        point(200, "2024-12-31", start="2024-01-01", accn=K25)]},
+        "LongTermDebt": {"USD": [point(5, "2024-09-30", accn=K26, form="10-Q")]}},
+        acceptance=same | {K26: ACCEPT[K26]})
+    assert c["ambiguous_observation"] == 1
+    assert [(r["concept"], r["fiscal_year"]) for r in rows] == [("long_term_debt", 2024)]
+
+
+def test_year_end_hidden_by_a_same_second_10q_still_counts():
+    same = {K24: ACCEPT[K24], K25: ACCEPT[K24]}
+    rows, _ = _rows({"Revenues": {"USD": [
+        point(100, "2024-12-31", start="2024-01-01", accn=K25, form="10-K"),
+        point(100, "2024-12-31", start="2024-01-01", accn=K24, form="10-Q")]},
+        "LongTermDebt": {"USD": [point(5, "2024-09-30", accn=K26, form="10-Q")]}},
+        acceptance=same | {K26: ACCEPT[K26]})
+    assert {r["concept"]: r["fiscal_year"] for r in rows}["long_term_debt"] == 2024
+
+
+def test_annual_forms_config_validation():
+    for bad in ((), ("10-K", ""), "10-K", ["10-K"]):
+        with pytest.raises(ValueError):
+            Config(store_annual_report_forms=bad)
+
+
+@pytest.mark.parametrize("bad", [-1, 365, 400])
+def test_fiscal_year_slack_is_bounded(bad):
+    with pytest.raises(ValueError):
+        Config(store_fiscal_year_slack_days=bad)
 
 
 def test_wall_clock_cap_is_counted():
