@@ -97,21 +97,24 @@ def _unit_drop(concept: Concept, unit: str, currency: str | None) -> str | None:
 
 def _point(concept: Concept, prio: int, p: dict, currency: str | None, bands,
            counters: Counter, transition_ends: dict[str, date] | None) -> Point | None:
+    end, raw_start = _day(p.get("end")), p.get("start")
+    start = _day(raw_start) if raw_start else None
+    value, accn = _decimal(p.get("val")), p.get("accn") or ""
+    form = (p.get("form") or "").strip()
+    if (end is not None and not (raw_start and start is None) and accn
+            and start is not None and transition_ends is not None
+            and form.upper().startswith("10-KT")):
+        # Recorded before any drop (unit, shape, duration): the transition period ends on the
+        # new fiscal year-end, the latest duration end a 10-KT reports (its comparatives and
+        # quarters end earlier).
+        transition_ends[accn] = max(end, transition_ends.get(accn, end))
     reason = _unit_drop(concept, p.get("unit") or "", currency)
     if reason:
         counters[f"dropped:{reason}"] += 1
         return None
-    end, raw_start = _day(p.get("end")), p.get("start")
-    start = _day(raw_start) if raw_start else None
-    value, accn = _decimal(p.get("val")), p.get("accn") or ""
     if end is None or (raw_start and start is None) or value is None or not accn:
         counters["dropped:bad_point"] += 1
         return None
-    form = (p.get("form") or "").strip()
-    if start is not None and transition_ends is not None and form.upper().startswith("10-KT"):
-        # The transition period ends on the new fiscal year-end: the latest duration end a
-        # 10-KT reports (its comparatives and quarters end earlier).
-        transition_ends[accn] = max(end, transition_ends.get(accn, end))
     if (start is None) != concept.instant:
         counters["dropped:period_shape"] += 1
         return None
@@ -134,7 +137,10 @@ def select_points(flat: dict[str, list[dict]], bands, counters: Counter,
                   transition_ends: dict[str, date] | None = None) -> list[Point]:
     """Every usable point of the curated concepts; per (concept, period end, frequency,
     filing) only the points of the highest-priority tag present (spec S6).
-    ``transition_ends`` (optional, filled in place): 10-KT accession -> transition end."""
+    ``transition_ends`` (optional, filled in place): 10-KT accession -> transition end.
+    ``shares_outstanding`` may yield both the balance-sheet-date value
+    (``CommonStockSharesOutstanding``) and the cover-date value
+    (``dei:EntityCommonStockSharesOutstanding``) of the same filing: their valid dates differ."""
     currency = reporting_currency(flat)
     groups: dict[tuple, list[Point]] = defaultdict(list)
     for concept in CONCEPTS:
