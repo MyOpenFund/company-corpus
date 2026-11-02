@@ -610,3 +610,19 @@ def test_a_real_orphan_still_reads_as_one(corpus):
     (corpus.raw_dir / "0000320193" / "A1" / "2024" / "lost.primary.htm").write_text("<p/>")
     findings = verify(corpus)
     assert findings[0].detail == "no manifest row points at this file"
+
+
+def test_the_submissions_archive_is_not_an_orphan(corpus):
+    from tests.opendata.factories import submissions_main, write_archive
+
+    write_archive(corpus, "320193", submissions_main(cik="0000320193"))
+    assert verify(corpus) == []
+
+
+def test_staging_residue_in_the_submissions_archive_is_reported(corpus):
+    d = corpus.raw_dir / "0000320193" / "submissions"
+    d.mkdir(parents=True)
+    (d / "CIK0000320193.json.x1y2.tmp").write_text("{")
+    findings = verify(corpus)
+    assert _kinds(findings) == ["orphan-artefact"]
+    assert findings[0].detail == "interrupted atomic write, safe to delete"
