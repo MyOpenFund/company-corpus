@@ -155,3 +155,11 @@ def test_local_refusal_samples_capped_at_five():
     r.finish()
     d = r.to_dict()
     assert d["local_refusals"]["count"] == 9 and len(d["local_refusals"]["samples"]) == 5
+
+
+def test_details_block_only_when_set():
+    r = RunReport("company-corpus", "store-batches")
+    r.finish()
+    assert "details" not in r.to_dict()
+    r.details = {"store_batches": {"totals": {"issuers": 1}}}
+    assert r.to_dict()["details"] == {"store_batches": {"totals": {"issuers": 1}}}

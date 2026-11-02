@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from company_corpus.config import (
+    DEFAULT_DURATION_BANDS,
     SEC_MAX_REQUESTS_PER_SECOND,
     Config,
     cusip6,
@@ -102,3 +103,43 @@ def test_cusip6(raw, expected):
 ])
 def test_cusip_full(raw, expected):
     assert cusip_full(raw) == expected
+
+
+def test_store_defaults_are_the_fiscal_week_bands():
+    c = Config()
+    assert c.store_duration_bands == DEFAULT_DURATION_BANDS == (
+        ("quarterly", 81, 115),
+        ("semiannual", 165, 199),
+        ("ytd9", 245, 285),
+        ("annual", 360, 374),
+    )
+    assert c.store_known_at_fallback_tz == "America/New_York"
+    assert c.store_known_at_fallback_time == "23:59:59"
+    assert c.store_fiscal_year_slack_days == 7
+    assert c.edgar_country_codes["L2"] == "IE" and c.edgar_country_codes["A6"] == "CA"
+
+
+def test_country_table_is_per_instance():
+    a, b = Config(), Config()
+    a.edgar_country_codes["ZZ"] = "XX"
+    assert "ZZ" not in b.edgar_country_codes
+
+
+@pytest.mark.parametrize(
+    "bands, match",
+    [
+        ((("quarterly", 81, 115), ("semiannual", 110, 199)), "overlap"),
+        ((("quarterly", 115, 81),), "min <= max"),
+        ((("quarterly", 0, 10),), "min <= max"),
+    ],
+)
+def test_bad_duration_bands_are_refused(bands, match):
+    with pytest.raises(ValueError, match=match):
+        Config(store_duration_bands=bands)
+
+
+def test_bad_fallback_settings_are_refused():
+    with pytest.raises(ValueError, match="time zone"):
+        Config(store_known_at_fallback_tz="Mars/Olympus")
+    with pytest.raises(ValueError, match="HH:MM:SS"):
+        Config(store_known_at_fallback_time="midnight")
