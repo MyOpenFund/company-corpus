@@ -56,3 +56,13 @@ def test_cli_prog_name_is_company_corpus():
     parser = build_parser()
     assert parser.prog == "company-corpus"
     assert "company-corpus" in parser.format_usage()
+
+
+def test_store_extra_and_ci_requirements_pin_the_same_commit():
+    import re
+
+    extra = _pyproject()["project"]["optional-dependencies"]["store"]
+    ci = (REPO / "requirements-store.txt").read_text()
+    pins = re.findall(r"my-open-data\[\w+\] @ git\+https://github\.com/MyOpenFund/"
+                      r"my-open-data@([0-9a-f]{40})", " ".join(extra) + "\n" + ci)
+    assert len(pins) == 2 and pins[0] == pins[1]
