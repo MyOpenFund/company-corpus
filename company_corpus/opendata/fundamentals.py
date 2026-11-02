@@ -7,12 +7,18 @@ publisher skips what it already holds (S3).
 """
 from __future__ import annotations
 
+import bisect
 from collections import Counter, defaultdict
-from dataclasses import dataclass
-from datetime import date
-from decimal import Decimal, InvalidOperation
+from collections.abc import Collection, Mapping
+from dataclasses import dataclass, field
+from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal, InvalidOperation, localcontext
+from zoneinfo import ZoneInfo
 
+from ..config import Config, normalize_cik
 from ..financials import _CURRENCY_RE, CONCEPTS, Concept, reporting_currency
+from ..models import FilingRecord
+from ..taxonomy import from_edgar_form
 
 #: Namespaces read from companyfacts. ``dei`` is needed because one curated chain falls
 #: back to a cover-page tag (shares_outstanding -> dei:EntityCommonStockSharesOutstanding).
@@ -154,3 +160,111 @@ def select_points(flat: dict[str, list[dict]], bands, counters: Counter,
         best = min(p.prio for p in pts)
         out.extend(p for p in pts if p.prio == best)
     return out
+
+
+SOURCE_CODE = "sec"
+VALUE_QUANTUM = Decimal("0.000001")  # fundamentals.value is decimal(38, 6)
+
+
+@dataclass
+class FundamentalsResult:
+    rows: list[dict]
+    counters: Counter = field(default_factory=Counter)
+
+
+def fundamentals_rows(cik: str, facts: dict, *, acceptance: Mapping[str, datetime],
+                      manifest_doc_ids: Collection[str], config: Config,
+                      now: datetime) -> FundamentalsResult:
+    """One row per (concept, period, frequency, known_at) the issuer's filings report.
+
+    known_at = EDGAR acceptance time of the filing (S9), else its filing date at the
+    configured end-of-day time, capped at ``now``. Two filings accepted the same second that
+    report the same key: equal values keep one row (lowest accession), different values emit
+    none (``ambiguous_observation``).
+    """
+    cik, counters = normalize_cik(cik), Counter()
+    transitions: dict[str, date] = {}
+    points = select_points(flatten_with_namespace(facts), config.store_duration_bands, counters,
+                           transitions)
+    tz = ZoneInfo(config.store_known_at_fallback_tz)
+    at = time.fromisoformat(config.store_known_at_fallback_time)
+    by_key: dict[tuple, list[tuple[Point, bool]]] = defaultdict(list)
+    for pt in points:
+        known_at = acceptance.get(pt.accn)
+        if known_at is None:
+            if pt.filed is None:
+                counters["dropped:no_known_at"] += 1
+                continue
+            fallback = datetime.combine(pt.filed, at, tzinfo=tz).astimezone(timezone.utc)
+            by_key[(pt.concept, pt.end, pt.frequency, min(fallback, now))].append((pt, True))
+        else:
+            by_key[(pt.concept, pt.end, pt.frequency, known_at)].append((pt, False))
+    rows = []
+    for (_, _, _, known_at), cands in by_key.items():
+        if len({pt.value for pt, _ in cands}) > 1:
+            counters["ambiguous_observation"] += 1
+            continue
+        pt, fell_back = min(cands, key=lambda c: (c[0].accn, c[0].prio, c[0].tag))
+        if fell_back:
+            counters["known_at_fallback"] += 1
+        rows.append(_row(cik, pt, known_at, manifest_doc_ids, counters))
+    # Fiscal year-ends: ends of annual periods, plus the end of every transition period
+    # (10-KT), so a fiscal-year change labels both sides right (spec §4, §9).
+    fyes = sorted({r["valid_date"] for r in rows if r["frequency"] == "annual"}
+                  | set(transitions.values()))
+    for r in rows:
+        r["fiscal_year"] = fiscal_year_of(r["valid_date"], fyes,
+                                          config.store_fiscal_year_slack_days)
+    return FundamentalsResult(rows=rows, counters=counters)
+
+
+def _source_doc_id(cik: str, pt: Point, manifest_doc_ids, counters: Counter) -> str | None:
+    """The filing's doc_id (S2): its family from the form without "/A" (10-K/A -> A1)."""
+    form = pt.form.upper()
+    ft = from_edgar_form(form[:-2] if form.endswith("/A") else form) if form else None
+    if ft is None:
+        counters["source_doc_id_null"] += 1
+        return None
+    doc_id = FilingRecord(cik=cik, form_type=ft, sec_form=pt.form, accession=pt.accn).doc_id
+    if doc_id not in manifest_doc_ids:
+        counters["filing_not_in_manifest"] += 1
+    return doc_id
+
+
+def _row(cik: str, pt: Point, known_at: datetime, manifest_doc_ids,
+         counters: Counter) -> dict:
+    with localcontext() as ctx:
+        ctx.prec = 38
+        value = pt.value.quantize(VALUE_QUANTUM)
+    if value != pt.value:
+        counters["value_rounded"] += 1
+    return {
+        "entity_scheme": "cik", "entity_value": cik, "concept": pt.concept,
+        "original_tag": f"{pt.ns}:{pt.tag}", "period_start": pt.start,
+        "frequency": pt.frequency, "fiscal_year": None, "basis": "consolidated",
+        "value": value, "unit": pt.unit, "extraction_method": "xbrl_filed",
+        "confidence": None, "source_page": None, "valid_date": pt.end,
+        "known_at": known_at, "known_at_kind": "published", "source_code": SOURCE_CODE,
+        "source_doc_id": _source_doc_id(cik, pt, manifest_doc_ids, counters),
+    }
+
+
+def fiscal_year_of(valid_date: date, fiscal_year_ends: list[date],
+                   slack_days: int) -> int | None:
+    """Year of the first fiscal year-end on or after ``valid_date`` (not companyfacts ``fy``,
+    which is the filing's fiscal year). After the last known year-end, that year-end is
+    projected by whole years; a period ending within ``slack_days`` after a projected
+    year-end belongs to it (52/53-week drift). None when the issuer reports no annual period.
+    """
+    if not fiscal_year_ends:
+        return None
+    i = bisect.bisect_left(fiscal_year_ends, valid_date)
+    if i < len(fiscal_year_ends):
+        return fiscal_year_ends[i].year
+    d, slack = fiscal_year_ends[-1], timedelta(days=slack_days)
+    while d + slack < valid_date:
+        try:
+            d = d.replace(year=d.year + 1)
+        except ValueError:  # 29 February
+            d = d.replace(year=d.year + 1, day=28)
+    return d.year
