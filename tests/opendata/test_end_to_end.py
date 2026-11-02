@@ -1,11 +1,21 @@
-"""Producer -> landing -> publisher -> reader on a DuckLake file catalogue (spec §7)."""
+"""Producer -> landing -> publisher -> reader on a DuckLake file catalogue (spec §7).
+
+Needs the DuckDB ``ducklake`` extension: DuckDB downloads it with its own HTTP client on first
+use (network required; CI pre-installs it). The module skips when it cannot be loaded.
+"""
 from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
 
 pytest.importorskip("myopendata")
-pytest.importorskip("duckdb")
+duckdb = pytest.importorskip("duckdb")
+
+try:
+    duckdb.connect().execute("INSTALL ducklake; LOAD ducklake")
+except duckdb.Error as exc:
+    pytest.skip(f"DuckDB ducklake extension unavailable (needs network on first use): {exc}",
+                allow_module_level=True)
 
 from myopendata.config import StoreConfig  # noqa: E402
 from myopendata.contracts.standard import ENTITY_OBSERVATIONS, FUNDAMENTALS  # noqa: E402

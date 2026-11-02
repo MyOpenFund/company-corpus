@@ -36,12 +36,29 @@ def test_one_identity_and_one_fundamentals_batch_per_issuer(config, tmp_path):
     assert rep.issuers[0].rows == {"entity_observations_v1": 2, "fundamentals_v2": 2}
     batches = sorted(p.parent.parent.name for p in (tmp_path / "landing").glob("*/*/batch.json"))
     assert batches == ["entity_observations_v1"] * 2 + ["fundamentals_v2"] * 2
-    m = json.loads(next((tmp_path / "landing" / "fundamentals_v2").glob("*/batch.json"))
+    batch_id = rep.issuers[1].batches["fundamentals_v2"]
+    m = json.loads((tmp_path / "landing" / "fundamentals_v2" / batch_id / "batch.json")
                    .read_text())
     assert m["producer"] == "company-corpus"
-    assert any(s.startswith("raw/0000000042/F1/companyfacts.json@sha256:")
-               or s.startswith("raw/0000000043/F1/companyfacts.json@sha256:")
-               for s in m["source_inputs"])
+    assert all(s.startswith(f"raw/{B}/") for s in m["source_inputs"])
+    assert any(s.startswith(f"raw/{B}/F1/companyfacts.json@sha256:") for s in m["source_inputs"])
+
+
+def test_an_unexpected_error_in_one_issuer_never_stops_the_others(config, tmp_path, monkeypatch):
+    from company_corpus.opendata import batches
+    _issuer(config, A), _issuer(config, B)
+    real = batches.fundamentals_rows
+
+    def poisoned(cik, *a, **kw):
+        if cik == A:
+            raise ZeroDivisionError("boom")
+        return real(cik, *a, **kw)
+
+    monkeypatch.setattr(batches, "fundamentals_rows", poisoned)
+    rep = _run(config, tmp_path / "landing")
+    assert [o.status for o in rep.issuers] == ["failed", "ok"]
+    assert rep.issuers[0].error == "unexpected: ZeroDivisionError: boom"
+    assert rep.issuers[1].batches and rep.to_details()["store_batches"]["totals"]["failed"] == 1
 
 
 def test_replay_gives_identical_batch_ids(config, tmp_path):

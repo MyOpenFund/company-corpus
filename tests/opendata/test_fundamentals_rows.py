@@ -298,3 +298,13 @@ def test_tie_break_does_not_depend_on_input_order():
     b = point(5, "2024-06-30", start="2023-07-02", accn=K24)
     out = [_rows({"Revenues": {"USD": pts}})[0] for pts in ([a, b], [b, a])]
     assert out[0] == out[1] and len(out[0]) == 1
+
+
+def test_a_value_outside_decimal_38_6_is_dropped_and_counted_not_raised():
+    rows, counters = _rows({"Revenues": {"USD": [
+        point(10 ** 40, "2023-06-30", start="2022-07-01", accn=K24),
+        point(100, "2024-06-30", start="2023-07-01", accn=K24),
+        # same key, same second: the out-of-range candidate must not crash the ambiguity check
+        point(10 ** 40, "2024-06-30", start="2023-07-01", accn=K24A, filed="2024-07-30")]}})
+    assert [r["value"] for r in rows] == [Decimal(100)]
+    assert counters["dropped:value_out_of_range"] == 2

@@ -121,6 +121,9 @@ def _point(concept: Concept, prio: int, p: dict, currency: str | None, bands,
     if end is None or (raw_start and start is None) or value is None or not accn:
         counters["dropped:bad_point"] += 1
         return None
+    if _quantized(value) is None:
+        counters["dropped:value_out_of_range"] += 1
+        return None
     if (start is None) != concept.instant:
         counters["dropped:period_shape"] += 1
         return None
@@ -244,10 +247,14 @@ def _source_doc_id(cik: str, pt: Point, manifest_doc_ids, counters: Counter) -> 
     return doc_id
 
 
-def _quantized(value: Decimal) -> Decimal:
+def _quantized(value: Decimal) -> Decimal | None:
+    """``value`` at the contract's scale, or None when it does not fit decimal(38, 6)."""
     with localcontext() as ctx:
         ctx.prec = 38
-        return value.quantize(VALUE_QUANTUM)
+        try:
+            return value.quantize(VALUE_QUANTUM)
+        except InvalidOperation:
+            return None
 
 
 def _row(cik: str, pt: Point, known_at: datetime, manifest_doc_ids,

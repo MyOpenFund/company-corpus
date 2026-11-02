@@ -135,6 +135,9 @@ def store_batches(ciks, *, config: Config, landing: Path, write: bool, offline: 
                       out.cik, exc.reasons)
         except OSError as exc:
             out.status, out.error = "failed", f"io_error: {type(exc).__name__}: {exc}"
+        except Exception as exc:  # noqa: BLE001 - an issuer's failure never stops the others
+            out.status, out.error = "failed", f"unexpected: {type(exc).__name__}: {exc}"
+            log.exception("store-batches %s: unexpected failure", out.cik)
     return rep
 
 
