@@ -143,3 +143,12 @@ def test_bad_fallback_settings_are_refused():
         Config(store_known_at_fallback_tz="Mars/Olympus")
     with pytest.raises(ValueError, match="HH:MM:SS"):
         Config(store_known_at_fallback_time="midnight")
+
+
+def test_crown_dependencies_are_in_the_country_table():
+    # Seen on the real universe (country_unknown:Y7); codes per SEC "EDGAR State and Country
+    # Codes" (last reviewed 2024-06-05).
+    c = Config()
+    assert c.edgar_country_codes["Y7"] == "GG"  # Guernsey
+    assert c.edgar_country_codes["Y8"] == "IM"  # Isle of Man
+    assert c.edgar_country_codes["Y9"] == "JE"  # Jersey

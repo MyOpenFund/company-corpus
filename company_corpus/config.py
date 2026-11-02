@@ -73,6 +73,8 @@ DEFAULT_EDGAR_COUNTRY_CODES: dict[str, str] = {
     "L2": "IE",  # Ireland
     "L3": "IL",  # Israel
     "M0": "JP",  # Japan
+    "Y7": "GG",  # Guernsey
+    "Y8": "IM",  # Isle of Man
     "Y9": "JE",  # Jersey
     "N4": "LU",  # Luxembourg
     "P7": "NL",  # Netherlands
