@@ -157,3 +157,69 @@ def test_fiscal_year_projection_with_slack(valid, expected):
 
 def test_no_annual_period_means_no_fiscal_year():
     assert fiscal_year_of(date(2024, 3, 31), [], 7) is None
+
+
+# ---- fix round 1 ----
+
+def test_instant_a_year_before_the_first_year_end_belongs_to_the_prior_year():
+    ends = [date(2008, 12, 31), date(2010, 12, 31)]
+    assert fiscal_year_of(date(2007, 12, 31), ends, 7) == 2007
+    assert fiscal_year_of(date(2006, 12, 31), ends, 7) == 2006
+    assert fiscal_year_of(date(2008, 6, 30), ends, 7) == 2008   # inside the first year
+
+
+def test_52_53_week_instant_a_year_before_the_first_year_end():
+    ends = [date(2008, 9, 27), date(2009, 9, 26)]
+    assert fiscal_year_of(date(2007, 9, 29), ends, 7) == 2007   # drift within slack
+    assert fiscal_year_of(date(2008, 3, 29), ends, 7) == 2008
+
+
+def test_year_ends_come_only_from_10k_family_annual_points():
+    # Non-December filer: the 10-Q reports a trailing-12-months duration ending mid-year.
+    rows, _ = _rows({"Revenues": {"USD": [
+        point(400, "2024-06-30", start="2023-07-01", accn=K24),
+        point(410, "2024-12-31", start="2024-01-01", accn=K25, form="10-Q"),   # 366 days: annual
+        point(100, "2024-09-30", start="2024-07-01", accn=K25, form="10-Q"),
+        point(420, "2025-06-30", start="2024-07-01", accn=K26, form="10-K/A"),
+    ]}})
+    fy = {(r["valid_date"], r["frequency"]): r["fiscal_year"] for r in rows}
+    assert fy[(date(2024, 9, 30), "quarterly")] == 2025
+    assert fy[(date(2024, 12, 31), "annual")] == 2025
+
+
+def test_wall_clock_cap_is_counted():
+    now = datetime(2026, 11, 1, 15, tzinfo=timezone.utc)
+    _, c = _rows({"Revenues": {"USD": [
+        point(1, "2026-09-30", start="2026-07-01", accn="0000000042-26-000777",
+              filed="2026-11-01", form="10-Q")]}}, now=now)
+    assert c["known_at_capped"] == 1
+
+
+def test_naive_now_is_rejected():
+    with pytest.raises(ValueError):
+        _rows({"Revenues": {"USD": [point(1, "2024-06-30", start="2023-07-01", accn=K24)]}},
+              now=datetime(2026, 11, 1, 12))
+
+
+def test_naive_acceptance_is_unusable_and_falls_back():
+    rows, c = _rows({"Revenues": {"USD": [
+        point(1, "2024-06-30", start="2023-07-01", accn=K24, filed="2024-07-30")]}},
+        acceptance={K24: datetime(2024, 7, 30, 20, 6, 22)})
+    assert rows[0]["known_at"] == datetime(2024, 7, 31, 3, 59, 59, tzinfo=timezone.utc)
+    assert c["known_at_naive"] == 1 and c["known_at_fallback"] == 1
+
+
+def test_same_second_values_equal_after_quantization_are_not_ambiguous():
+    same = {K24: ACCEPT[K24], K25: ACCEPT[K24]}
+    rows, c = _rows({"EarningsPerShareDiluted": {"USD/shares": [
+        point(Decimal("1.2345671"), "2024-06-30", start="2023-07-01", accn=K24),
+        point(Decimal("1.2345674"), "2024-06-30", start="2023-07-01", accn=K25)]}},
+        acceptance=same)
+    assert len(rows) == 1 and c["ambiguous_observation"] == 0
+
+
+def test_tie_break_does_not_depend_on_input_order():
+    a = point(5, "2024-06-30", start="2023-07-01", accn=K24)
+    b = point(5, "2024-06-30", start="2023-07-02", accn=K24)
+    out = [_rows({"Revenues": {"USD": pts}})[0] for pts in ([a, b], [b, a])]
+    assert out[0] == out[1] and len(out[0]) == 1

@@ -182,6 +182,8 @@ def fundamentals_rows(cik: str, facts: dict, *, acceptance: Mapping[str, datetim
     report the same key: equal values keep one row (lowest accession), different values emit
     none (``ambiguous_observation``).
     """
+    if now.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
     cik, counters = normalize_cik(cik), Counter()
     transitions: dict[str, date] = {}
     points = select_points(flatten_with_namespace(facts), config.store_duration_bands, counters,
@@ -191,27 +193,35 @@ def fundamentals_rows(cik: str, facts: dict, *, acceptance: Mapping[str, datetim
     by_key: dict[tuple, list[tuple[Point, bool]]] = defaultdict(list)
     for pt in points:
         known_at = acceptance.get(pt.accn)
+        if known_at is not None and known_at.tzinfo is None:
+            counters["known_at_naive"] += 1   # unusable: same path as a missing acceptance
+            known_at = None
         if known_at is None:
             if pt.filed is None:
                 counters["dropped:no_known_at"] += 1
                 continue
             fallback = datetime.combine(pt.filed, at, tzinfo=tz).astimezone(timezone.utc)
+            if fallback > now:
+                counters["known_at_capped"] += 1
             by_key[(pt.concept, pt.end, pt.frequency, min(fallback, now))].append((pt, True))
         else:
             by_key[(pt.concept, pt.end, pt.frequency, known_at)].append((pt, False))
-    rows = []
+    rows, annual_ends = [], set()
     for (_, _, _, known_at), cands in by_key.items():
-        if len({pt.value for pt, _ in cands}) > 1:
+        if len({_quantized(pt.value) for pt, _ in cands}) > 1:
             counters["ambiguous_observation"] += 1
             continue
-        pt, fell_back = min(cands, key=lambda c: (c[0].accn, c[0].prio, c[0].tag))
+        pt, fell_back = min(cands, key=lambda c: (c[0].accn, c[0].prio, c[0].tag, c[0].value,
+                                         c[0].start is not None, c[0].start or date.min))
         if fell_back:
             counters["known_at_fallback"] += 1
         rows.append(_row(cik, pt, known_at, manifest_doc_ids, counters))
-    # Fiscal year-ends: ends of annual periods, plus the end of every transition period
-    # (10-KT), so a fiscal-year change labels both sides right (spec §4, §9).
-    fyes = sorted({r["valid_date"] for r in rows if r["frequency"] == "annual"}
-                  | set(transitions.values()))
+        if pt.frequency == "annual" and pt.form.upper().startswith("10-K"):
+            annual_ends.add(pt.end)
+    # Fiscal year-ends: ends of annual periods of 10-K-family filings (a 12-months figure in
+    # a 10-Q/8-K is not a year-end), plus the end of every transition period (10-KT), so a
+    # fiscal-year change labels both sides right (spec §4, §9).
+    fyes = sorted(annual_ends | set(transitions.values()))
     for r in rows:
         r["fiscal_year"] = fiscal_year_of(r["valid_date"], fyes,
                                           config.store_fiscal_year_slack_days)
@@ -231,11 +241,15 @@ def _source_doc_id(cik: str, pt: Point, manifest_doc_ids, counters: Counter) -> 
     return doc_id
 
 
-def _row(cik: str, pt: Point, known_at: datetime, manifest_doc_ids,
-         counters: Counter) -> dict:
+def _quantized(value: Decimal) -> Decimal:
     with localcontext() as ctx:
         ctx.prec = 38
-        value = pt.value.quantize(VALUE_QUANTUM)
+        return value.quantize(VALUE_QUANTUM)
+
+
+def _row(cik: str, pt: Point, known_at: datetime, manifest_doc_ids,
+         counters: Counter) -> dict:
+    value = _quantized(pt.value)
     if value != pt.value:
         counters["value_rounded"] += 1
     return {
@@ -259,9 +273,21 @@ def fiscal_year_of(valid_date: date, fiscal_year_ends: list[date],
     if not fiscal_year_ends:
         return None
     i = bisect.bisect_left(fiscal_year_ends, valid_date)
+    slack = timedelta(days=slack_days)
+    if i == 0 and valid_date < fiscal_year_ends[0]:
+        # Before the first known year-end (an opening balance): project it backwards.
+        d = fiscal_year_ends[0]
+        while True:
+            try:
+                prev = d.replace(year=d.year - 1)
+            except ValueError:  # 29 February
+                prev = d.replace(year=d.year - 1, day=28)
+            if prev + slack < valid_date:
+                return d.year
+            d = prev
     if i < len(fiscal_year_ends):
         return fiscal_year_ends[i].year
-    d, slack = fiscal_year_ends[-1], timedelta(days=slack_days)
+    d = fiscal_year_ends[-1]
     while d + slack < valid_date:
         try:
             d = d.replace(year=d.year + 1)
