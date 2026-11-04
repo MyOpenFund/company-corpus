@@ -155,3 +155,15 @@ def test_crown_dependencies_are_in_the_country_table():
     assert c.edgar_country_codes["Y7"] == "GG"  # Guernsey
     assert c.edgar_country_codes["Y8"] == "IM"  # Isle of Man
     assert c.edgar_country_codes["Y9"] == "JE"  # Jersey
+
+
+@pytest.mark.parametrize("tags", [(), ("Assets", ""), ("Assets", 3), "Assets", ["Assets"], None])
+def test_bad_currency_anchor_tags_are_refused(tags):
+    with pytest.raises(ValueError, match="store_currency_anchor_tags"):
+        Config(store_currency_anchor_tags=tags)
+
+
+def test_a_negative_stale_filed_margin_is_refused():
+    with pytest.raises(ValueError, match="store_stale_filed_max_days_ahead"):
+        Config(store_stale_filed_max_days_ahead=-1)
+    assert Config(store_stale_filed_max_days_ahead=0).store_stale_filed_max_days_ahead == 0

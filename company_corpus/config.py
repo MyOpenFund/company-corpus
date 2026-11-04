@@ -150,8 +150,13 @@ class Config:
                 f"limit of {SEC_MAX_REQUESTS_PER_SECOND}/s"
             )
         _check_duration_bands(self.store_duration_bands)
-        if not self.store_currency_anchor_tags:
-            raise ValueError("store_currency_anchor_tags must not be empty")
+        tags = self.store_currency_anchor_tags
+        if not (isinstance(tags, tuple) and tags
+                and all(isinstance(t, str) and t for t in tags)):
+            raise ValueError(
+                "store_currency_anchor_tags must be a non-empty tuple of non-empty strings")
+        if self.store_stale_filed_max_days_ahead < 0:
+            raise ValueError("store_stale_filed_max_days_ahead must be >= 0")
         try:
             ZoneInfo(self.store_known_at_fallback_tz)
         except (ZoneInfoNotFoundError, ValueError) as exc:
