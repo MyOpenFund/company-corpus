@@ -155,9 +155,11 @@ def _filing_currencies(flat: dict[str, list[dict]],
 
     Two signals: the vote over the filing's monetary facts, and the currency of its balance
     sheet totals (``anchor_tags``). A convenience translation loses both, since it usually covers
-    the latest year only. They must agree: a tied vote is settled by the balance sheet, and when
+    the latest year only. They must agree when both exist: a tied vote is settled by the balance sheet, and when
     nothing settles it, or they contradict each other, the filing is ``AMBIGUOUS_CURRENCY`` and
-    publishes no money. A row held back can still be published later; a wrong one cannot be
+    publishes no money. A filing without balance sheet totals (a partial 10-K/A) rests on the vote
+    alone. Any three-letter unit such as ``BOE`` votes; this fails safe, since a stray unit can
+    only produce a tie or a contradiction, which hold the money back. A row held back can still be published later; a wrong one cannot be
     corrected in an append-only store."""
     votes: dict[str, Counter] = defaultdict(Counter)
     anchors: dict[str, Counter] = defaultdict(Counter)

@@ -56,7 +56,7 @@ DEFAULT_DURATION_BANDS: tuple[tuple[str, int, int], ...] = (
 )
 
 #: Balance sheet totals whose currency must agree with a filing's vote over its monetary facts
-#: (``opendata.fundamentals``). On a real scan of 39,428 filings they never disagree.
+#: (``opendata.fundamentals``). On 39,428 filings with balance sheet totals, scanned 2026-11-04, they never disagree.
 DEFAULT_CURRENCY_ANCHOR_TAGS: tuple[str, ...] = (
     "Assets", "Liabilities", "StockholdersEquity", "LiabilitiesAndStockholdersEquity",
 )

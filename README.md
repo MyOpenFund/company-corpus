@@ -120,7 +120,8 @@ never fetch: they count `submissions_stale` and keep the fallback. A failed refr
 that issuer's failure, like any fetch failure, and leaves its archive as it was. A
 refresh, automatic or not, also adds new identity rows, because the
 `entity_observations` `known_at` is the archive's fetch time, at a new `valid_date`: about
-3 to 4 per issuer per year. `entity_observations` is therefore not one row per identifier;
+one refresh per periodic filing; each adds one row per ticker and, for issuers without former
+names, a CIK row. `entity_observations` is therefore not one row per identifier;
 `entity_attributes` collapses them.
 
 `--offline --write` with a stale archive publishes the fallback vintage, and those rows
@@ -135,7 +136,10 @@ fallback is capped at run time, so a later run records another version with a la
 `known_at` (a new vintage, not a conflict) -- visible as `known_at_capped`.
 
 **Reporting currency.** It is decided per filing, from that filing's own `us-gaap` facts
-(most facts, then USD, then the alphabetically lowest unit). An issuer that switches
+by a vote over its monetary facts, cross-checked against its balance sheet totals
+(`Config.store_currency_anchor_tags`). A tied vote is settled by the totals; a contradiction,
+or nothing to settle a tie, publishes no money (`dropped:currency_ambiguous`). A filing
+without balance sheet totals (a partial 10-K/A) rests on the vote alone. An issuer that switches
 currency therefore has one natural key with different units across vintages, as filed.
 This differs from the F1 engine's issuer-wide rule.
 `Config.edgar_country_codes` maps EDGAR state/country codes to countries; an unmapped
