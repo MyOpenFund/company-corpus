@@ -10,11 +10,11 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from zoneinfo import ZoneInfo
 
-from ..config import DEFAULT_CURRENCY_ANCHOR_TAGS, Config, normalize_cik
+from ..config import Config, normalize_cik
 from ..financials import _CURRENCY_RE, CONCEPTS, Concept
 from ..models import FilingRecord
 from ..taxonomy import from_edgar_form
@@ -87,20 +87,20 @@ AMBIGUOUS_CURRENCY = "?"  # a filing whose currency signals do not settle; no IS
 
 def _unit_drop(concept: Concept, unit: str, currency: str | None) -> str | None:
     """Why a point's unit disqualifies it, or None. Monetary and per-share values keep only
-    the filing's reporting currency (a convenience translation is not a second fact)."""
+    the filing's reporting currency (a convenience translation is not a second fact). The shape
+    of the unit is checked first, so a malformed unit is ``unexpected_unit`` whatever the
+    filing's currency signals say."""
     if concept.unit == "shares":
         return None if unit == "shares" else "unexpected_unit"
+    if concept.unit.endswith("/shares"):
+        numerator = unit[:-len("/shares")] if unit.endswith("/shares") else ""
+    else:
+        numerator = unit
+    if not _CURRENCY_RE.match(numerator):
+        return "unexpected_unit"
     if currency == AMBIGUOUS_CURRENCY:
         return "currency_ambiguous"
-    if concept.unit.endswith("/shares"):
-        if not unit.endswith("/shares"):
-            return "unexpected_unit"
-        if currency is not None and unit != f"{currency}/shares":
-            return "non_reporting_currency"
-        return None
-    if not _CURRENCY_RE.match(unit):
-        return "unexpected_unit"
-    if currency is not None and unit != currency:
+    if currency is not None and numerator != currency:
         return "non_reporting_currency"
     return None
 
@@ -147,6 +147,10 @@ def _unique_top(counts: Counter) -> str | None:
     return top[0][0]
 
 
+_PER_SHARE_TAGS = frozenset(
+    tag for c in CONCEPTS if c.unit.endswith("/shares") for tag in c.tags)
+
+
 def _filing_currencies(flat: dict[str, list[dict]],
                        anchor_tags: Collection[str]) -> dict[str, str]:
     """Reporting currency of each filing, from that filing's own us-gaap facts only: a dei value
@@ -158,20 +162,29 @@ def _filing_currencies(flat: dict[str, list[dict]],
     the latest year only. They must agree when both exist: a tied vote is settled by the balance sheet, and when
     nothing settles it, or they contradict each other, the filing is ``AMBIGUOUS_CURRENCY`` and
     publishes no money. A filing without balance sheet totals (a partial 10-K/A) rests on the vote
-    alone. Any three-letter unit such as ``BOE`` votes; this fails safe, since a stray unit can
+    alone. A filing with no monetary fact at all but per-share points in more than one currency is
+    ambiguous too, since nothing says which is the reporting one. Any three-letter unit such as ``BOE`` votes; this fails safe, since a stray unit can
     only produce a tie or a contradiction, which hold the money back. A row held back can still be published later; a wrong one cannot be
     corrected in an append-only store."""
     votes: dict[str, Counter] = defaultdict(Counter)
     anchors: dict[str, Counter] = defaultdict(Counter)
+    per_share: dict[str, set[str]] = defaultdict(set)
     for tag, points in flat.items():
         for p in points:
             unit = p.get("unit") or ""
+            if tag in _PER_SHARE_TAGS and unit.endswith("/shares"):
+                numerator = unit[:-len("/shares")]
+                if _CURRENCY_RE.match(numerator):
+                    per_share[p.get("accn") or ""].add(numerator)
             if p.get("ns") == "us-gaap" and _CURRENCY_RE.match(unit):
                 accn = p.get("accn") or ""
                 votes[accn][unit] += 1
                 if tag in anchor_tags:
                     anchors[accn][unit] += 1
     out = {}
+    for accn, numerators in per_share.items():
+        if accn not in votes and len(numerators) > 1:
+            out[accn] = AMBIGUOUS_CURRENCY     # per-share points only, in several currencies
     for accn, vote in votes.items():
         by_vote, by_anchor = _unique_top(vote), _unique_top(anchors[accn])
         if by_vote and by_anchor and by_vote != by_anchor:
@@ -182,7 +195,7 @@ def _filing_currencies(flat: dict[str, list[dict]],
 
 
 def select_points(flat: dict[str, list[dict]], bands, counters: Counter,
-                  anchor_tags: Collection[str] = DEFAULT_CURRENCY_ANCHOR_TAGS) -> list[Point]:
+                  anchor_tags: Collection[str]) -> list[Point]:
     """Every usable point of the curated concepts; per (concept, period end, frequency,
     filing) only the points of the highest-priority tag present (spec S6).
     ``shares_outstanding`` may yield both the balance-sheet-date value
@@ -235,6 +248,8 @@ def fundamentals_rows(cik: str, facts: dict, *, acceptance: Mapping[str, datetim
                            config.store_currency_anchor_tags)
     tz = ZoneInfo(config.store_known_at_fallback_tz)
     at = time.fromisoformat(config.store_known_at_fallback_time)
+    latest_filed = (now.astimezone(ZoneInfo(config.store_edgar_day_tz)).date()
+                    + timedelta(days=config.store_stale_filed_max_days_ahead))
     by_key: dict[tuple, list[tuple[Point, bool]]] = defaultdict(list)
     for pt in points:
         known_at = acceptance.get(pt.accn)
@@ -244,6 +259,10 @@ def fundamentals_rows(cik: str, facts: dict, *, acceptance: Mapping[str, datetim
         if known_at is None:
             if pt.filed is None:
                 counters["dropped:no_known_at"] += 1
+                continue
+            if pt.filed > latest_filed:
+                # A typo in the feed: capped at ``now`` it would be a new vintage every run.
+                counters["dropped:implausible_filed"] += 1
                 continue
             fallback = datetime.combine(pt.filed, at, tzinfo=tz).astimezone(timezone.utc)
             if fallback > now:
@@ -257,7 +276,8 @@ def fundamentals_rows(cik: str, facts: dict, *, acceptance: Mapping[str, datetim
             counters["ambiguous_observation"] += 1
             continue
         pt, fell_back = min(cands, key=lambda c: (c[0].accn, c[0].prio, c[0].tag, c[0].unit, c[0].value,
-                                         c[0].start is not None, c[0].start or date.min))
+                                         c[0].start is not None, c[0].start or date.min,
+                                         c[0].form))
         if fell_back:
             counters["known_at_fallback"] += 1
         rows.append(_row(cik, pt, known_at, manifest_doc_ids, counters))

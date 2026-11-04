@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from company_corpus.config import DEFAULT_DURATION_BANDS
+from company_corpus.config import DEFAULT_CURRENCY_ANCHOR_TAGS, DEFAULT_DURATION_BANDS
 from company_corpus.opendata.fundamentals import (
     classify_duration,
     flatten_with_namespace,
@@ -15,7 +15,7 @@ from tests.opendata.factories import companyfacts, point
 def _select(us_gaap, dei=None):
     counters = Counter()
     pts = select_points(flatten_with_namespace(companyfacts(us_gaap, dei)),
-                        DEFAULT_DURATION_BANDS, counters)
+                        DEFAULT_DURATION_BANDS, counters, DEFAULT_CURRENCY_ANCHOR_TAGS)
     return pts, counters
 
 
@@ -217,3 +217,55 @@ def test_the_currency_never_depends_on_fact_order(reverse):
         units.setdefault(unit, []).append(p)
     pts, _ = _select({"Revenues": units})
     assert {p.unit for p in pts} == {"EUR"} and len(pts) == 2
+
+
+# --- Per-share values of a filing with no monetary fact.
+
+
+def _eps(units, accn="A1"):
+    return {"EarningsPerShareBasic": {u: [point(1, "2024-06-30", start="2023-07-01", accn=accn)]
+                                      for u in units}}
+
+
+def test_a_per_share_unit_without_an_iso_numerator_never_publishes():
+    pts, c = _select(_eps(["pure/shares"]))
+    assert pts == [] and c["dropped:unexpected_unit"] == 1
+
+
+def test_a_single_per_share_currency_publishes_without_any_monetary_fact():
+    pts, c = _select(_eps(["CAD/shares"]))
+    assert [p.unit for p in pts] == ["CAD/shares"] and c["dropped:currency_ambiguous"] == 0
+
+
+def test_two_per_share_currencies_in_a_filing_without_money_are_not_guessed():
+    # Equal values in both: the choice would be arbitrary and, once published, permanent.
+    pts, c = _select(_eps(["USD/shares", "CAD/shares"]))
+    assert pts == [] and c["dropped:currency_ambiguous"] == 2
+
+
+def test_two_per_share_currencies_do_not_matter_when_the_filing_has_money():
+    us_gaap = _eps(["USD/shares", "CAD/shares"])
+    us_gaap["Revenues"] = {"USD": [_rev(1, "2024-06-30", "A1")]}
+    pts, c = _select(us_gaap)
+    assert {p.unit for p in pts} == {"USD", "USD/shares"} and c["dropped:currency_ambiguous"] == 0
+
+
+def test_per_share_ambiguity_is_a_function_of_the_filing_alone():
+    us_gaap = _eps(["USD/shares", "CAD/shares"], accn="A1")
+    us_gaap["EarningsPerShareDiluted"] = {"EUR/shares": [point(2, "2024-06-30", start="2023-07-01",
+                                                               accn="B1")]}
+    pts, _ = _select(us_gaap)
+    assert [(p.accn, p.unit) for p in pts] == [("B1", "EUR/shares")]
+
+
+# --- A bad unit shape is reported as such, whatever the filing's currency signals.
+
+
+def test_a_bad_unit_shape_is_unexpected_unit_even_in_an_ambiguous_filing():
+    pts, c = _select({
+        "Revenues": {"USD": [_rev(1, "2024-06-30", "A1")], "EUR": [_rev(2, "2023-06-30", "A1")]},
+        "NetIncomeLoss": {"pure": [_rev(3, "2024-06-30", "A1")]},
+        "EarningsPerShareBasic": {"pure/shares": [_rev(4, "2024-06-30", "A1")]},
+    })
+    assert pts == [] and c["dropped:currency_ambiguous"] == 2
+    assert c["dropped:unexpected_unit"] == 2

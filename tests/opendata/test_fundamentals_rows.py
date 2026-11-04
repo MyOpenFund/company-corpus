@@ -232,3 +232,75 @@ def test_a_value_outside_decimal_38_6_is_dropped_and_counted_not_raised():
         point(10 ** 40, "2024-06-30", start="2023-07-01", accn=K24A, filed="2024-07-30")]}})
     assert [r["value"] for r in rows] == [Decimal(100)]
     assert counters["dropped:value_out_of_range"] == 2
+
+
+# --- An implausible filing date without an acceptance time.
+
+
+def _rows_without_acceptance(filed, now=NOW, config=None):
+    return _rows({"Revenues": {"USD": [point(30, "2026-09-30", start="2026-07-01", accn="N",
+                                             form="10-Q", filed=filed)]}},
+                 acceptance={}, now=now, config=config)
+
+
+def test_a_filing_date_far_in_the_future_is_dropped_not_re_emitted_every_run():
+    rows, c = _rows_without_acceptance("2062-11-20")
+    assert rows == [] and c["dropped:implausible_filed"] == 1
+    assert c["known_at_capped"] == 0 and c["known_at_fallback"] == 0
+
+
+def test_the_plausibility_limit_is_the_run_day_in_eastern_time_plus_the_margin():
+    # NOW is 2026-11-01 12:00 UTC: Eastern day 2026-11-01, limit 2026-11-08.
+    rows, c = _rows_without_acceptance("2026-11-08")
+    assert len(rows) == 1 and c["dropped:implausible_filed"] == 0 and c["known_at_capped"] == 1
+    rows, c = _rows_without_acceptance("2026-11-09")
+    assert rows == [] and c["dropped:implausible_filed"] == 1
+    # 02:00 UTC is still the previous Eastern day.
+    early = datetime(2026, 11, 2, 2, tzinfo=timezone.utc)
+    rows, c = _rows_without_acceptance("2026-11-08", now=early)
+    assert len(rows) == 1 and c["dropped:implausible_filed"] == 0
+
+
+def test_an_accepted_filing_is_never_dropped_for_its_filing_date():
+    rows, c = _rows({"Revenues": {"USD": [point(30, "2026-09-30", start="2026-07-01", accn=K26,
+                                                form="10-Q", filed="2062-11-20")]}})
+    assert len(rows) == 1 and c["dropped:implausible_filed"] == 0
+
+
+# --- The same-second tie-break is a pure function of the candidates, not of their order.
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_the_tie_break_settles_on_the_form_whatever_the_input_order(reverse):
+    pts = [point(5, "2024-06-30", start="2023-07-01", accn=K24, form=f)
+           for f in ("10-K", "10-Q")]
+    rows, c = _rows({"Revenues": {"USD": list(reversed(pts)) if reverse else pts}})
+    assert [r["source_doc_id"] for r in rows] == [_doc(K24)]
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_the_tie_break_settles_on_the_lowest_accession_then_the_unit(reverse):
+    # Two filings accepted the same second, one in USD and one in EUR, equal value.
+    a, b = "0000000042-24-000002", "0000000042-24-000003"
+    accept = {a: ACCEPT[K24], b: ACCEPT[K24]}
+    units = {"USD": [point(5, "2024-06-30", start="2023-07-01", accn=b)],
+             "EUR": [point(5, "2024-06-30", start="2023-07-01", accn=a)]}
+    rows, _ = _rows({"Revenues": dict(reversed(units.items())) if reverse else units},
+                    acceptance=accept)
+    assert [r["unit"] for r in rows] == ["EUR"]
+
+
+# --- The anchor tags are the configured ones.
+
+
+def test_custom_currency_anchor_tags_are_honoured_through_fundamentals_rows():
+    us_gaap = {
+        "Assets": {"EUR": [point(100, "2024-06-30", accn=K24)]},
+        "Revenues": {"USD": [point(1, "2024-06-30", start="2023-07-01", accn=K24)]},
+        "NetIncomeLoss": {"USD": [point(2, "2024-06-30", start="2023-07-01", accn=K24)]},
+    }
+    rows, c = _rows(us_gaap)       # Assets (EUR) contradicts the USD vote: no money
+    assert rows == [] and c["dropped:currency_ambiguous"] == 3
+    rows, c = _rows(us_gaap, config=Config(store_currency_anchor_tags=("Revenues",)))
+    assert {(r["concept"], r["unit"]) for r in rows} == {("revenue", "USD"), ("net_income", "USD")}
+    assert c["dropped:currency_ambiguous"] == 0
