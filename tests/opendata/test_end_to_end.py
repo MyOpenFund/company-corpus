@@ -1,19 +1,32 @@
 """Producer -> landing -> publisher -> reader on a DuckLake file catalogue (spec §7).
 
 Needs the DuckDB ``ducklake`` extension: DuckDB downloads it with its own HTTP client on first
-use (network required; CI pre-installs it). The module skips when it cannot be loaded.
+use (network required; CI pre-installs it). The module skips when it cannot be loaded, unless
+``REQUIRE_DUCKLAKE=1`` (the CI ``store`` job): then that is a failure, so CI never passes
+without having run this test.
 """
+import importlib
+import os
 from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
 
-pytest.importorskip("myopendata")
-duckdb = pytest.importorskip("duckdb")
+REQUIRED = os.environ.get("REQUIRE_DUCKLAKE") == "1"
+
+
+def _need(module: str):
+    return importlib.import_module(module) if REQUIRED else pytest.importorskip(module)
+
+
+_need("myopendata")
+duckdb = _need("duckdb")
 
 try:
     duckdb.connect().execute("INSTALL ducklake; LOAD ducklake")
 except duckdb.Error as exc:
+    if REQUIRED:
+        raise
     pytest.skip(f"DuckDB ducklake extension unavailable (needs network on first use): {exc}",
                 allow_module_level=True)
 

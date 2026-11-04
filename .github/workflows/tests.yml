@@ -39,4 +39,6 @@ jobs:
       - name: Pre-install the DuckLake extension
         run: python -c "import duckdb; duckdb.connect().execute('INSTALL ducklake')"
       - name: Store tests
+        env:
+          REQUIRE_DUCKLAKE: "1"   # the end-to-end test must run: a skip is a failure here
         run: pytest -q tests/opendata

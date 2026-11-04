@@ -159,7 +159,9 @@ issuer failed (the run is `degraded`); `1` fatal (landing zone not writable,
 my-open-data not installed, corpus lock held); `2` usage error.
 
 The end-to-end test (writer, then publisher) needs the DuckDB `ducklake` extension
-and skips when it cannot be installed; the CI `store` job pre-installs it.
+and skips when it cannot be installed. With `REQUIRE_DUCKLAKE=1` that is a failure
+instead: the CI `store` job pre-installs the extension and sets it, so CI cannot pass
+without having run the test.
 
 ## Operations
 
