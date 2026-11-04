@@ -124,3 +124,26 @@ def test_a_convenience_translation_inside_a_filing_is_still_dropped():
         "EUR": [_rev(90, "2023-12-31", "A1"), _rev(80, "2022-12-31", "A1")],
         "USD": [_rev(99, "2023-12-31", "A1")]}})
     assert {p.unit for p in pts} == {"EUR"} and c["dropped:non_reporting_currency"] == 1
+
+
+def test_a_dei_value_in_another_currency_does_not_vote():
+    # One curated EUR fact; the cover page reports the public float in USD. Only us-gaap
+    # facts vote, so the filing is EUR and its point is kept.
+    pts, c = _select({"Revenues": {"EUR": [_rev(90, "2023-12-31", "A1")]}},
+                     dei={"EntityPublicFloat": {"USD": [point(5, "2023-06-30", accn="A1")]}})
+    assert [(p.value, p.unit) for p in pts] == [(Decimal(90), "EUR")]
+    assert c["dropped:non_reporting_currency"] == 0
+
+
+@pytest.mark.parametrize("order", [("EUR", "GBP"), ("GBP", "EUR")])
+def test_a_currency_tie_does_not_depend_on_tag_order(order):
+    us_gaap = {tag: {unit: [_rev(i + 1, "2023-12-31", "A1")]}
+               for i, (tag, unit) in enumerate(zip(("Revenues", "NetIncomeLoss"), order))}
+    pts, _ = _select(us_gaap)
+    assert {p.unit for p in pts} == {"EUR"}
+
+
+def test_a_currency_tie_with_usd_goes_to_usd():
+    pts, _ = _select({"Revenues": {"EUR": [_rev(1, "2023-12-31", "A1")]},
+                      "NetIncomeLoss": {"USD": [_rev(2, "2023-12-31", "A1")]}})
+    assert {p.unit for p in pts} == {"USD"}

@@ -15,7 +15,7 @@ from decimal import Decimal, InvalidOperation, localcontext
 from zoneinfo import ZoneInfo
 
 from ..config import Config, normalize_cik
-from ..financials import _CURRENCY_RE, CONCEPTS, Concept, reporting_currency
+from ..financials import _CURRENCY_RE, CONCEPTS, Concept
 from ..models import FilingRecord
 from ..taxonomy import from_edgar_form
 
@@ -135,14 +135,19 @@ def _point(concept: Concept, prio: int, p: dict, currency: str | None, bands,
 
 
 def _filing_currencies(flat: dict[str, list[dict]]) -> dict[str, str | None]:
-    """Reporting currency of each filing, from that filing's own facts only. An issuer-wide
-    count would change as filings accumulate: a currency switch could then change the points
-    selected from filings already published, which the publisher quarantines."""
-    by_filing: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
-    for tag, points in flat.items():
+    """Reporting currency of each filing, from that filing's own us-gaap facts only (a dei
+    value such as the public float can be in another currency). An issuer-wide count would
+    change as filings accumulate: a currency switch could then change the points selected
+    from filings already published, which the publisher quarantines. Total order: most facts,
+    then USD, then the alphabetically lowest unit, so tag or JSON order never matters."""
+    counts: dict[str, Counter] = defaultdict(Counter)
+    for points in flat.values():
         for p in points:
-            by_filing[p.get("accn") or ""][tag].append(p)
-    return {accn: reporting_currency(facts) for accn, facts in by_filing.items()}
+            unit = p.get("unit") or ""
+            if p.get("ns") == "us-gaap" and _CURRENCY_RE.match(unit):
+                counts[p.get("accn") or ""][unit] += 1
+    return {accn: max(c, key=lambda u: (c[u], u == "USD", tuple(-ord(ch) for ch in u)))
+            for accn, c in counts.items()}
 
 
 def select_points(flat: dict[str, list[dict]], bands, counters: Counter) -> list[Point]:
@@ -156,7 +161,7 @@ def select_points(flat: dict[str, list[dict]], bands, counters: Counter) -> list
     for concept in CONCEPTS:
         for prio, tag in enumerate(concept.tags):
             for p in flat.get(tag, []):
-                pt = _point(concept, prio, p, currencies[p.get("accn") or ""], bands, counters)
+                pt = _point(concept, prio, p, currencies.get(p.get("accn") or ""), bands, counters)
                 if pt is not None:
                     groups[(pt.concept, pt.end, pt.frequency, pt.accn)].append(pt)
     out: list[Point] = []
@@ -218,7 +223,7 @@ def fundamentals_rows(cik: str, facts: dict, *, acceptance: Mapping[str, datetim
         if len({_quantized(pt.value) for pt, _ in cands}) > 1:
             counters["ambiguous_observation"] += 1
             continue
-        pt, fell_back = min(cands, key=lambda c: (c[0].accn, c[0].prio, c[0].tag, c[0].value,
+        pt, fell_back = min(cands, key=lambda c: (c[0].accn, c[0].prio, c[0].tag, c[0].unit, c[0].value,
                                          c[0].start is not None, c[0].start or date.min))
         if fell_back:
             counters["known_at_fallback"] += 1
