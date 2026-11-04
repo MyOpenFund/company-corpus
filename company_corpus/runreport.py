@@ -79,6 +79,7 @@ class RunReport:
         self._sources: dict[str, SourceStats] = {}
         self._fatal: str | None = None
         self.local_refusals = 0
+        self.details: dict | None = None
         self.local_refusal_samples: list = []
 
     def source(self, code: str) -> SourceStats:
@@ -140,6 +141,9 @@ class RunReport:
             # be noise, and its absence reads as "the corpus refused nothing".
             d["local_refusals"] = {"count": self.local_refusals,
                                    "samples": list(self.local_refusal_samples)}
+        if self.details:
+            # Command-specific counters (e.g. store-batches per issuer); absent otherwise.
+            d["details"] = self.details
         if self._fatal:
             d["fatal"] = self._fatal[:500]
         return d

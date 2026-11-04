@@ -23,3 +23,22 @@ jobs:
         run: pytest -q
       - name: Tests are cwd-independent
         run: cd /tmp && pytest -q "$GITHUB_WORKSPACE"
+
+  store:
+    # store-batches against the real my-open-data (writer + publisher, DuckLake file
+    # catalogue). Separate job: duckdb is too heavy for the unit job.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install
+        run: pip install -r requirements-store.txt
+      - name: Pre-install the DuckLake extension
+        run: python -c "import duckdb; duckdb.connect().execute('INSTALL ducklake')"
+      - name: Store tests
+        env:
+          REQUIRE_DUCKLAKE: "1"   # the end-to-end test must run: a skip is a failure here
+        run: pytest -q tests/opendata

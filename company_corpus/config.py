@@ -16,7 +16,9 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
+from datetime import time
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 # SEC fair-access program: no more than 10 requests/second per requester.
 # We default to a comfortable margin under that ceiling.
@@ -38,6 +40,54 @@ def _default_contact() -> str:
 STICKY_MANIFEST_FIELDS: tuple[str, ...] = (
     "local_path", "sha256", "primary_path", "text_path", "pdf_path",
 )
+
+#: Duration bands of ``store-batches`` (chantier 8, spec §4), in days = end - start + 1,
+#: chosen in fiscal weeks and measured on the 672 local companyfacts (2026-11-01):
+#: quarterly 12-16 weeks (4-4-5 and 12-12-12-16 calendars), semiannual 24-28 weeks,
+#: annual 52-53 weeks / calendar year, and the 9-month year-to-date (36-40 weeks). A band
+#: whose label is not a my-open-data frequency is a drop reason (``ytd9``); a duration in no
+#: band is dropped as ``odd_duration`` (monthly, stubs, 10-KT transition periods). The F1
+#: engine (``financials._classify_frequency``) keeps its own bands.
+DEFAULT_DURATION_BANDS: tuple[tuple[str, int, int], ...] = (
+    ("quarterly", 81, 115),
+    ("semiannual", 165, 199),
+    ("ytd9", 245, 285),
+    ("annual", 360, 374),
+)
+
+#: Balance sheet totals whose currency must agree with a filing's vote over its monetary facts
+#: (``opendata.fundamentals``). On 39,428 filings with balance sheet totals, scanned 2026-11-04, they never disagree.
+DEFAULT_CURRENCY_ANCHOR_TAGS: tuple[str, ...] = (
+    "Assets", "Liabilities", "StockholdersEquity", "LiabilitiesAndStockholdersEquity",
+)
+
+#: EDGAR state/country codes of foreign business addresses -> ISO 3166-1 alpha-2, for
+#: ``entity_observations.country``. Source: SEC "EDGAR State and Country Codes". A code not
+#: listed gives country null, counted ``country_unknown`` in the run report: extend this
+#: table (or ``Config.edgar_country_codes``) rather than guess.
+DEFAULT_EDGAR_COUNTRY_CODES: dict[str, str] = {
+    # Canadian provinces and the federal level
+    "A0": "CA", "A1": "CA", "A2": "CA", "A3": "CA", "A4": "CA", "A5": "CA", "A6": "CA",
+    "A7": "CA", "A8": "CA", "A9": "CA", "B0": "CA", "Z4": "CA",
+    "C3": "AU",  # Australia
+    "D0": "BM",  # Bermuda
+    "E9": "KY",  # Cayman Islands
+    "F4": "CN",  # China
+    "I0": "FR",  # France
+    "2M": "DE",  # Germany
+    "K3": "HK",  # Hong Kong
+    "L2": "IE",  # Ireland
+    "L3": "IL",  # Israel
+    "M0": "JP",  # Japan
+    "Y7": "GG",  # Guernsey
+    "Y8": "IM",  # Isle of Man
+    "Y9": "JE",  # Jersey
+    "N4": "LU",  # Luxembourg
+    "P7": "NL",  # Netherlands
+    "U0": "SG",  # Singapore
+    "V8": "CH",  # Switzerland
+    "X0": "GB",  # United Kingdom
+}
 
 
 @dataclass
@@ -72,6 +122,25 @@ class Config:
     #: OS metadata, never written by the corpus. Referenced files are unaffected.
     verify_ignore_hidden: bool = True
 
+    # my-open-data batches (chantier 8, ``store-batches``).
+    store_duration_bands: tuple[tuple[str, int, int], ...] = DEFAULT_DURATION_BANDS
+    #: Tags cross-checking each filing's reporting currency. Frozen after a first publish.
+    store_currency_anchor_tags: tuple[str, ...] = DEFAULT_CURRENCY_ANCHOR_TAGS
+    #: A filing with no EDGAR acceptance time gets known_at = its filing date at this
+    #: wall-clock time in this zone (end of the filing day, so never before the real
+    #: acceptance), capped at the run's own time.
+    store_known_at_fallback_tz: str = "America/New_York"
+    store_known_at_fallback_time: str = "23:59:59"
+    #: The zone in which EDGAR dates a filing (Eastern time). The stale-archive rule compares
+    #: filing dates with the archive's fetch day and the run day in this zone; the fallback
+    #: knob above does not affect it.
+    store_edgar_day_tz: str = "America/New_York"
+    #: A filing absent from the archive whose ``filed`` date is more than this many days after
+    #: the run day is implausible (a typo in the feed): it never triggers a refresh.
+    store_stale_filed_max_days_ahead: int = 7
+    edgar_country_codes: dict[str, str] = field(
+        default_factory=lambda: dict(DEFAULT_EDGAR_COUNTRY_CODES))
+
     def __post_init__(self) -> None:
         if isinstance(self.data_dir, str):
             self.data_dir = Path(self.data_dir)
@@ -80,6 +149,29 @@ class Config:
                 f"requests_per_second={self.requests_per_second} exceeds the SEC "
                 f"limit of {SEC_MAX_REQUESTS_PER_SECOND}/s"
             )
+        _check_duration_bands(self.store_duration_bands)
+        tags = self.store_currency_anchor_tags
+        if not (isinstance(tags, tuple) and tags
+                and all(isinstance(t, str) and t for t in tags)):
+            raise ValueError(
+                "store_currency_anchor_tags must be a non-empty tuple of non-empty strings")
+        if self.store_stale_filed_max_days_ahead < 0:
+            raise ValueError("store_stale_filed_max_days_ahead must be >= 0")
+        try:
+            ZoneInfo(self.store_known_at_fallback_tz)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(
+                f"store_known_at_fallback_tz: unknown time zone "
+                f"{self.store_known_at_fallback_tz!r}") from exc
+        try:
+            ZoneInfo(self.store_edgar_day_tz)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(
+                f"store_edgar_day_tz: unknown time zone {self.store_edgar_day_tz!r}") from exc
+        try:
+            time.fromisoformat(self.store_known_at_fallback_time)
+        except ValueError as exc:
+            raise ValueError("store_known_at_fallback_time must be HH:MM:SS") from exc
 
     @property
     def user_agent(self) -> str:
@@ -229,3 +321,14 @@ def cusip_full(value: str) -> str:
     if len(s) in (8, 9) and s.isalnum():
         return s
     return ""
+
+
+def _check_duration_bands(bands: tuple[tuple[str, int, int], ...]) -> None:
+    """Bands are disjoint by construction (spec §4): refuse anything else."""
+    spans = sorted((lo, hi, label) for label, lo, hi in bands)
+    for lo, hi, label in spans:
+        if not 0 < lo <= hi:
+            raise ValueError(f"duration band {label}: need 0 < min <= max, got {lo}-{hi}")
+    for (_, hi, a), (lo, _, b) in zip(spans, spans[1:]):
+        if hi >= lo:
+            raise ValueError(f"duration bands {a} and {b} overlap")

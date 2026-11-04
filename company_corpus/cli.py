@@ -36,6 +36,9 @@ eu-acquire            per        entities dispatched to       documents kept fro
                       backend    that backend                 that backend            errors
 register-financials   per        entities resolved            period summaries        ``out["errors"]``
                       register
+store-batches         sec        issuers examined             issuers emitted         issuers failed
+                                                              (dry-run: computed)     (any failure
+                                                                                      degrades: truncated)
 ===================== ========== ============================ ======================= ==================
 
 Three deliberate choices:
@@ -92,6 +95,7 @@ import json
 import logging
 import os
 import sys
+import uuid
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -165,7 +169,7 @@ from .universe import (
 REPORTING_CMDS = {
     "discover", "discover-index", "download", "render-pdf", "xbrl",
     "ownership", "enrich-openfigi", "eu-financials", "register-financials",
-    "eu-acquire", "build-universe",
+    "eu-acquire", "build-universe", "store-batches",
 }
 
 
@@ -901,6 +905,53 @@ def _cmd_xbrl(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_store_batches(args: argparse.Namespace) -> int:
+    """Layer 0 -> my-open-data batches (chantier 8). Dry-run unless --write."""
+    from .opendata.batches import StoreUnavailable, store_batches
+
+    if args.refresh_submissions and args.offline:
+        print("error: --refresh-submissions needs the network; drop --offline", file=sys.stderr)
+        raise SystemExit(2)
+    cfg = _config(args)
+    ciks = _ciks_for(args, cfg)
+    landing = Path(args.landing)
+    if args.write:
+        try:
+            landing.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            print(f"error: landing zone {landing} is not writable: {exc}", file=sys.stderr)
+            return 1
+        if not os.access(landing, os.W_OK):
+            print(f"error: landing zone {landing} is not writable", file=sys.stderr)
+            return 1
+    try:
+        rep = store_batches(ciks, config=cfg, landing=landing, write=args.write,
+                            offline=args.offline, refresh=args.refresh_submissions,
+                            run_id=_run_id(args) or uuid.uuid4().hex)
+    except StoreUnavailable as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    t = rep.totals()
+    mode = "WROTE" if args.write else "DRY-RUN (nothing written)"
+    print(f"store-batches [{mode}] — {t['issuers']} issuers: ok {t['ok']}, "
+          f"failed {t['failed']}, pending fetch {t['pending_fetch']}")
+    print("  rows: " + ", ".join(f"{k}={v}" for k, v in t["rows"].items()))
+    if t["counters"]:
+        print("  counters: " + ", ".join(f"{k}={v}" for k, v in t["counters"].items()))
+    for o in rep.failed[:10]:
+        print(f"  failed {o.cik}: {o.error}")
+    if rep.pending:
+        print(f"  {len(rep.pending)} issuer(s) have no submissions archive yet: "
+              "run with --write to fetch them")
+    report = getattr(args, "report", None)
+    if report is not None:
+        report.details = rep.to_details()
+    _feed_report(report, "sec", seen=t["issuers"], new=t["ok"], failed=t["failed"],
+                 errors=[f"{o.cik}: {o.error}" for o in rep.failed],
+                 truncated=bool(rep.failed))
+    return 0
+
+
 def _eu_specs(args: argparse.Namespace) -> list[dict]:
     if getattr(args, "leis", None):
         return [{"lei": x.strip()} for x in args.leis.split(",") if x.strip()]
@@ -1475,6 +1526,23 @@ def build_parser() -> argparse.ArgumentParser:
     xb.add_argument("--write", action="store_true", help="persist summaries+facts (else dry-run)")
     _add_table_write_flags(xb)
     xb.set_defaults(func=_cmd_xbrl)
+
+    sb = sub.add_parser("store-batches",
+                        help="write my-open-data batches (SEC identity + fundamentals) from "
+                             "layer 0 (dry-run by default)")
+    sbsrc = sb.add_mutually_exclusive_group(required=True)
+    sbsrc.add_argument("--universe", help="universe name")
+    sbsrc.add_argument("--ciks", help="comma-separated CIKs")
+    sb.add_argument("--landing", required=True,
+                    help="my-open-data landing zone (MYOPENDATA_DATA_ROOT/landing)")
+    sb.add_argument("--refresh-submissions", action="store_true", dest="refresh_submissions",
+                    help="re-fetch the EDGAR submissions archive (new identity observations)")
+    sb.add_argument("--offline", action="store_true",
+                    help="never fetch: an issuer without a submissions archive fails, a "
+                         "stale one is only counted")
+    sb.add_argument("--write", action="store_true",
+                    help="write batches and fetch missing or stale archives (else dry-run)")
+    sb.set_defaults(func=_cmd_store_batches)
 
     euf = sub.add_parser("eu-financials",
                          help="build per-period IFRS financial summaries from ESEF (filings.xbrl.org)")

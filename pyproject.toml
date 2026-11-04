@@ -24,6 +24,9 @@ be = ["curl_cffi>=0.7"]
 # Tier B ESEF parsing: local .zip packages via Arelle. Imported lazily inside
 # oim_from_esef_zip; only required to run the Arelle bridge.
 eu-financials = ["arelle-release"]
+# my-open-data producer side (``store-batches``, chantier 8): the writer only, pinned to a
+# reviewed commit. The CI job "store" also installs the publisher (requirements-store.txt).
+store = ["my-open-data[writer] @ git+https://github.com/MyOpenFund/my-open-data@74414d681722291ecd8b25a67dd489039b4ab61a"]
 
 [project.scripts]
 company-corpus = "company_corpus.cli:main"

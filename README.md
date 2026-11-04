@@ -76,6 +76,140 @@ python -m company_corpus register-financials --orgnrs 923609016 --write
 python -m company_corpus register-financials --ch-bulk accounts_monthly_2024_01.zip --limit 100
 ```
 
+## Feeding my-open-data (`store-batches`)
+
+`store-batches` turns layer 0 (the stored `companyfacts.json` and the EDGAR
+submissions archive) into [my-open-data](https://github.com/MyOpenFund/my-open-data)
+batches. For each issuer it emits one `entity_observations` batch and one
+`fundamentals` 2.0.0 batch, always the full history; replaying the same inputs is a
+no-op in the store. It writes into a landing zone and never publishes: you run
+`myopendata publish` afterwards. It is a dry run unless `--write`.
+
+```bash
+pip install ".[store]"          # my-open-data with its publisher (optional extra)
+company-corpus --contact "$SEC_CONTACT" store-batches --universe sp_curated \
+    --landing "$MYOPENDATA_DATA_ROOT/landing" --write
+myopendata publish
+```
+
+The CLI stays importable without the extra; `store-batches` then fails cleanly
+(exit 1) and says what to install.
+
+**Submissions archive.** Identity observations come from `raw/<cik>/submissions/`
+(the main `submissions` JSON plus its paginated files, each with a sidecar). A
+missing archive is fetched on `--write`; `--refresh-submissions` re-fetches it to
+pick up new observations; `--offline` never fetches, so an issuer without an archive
+fails. `--refresh-submissions` with `--offline` is a usage error. `verify` treats
+the archive as layer 0, like `companyfacts.json`. A dry run reports an issuer
+without an archive as `pending_fetch` and writes nothing.
+
+**Stale archive.** A new filing absent from the archive would get the fallback
+`known_at`, and a later refresh would add a second vintage with an earlier `known_at`.
+So on `--write` without `--offline`, an issuer's archive is re-fetched once
+(`submissions_refreshed:stale`) when its companyfacts has a point the run would emit from
+a filing the archive does not list and whose `filed` date is on or after the archive's
+`fetched_at` date, in `Config.store_edgar_day_tz` (default `America/New_York`; independent
+of the fallback zone). EDGAR's filing date is typically not before the acceptance date in
+Eastern time, so such a filing can be newer than the archive; a retroactive adjustment is
+the exception and costs one fallback vintage, without conflict. Older accessions missing
+from the archive never trigger a refresh: they keep the fallback `known_at`, or they would
+refresh on every run. A `filed` date more than `Config.store_stale_filed_max_days_ahead`
+(default 7) days after the run day is implausible and ignored; the archive's own age does
+not matter, so an old archive with a recent filing still refreshes. A dry run and `--offline`
+never fetch: they count `submissions_stale` and keep the fallback. A failed refresh is
+that issuer's failure, like any fetch failure, and leaves its archive as it was. A
+refresh, automatic or not, also adds new identity rows, because the
+`entity_observations` `known_at` is the archive's fetch time, at a new `valid_date`: about
+one refresh per periodic filing; each adds one row per ticker and, for issuers without former
+names, a CIK row. `entity_observations` is therefore not one row per identifier;
+`entity_attributes` collapses them.
+
+`--offline --write` with a stale archive publishes the fallback vintage, and those rows
+stay in the append-only store.
+
+**Point selection and `known_at`.** Fundamentals durations are classified by
+fiscal-week bands (`Config.store_duration_bands`). `known_at` is the filing's
+acceptance time. When a filing has no
+acceptance time, a fallback is used (`Config.store_known_at_fallback_tz` /
+`store_known_at_fallback_time`); when that filing was filed on the run day, the
+fallback is capped at run time, so a later run records another version with a later
+`known_at` (a new vintage, not a conflict) -- visible as `known_at_capped`.
+
+**Reporting currency.** It is decided per filing, from that filing's own `us-gaap` facts
+by a vote over its monetary facts, cross-checked against its balance sheet totals
+(`Config.store_currency_anchor_tags`). A tied vote is settled by the totals; a contradiction,
+or nothing to settle a tie, publishes no money (`dropped:currency_ambiguous`). A filing
+without balance sheet totals (a partial 10-K/A) rests on the vote alone. An issuer that switches
+currency therefore has one natural key with different units across vintages, as filed.
+This differs from the F1 engine's issuer-wide rule.
+`Config.edgar_country_codes` maps EDGAR state/country codes to countries; an unmapped
+code is reported, never guessed.
+
+**`fiscal_year` is null by design.** The column is in every row and is always null; a
+reader view in my-open-data will derive it. Fiscal years can only be computed from the
+year-ends known today, so a later 10-K or 10-KT changes the label of rows that are
+already published. The full history is re-emitted every run, and the publisher
+quarantines a batch whose row has the same `(natural_key, known_at)` as a published row
+but another value (`conflicting_republish`): the issuer's batch would stay quarantined
+for good. Every emitted column must be a pure function of immutable inputs.
+
+**Run report.** `data/runs.jsonl` carries `details.store_batches` (per-issuer status,
+rows, batch ids, counters, plus totals). Counters:
+
+| counter | meaning |
+|---|---|
+| `dropped:ytd9`, `dropped:odd_duration`, `dropped:period_shape` | duration points outside the configured bands or shape |
+| `dropped:non_reporting_currency`, `dropped:unexpected_unit` | unit filters; the reporting currency is that of each filing, so later filings never change the points selected from earlier ones |
+| `dropped:currency_ambiguous` | a filing's vote over its monetary facts and the currency of its balance sheet totals contradict each other, or tie with nothing to settle them (also: per-share points only, in several currencies): the filing publishes no money rather than risk a wrong row. Investigate any non-zero count |
+| `dropped:bad_point`, `dropped:no_known_at`, `dropped:value_out_of_range` | unusable points |
+| `dropped:implausible_filed` | a point with no acceptance time whose `filed` date is more than `Config.store_stale_filed_max_days_ahead` days after the run day (Eastern): dropped, or it would be a new vintage on every run |
+| `ambiguous_observation` | competing points the selection could not separate |
+| `submissions_refreshed:stale`, `submissions_stale` | the archive was older than a filing in companyfacts: re-fetched / not re-fetched (dry run, `--offline`) |
+| `known_at_fallback`, `known_at_capped`, `known_at_naive` | `known_at` derived without an acceptance time (capped at run time / naive timestamp) |
+| `source_doc_id_null` | any form outside the taxonomy (10-KT, 10-QT, some proxy forms): the row has a null `source_doc_id` |
+| `filing_not_in_manifest` | informational: the `source_doc_id` is set but no manifest row holds it; most issuers' manifests hold only F1 summaries |
+| `value_rounded` | value rounded to fit the contract |
+| `country_unknown[:code]` | unmapped EDGAR country code |
+| `former_name_shadowed`, `former_name_undated` | former-name handling in identity rows |
+
+An unexpected exception in one issuer is recorded as `failed` with
+`unexpected: <Type>: <msg>` and the run continues with the next issuer.
+The command prints at most 10 failed issuers; the run report has them all.
+
+**Good to know.**
+
+- Changing `edgar_country_codes` after a publish needs `--refresh-submissions --write`
+  for the affected issuers: identity rows then get a new `known_at`. Otherwise the same
+  `(natural_key, known_at)` comes back with another value and the publisher quarantines
+  the batch as `conflicting_republish`.
+- A refresh does **not** help fundamentals: their `known_at` is the acceptance time, which
+  never moves. The tag chains (`financials.CONCEPTS`), the form taxonomy
+  (`taxonomy.from_edgar_form`) and the currency rule are frozen once published, short of a
+  store migration. A new tag may only be appended at the lowest priority of its concept.
+  `tests/opendata/test_published_derivations.py` pins the tag chains, the whole form index
+  (additions and removals fail; 10-KT and 10-QT stay unmapped), the currency anchor tags, the
+  ISO currency pattern and the `source_doc_id` recipe (one literal hash). The vote rule itself
+  is covered by the point-selection tests, not the golden file. Changing a pinned item alters
+  rows already published at the same `known_at`, which the publisher quarantines.
+- Known limit: two filings of one issuer accepted in the same second (or sharing a `filed`
+  day on the fallback path), with an equal value, where the lower accession appears only in
+  a later companyfacts. `source_doc_id` then changes for that key, and the fundamentals
+  batch is quarantined (`conflicting_republish`) until an operator repairs it. It is loud
+  and has not been seen in the corpus.
+- Former-name identity rows have a null country: EDGAR gives a country only for the
+  current address.
+- A 17-week fourth quarter (119 days) falls outside the default quarterly band (81 to
+  115 days) and is dropped as `odd_duration`.
+
+**Exit codes.** `0` every issuer emitted (or pending, in a dry run); `3` at least one
+issuer failed (the run is `degraded`); `1` fatal (landing zone not writable,
+my-open-data not installed, corpus lock held); `2` usage error.
+
+The end-to-end test (writer, then publisher) needs the DuckDB `ducklake` extension
+and skips when it cannot be installed. With `REQUIRE_DUCKLAKE=1` that is a failure
+instead: the CI `store` job pre-installs the extension and sets it, so CI cannot pass
+without having run the test.
+
 ## Operations
 
 **Doctrine, in one sentence:** every work command folds its own counters into a
@@ -183,7 +317,7 @@ takes **no corpus lock**, so it is safe to run beside a nightly crawl.
 | kind | what it means |
 |---|---|
 | `missing-artefact` | a manifest row points at bytes that are not on disk (or outside the data dir) |
-| `orphan-artefact` | a file under `raw/` that no manifest row points at (OS metadata such as `.DS_Store`, `._*` or anything under a dot-directory is skipped; `Config.verify_ignore_hidden=False` reports it too) |
+| `orphan-artefact` | a file under `raw/` that no manifest row points at (`raw/<cik>/submissions/` is layer 0, like `F1/companyfacts.json`, and never an orphan; OS metadata such as `.DS_Store`, `._*` or anything under a dot-directory is skipped; `Config.verify_ignore_hidden=False` reports it too) |
 | `duplicate-doc-id` | one `doc_id` on two rows (or under two LEI manifests) |
 | `stale-doc-id` | a stored id the current identity rule does not reproduce (a pre-period-keyed F1 id, an EU manifest with no `native_id`) |
 | `foreign-row` | a row filed under an entity other than the one naming its file |
