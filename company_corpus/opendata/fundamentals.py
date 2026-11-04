@@ -7,11 +7,10 @@ publisher skips what it already holds (S3).
 """
 from __future__ import annotations
 
-import bisect
 from collections import Counter, defaultdict
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from zoneinfo import ZoneInfo
 
@@ -102,18 +101,11 @@ def _unit_drop(concept: Concept, unit: str, currency: str | None) -> str | None:
 
 
 def _point(concept: Concept, prio: int, p: dict, currency: str | None, bands,
-           counters: Counter, transition_ends: dict[str, date] | None) -> Point | None:
+           counters: Counter) -> Point | None:
     end, raw_start = _day(p.get("end")), p.get("start")
     start = _day(raw_start) if raw_start else None
     value, accn = _decimal(p.get("val")), p.get("accn") or ""
     form = (p.get("form") or "").strip()
-    if (end is not None and not (raw_start and start is None) and accn
-            and start is not None and transition_ends is not None
-            and form.upper().startswith("10-KT")):
-        # Recorded before any drop (unit, shape, duration): the transition period ends on the
-        # new fiscal year-end, the latest duration end a 10-KT reports (its comparatives and
-        # quarters end earlier).
-        transition_ends[accn] = max(end, transition_ends.get(accn, end))
     reason = _unit_drop(concept, p.get("unit") or "", currency)
     if reason:
         counters[f"dropped:{reason}"] += 1
@@ -142,11 +134,9 @@ def _point(concept: Concept, prio: int, p: dict, currency: str | None, bands,
                  p["unit"], accn, form, _day(p.get("filed")))
 
 
-def select_points(flat: dict[str, list[dict]], bands, counters: Counter,
-                  transition_ends: dict[str, date] | None = None) -> list[Point]:
+def select_points(flat: dict[str, list[dict]], bands, counters: Counter) -> list[Point]:
     """Every usable point of the curated concepts; per (concept, period end, frequency,
     filing) only the points of the highest-priority tag present (spec S6).
-    ``transition_ends`` (optional, filled in place): 10-KT accession -> transition end.
     ``shares_outstanding`` may yield both the balance-sheet-date value
     (``CommonStockSharesOutstanding``) and the cover-date value
     (``dei:EntityCommonStockSharesOutstanding``) of the same filing: their valid dates differ."""
@@ -155,7 +145,7 @@ def select_points(flat: dict[str, list[dict]], bands, counters: Counter,
     for concept in CONCEPTS:
         for prio, tag in enumerate(concept.tags):
             for p in flat.get(tag, []):
-                pt = _point(concept, prio, p, currency, bands, counters, transition_ends)
+                pt = _point(concept, prio, p, currency, bands, counters)
                 if pt is not None:
                     groups[(pt.concept, pt.end, pt.frequency, pt.accn)].append(pt)
     out: list[Point] = []
@@ -184,13 +174,16 @@ def fundamentals_rows(cik: str, facts: dict, *, acceptance: Mapping[str, datetim
     configured end-of-day time, capped at ``now``. Two filings accepted the same second that
     report the same key: equal values keep one row (lowest accession), different values emit
     none (``ambiguous_observation``).
+
+    The history is re-emitted every run and the store refuses a row whose (natural key,
+    known_at) it holds with another value, so every column must be a pure function of immutable
+    inputs. ``fiscal_year`` is always null: it can only be derived from the year-ends known
+    today, which change for already-published rows; a reader view will derive it.
     """
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     cik, counters = normalize_cik(cik), Counter()
-    transitions: dict[str, date] = {}
-    points = select_points(flatten_with_namespace(facts), config.store_duration_bands, counters,
-                           transitions)
+    points = select_points(flatten_with_namespace(facts), config.store_duration_bands, counters)
     tz = ZoneInfo(config.store_known_at_fallback_tz)
     at = time.fromisoformat(config.store_known_at_fallback_time)
     by_key: dict[tuple, list[tuple[Point, bool]]] = defaultdict(list)
@@ -219,18 +212,6 @@ def fundamentals_rows(cik: str, facts: dict, *, acceptance: Mapping[str, datetim
         if fell_back:
             counters["known_at_fallback"] += 1
         rows.append(_row(cik, pt, known_at, manifest_doc_ids, counters))
-    # Fiscal year-ends: ends of annual periods of annual-report filings (10-K/20-F/40-F
-    # family, ``store_annual_report_forms``; a 12-months figure in a 10-Q/6-K/8-K is not a
-    # year-end), taken from every selected point, whether or not its key later became a row,
-    # plus the end of every transition period (10-KT), so a fiscal-year change labels both
-    # sides right (spec §4, §9).
-    prefixes = tuple(f.strip().upper() for f in config.store_annual_report_forms)
-    annual_ends = {pt.end for pt in points
-                   if pt.frequency == "annual" and pt.form.upper().startswith(prefixes)}
-    fyes = sorted(annual_ends | set(transitions.values()))
-    for r in rows:
-        r["fiscal_year"] = fiscal_year_of(r["valid_date"], fyes,
-                                          config.store_fiscal_year_slack_days)
     return FundamentalsResult(rows=rows, counters=counters)
 
 
@@ -271,37 +252,3 @@ def _row(cik: str, pt: Point, known_at: datetime, manifest_doc_ids,
         "known_at": known_at, "known_at_kind": "published", "source_code": SOURCE_CODE,
         "source_doc_id": _source_doc_id(cik, pt, manifest_doc_ids, counters),
     }
-
-
-def fiscal_year_of(valid_date: date, fiscal_year_ends: list[date],
-                   slack_days: int) -> int | None:
-    """Year of the first fiscal year-end on or after ``valid_date`` (not companyfacts ``fy``,
-    which is the filing's fiscal year). Before the first known year-end (opening balances) and
-    after the last one, the nearest known year-end is projected by whole years; a period ending
-    within ``slack_days`` after a projected year-end belongs to it (52/53-week drift). None when
-    the issuer reports no annual period.
-    """
-    if not fiscal_year_ends:
-        return None
-    i = bisect.bisect_left(fiscal_year_ends, valid_date)
-    slack = timedelta(days=slack_days)
-    if i == 0 and valid_date < fiscal_year_ends[0]:
-        # Before the first known year-end (an opening balance): project it backwards.
-        d = fiscal_year_ends[0]
-        while True:
-            try:
-                prev = d.replace(year=d.year - 1)
-            except ValueError:  # 29 February
-                prev = d.replace(year=d.year - 1, day=28)
-            if prev + slack < valid_date:
-                return d.year
-            d = prev
-    if i < len(fiscal_year_ends):
-        return fiscal_year_ends[i].year
-    d = fiscal_year_ends[-1]
-    while d + slack < valid_date:
-        try:
-            d = d.replace(year=d.year + 1)
-        except ValueError:  # 29 February
-            d = d.replace(year=d.year + 1, day=28)
-    return d.year

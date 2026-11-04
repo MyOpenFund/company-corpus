@@ -5,7 +5,7 @@ import pytest
 
 from company_corpus.config import Config
 from company_corpus.models import FilingRecord
-from company_corpus.opendata.fundamentals import fiscal_year_of, fundamentals_rows
+from company_corpus.opendata.fundamentals import fundamentals_rows
 from company_corpus.taxonomy import FormType
 from tests.opendata.factories import companyfacts, point
 
@@ -113,153 +113,77 @@ def test_value_is_rounded_to_six_decimals_and_counted():
     assert rows[0]["value"] == Decimal("1.234568") and c["value_rounded"] == 1
 
 
-def test_fiscal_year_is_the_year_of_the_next_fiscal_year_end():
-    rows, _ = _rows({"Revenues": {"USD": [
-        point(400, "2024-06-30", start="2023-07-01", accn=K24),
-        point(100, "2023-09-30", start="2023-07-01", accn=K24, form="10-Q"),
-        point(110, "2024-09-30", start="2024-07-01", accn=K25, form="10-Q"),  # after last FYE
-    ]}})
-    assert {(r["valid_date"], r["fiscal_year"]) for r in rows} == {
-        (date(2024, 6, 30), 2024), (date(2023, 9, 30), 2024), (date(2024, 9, 30), 2025)}
+def _published(us_gaap, acceptance):
+    """{natural key + known_at: row}, as the publisher compares them."""
+    rows, _ = _rows(us_gaap, acceptance=acceptance)
+    return {(r["entity_value"], r["concept"], r["valid_date"], r["frequency"], r["basis"],
+             r["known_at"]): r for r in rows}
 
 
-def test_fiscal_year_change_both_sides():
-    # FYE moves from 31 Dec to 31 May: the 5-month 10-KT transition (152 days) is dropped as
-    # odd_duration, and its end is a fiscal year-end for the periods around it.
+def _assert_later_filings_change_no_published_row(history, later, acceptance):
+    before = _published({"Revenues": {"USD": history}}, acceptance)
+    after = _published({"Revenues": {"USD": history + later}}, acceptance)
+    assert before and set(before) < set(after)
+    for key, row in before.items():
+        assert after[key] == row
+    assert {r["fiscal_year"] for r in after.values()} == {None}
+
+
+def test_a_later_10kt_changes_no_published_row_on_a_fiscal_year_change():
+    # FYE moves from 30 Jun to 31 Dec. The 10-KT's 184-day period and its last quarter are
+    # emitted, and they must not relabel what is already published.
+    K, Q, KT = "0000000042-23-000001", "0000000042-23-000002", "0000000042-24-000500"
+    acceptance = {K: datetime(2023, 8, 1, tzinfo=timezone.utc),
+                  Q: datetime(2023, 11, 1, tzinfo=timezone.utc),
+                  KT: datetime(2024, 3, 1, tzinfo=timezone.utc)}
+    _assert_later_filings_change_no_published_row(
+        [point(100, "2023-06-30", start="2022-07-01", accn=K, filed="2023-08-01"),
+         point(30, "2023-09-30", start="2023-07-01", accn=Q, form="10-Q", filed="2023-11-01")],
+        [point(60, "2023-12-31", start="2023-07-01", accn=KT, form="10-KT", filed="2024-03-01"),
+         point(31, "2023-12-31", start="2023-10-01", accn=KT, form="10-KT", filed="2024-03-01")],
+        acceptance)
+
+
+def test_a_later_53_week_10k_changes_no_published_row():
+    # 52/53-week filer: the year ending 3 Jan 2026 must not relabel the September quarter,
+    # published before that 10-K existed.
+    K23, K24, Q3, K25 = ("0000000042-24-000010", "0000000042-25-000010",
+                         "0000000042-25-000020", "0000000042-26-000010")
+    acceptance = {K23: datetime(2024, 2, 20, tzinfo=timezone.utc),
+                  K24: datetime(2025, 2, 20, tzinfo=timezone.utc),
+                  Q3: datetime(2025, 11, 1, tzinfo=timezone.utc),
+                  K25: datetime(2026, 2, 20, tzinfo=timezone.utc)}
+    _assert_later_filings_change_no_published_row(
+        [point(100, "2023-12-30", start="2023-01-01", accn=K23),
+         point(100, "2024-12-28", start="2023-12-31", accn=K24),
+         point(30, "2025-09-27", start="2025-06-29", accn=Q3, form="10-Q")],
+        [point(120, "2026-01-03", start="2024-12-29", accn=K25)],
+        acceptance)
+
+
+def test_a_later_10k_changes_no_published_row():
+    K, Q = "0000000042-24-000001", "0000000042-24-000002"
+    acceptance = {K: datetime(2024, 8, 1, tzinfo=timezone.utc),
+                  Q: datetime(2024, 11, 1, tzinfo=timezone.utc),
+                  K25: ACCEPT[K25]}
+    _assert_later_filings_change_no_published_row(
+        [point(400, "2024-06-30", start="2023-07-01", accn=K),
+         point(100, "2024-09-30", start="2024-07-01", accn=Q, form="10-Q")],
+        [point(410, "2024-12-31", start="2024-01-01", accn=K25)],
+        acceptance)
+
+
+def test_a_10kt_transition_length_period_is_still_dropped_as_odd_duration():
+    # FYE moves from 31 Dec to 31 May: the 5-month transition (152 days) fits no band.
     KT = "0000000042-24-000500"
     rows, c = _rows({"Revenues": {"USD": [
-        point(1200, "2023-12-31", start="2023-01-01", accn=K24),
-        point(310, "2023-09-30", start="2023-07-01", accn=K24, form="10-Q"),
         point(500, "2024-05-31", start="2024-01-01", accn=KT, form="10-KT"),   # transition
         point(290, "2024-05-31", start="2024-03-01", accn=KT, form="10-KT"),   # its last quarter
-        point(1300, "2025-05-31", start="2024-06-01", accn=K25),
-        point(300, "2024-08-31", start="2024-06-01", accn=K25, form="10-Q"),
-    ]}}, acceptance={**ACCEPT, KT: datetime(2024, 8, 1, 20, tzinfo=timezone.utc)})
-    fy = {(r["valid_date"], r["frequency"]): r["fiscal_year"] for r in rows}
-    assert fy == {
-        (date(2023, 12, 31), "annual"): 2023,
-        (date(2023, 9, 30), "quarterly"): 2023,
-        (date(2024, 5, 31), "quarterly"): 2024,      # transition quarter
-        (date(2025, 5, 31), "annual"): 2025,
-        (date(2024, 8, 31), "quarterly"): 2025,
-    }
+    ]}}, acceptance={KT: datetime(2024, 8, 1, 20, tzinfo=timezone.utc)})
+    assert [(r["valid_date"], r["frequency"], r["value"]) for r in rows] == [
+        (date(2024, 5, 31), "quarterly", Decimal(290))]
     assert c["dropped:odd_duration"] == 1
     assert c["source_doc_id_null"] == 1                   # 10-KT is outside the taxonomy
-
-
-@pytest.mark.parametrize("valid, expected", [
-    (date(2024, 2, 3), 2024), (date(2025, 2, 1), 2025),   # 53-week drift within slack
-    (date(2025, 2, 11), 2026), (date(2023, 5, 1), 2024),
-])
-def test_fiscal_year_projection_with_slack(valid, expected):
-    assert fiscal_year_of(valid, [date(2023, 1, 28), date(2024, 2, 3)], 7) == expected
-
-
-def test_no_annual_period_means_no_fiscal_year():
-    assert fiscal_year_of(date(2024, 3, 31), [], 7) is None
-
-
-# ---- fix round 1 ----
-
-def test_instant_a_year_before_the_first_year_end_belongs_to_the_prior_year():
-    ends = [date(2008, 12, 31), date(2010, 12, 31)]
-    assert fiscal_year_of(date(2007, 12, 31), ends, 7) == 2007
-    assert fiscal_year_of(date(2006, 12, 31), ends, 7) == 2006
-    assert fiscal_year_of(date(2008, 6, 30), ends, 7) == 2008   # inside the first year
-
-
-def test_52_53_week_instant_a_year_before_the_first_year_end():
-    ends = [date(2008, 9, 27), date(2009, 9, 26)]
-    assert fiscal_year_of(date(2007, 9, 29), ends, 7) == 2007   # drift within slack
-    assert fiscal_year_of(date(2008, 3, 29), ends, 7) == 2008
-
-
-def test_year_ends_come_only_from_10k_family_annual_points():
-    # Non-December filer: the 10-Q reports a trailing-12-months duration ending mid-year.
-    rows, _ = _rows({"Revenues": {"USD": [
-        point(400, "2024-06-30", start="2023-07-01", accn=K24),
-        point(410, "2024-12-31", start="2024-01-01", accn=K25, form="10-Q"),   # 366 days: annual
-        point(100, "2024-09-30", start="2024-07-01", accn=K25, form="10-Q"),
-    ]}})
-    fy = {(r["valid_date"], r["frequency"]): r["fiscal_year"] for r in rows}
-    assert fy[(date(2024, 9, 30), "quarterly")] == 2025
-    assert fy[(date(2024, 12, 31), "annual")] == 2025
-
-
-def test_a_10k_amendment_year_end_counts():
-    # Only the 10-K/A reports the 2024-12-31 year-end; projection from 2024-06-30 alone would
-    # label the 2024-09-30 quarter 2025.
-    rows, _ = _rows({"Revenues": {"USD": [
-        point(400, "2024-06-30", start="2023-07-01", accn=K24),
-        point(100, "2024-09-30", start="2024-07-01", accn=K25, form="10-Q"),
-        point(410, "2024-12-31", start="2024-01-01", accn=K26, form="10-K/A"),
-    ]}})
-    fy = {(r["valid_date"], r["frequency"]): r["fiscal_year"] for r in rows}
-    assert fy[(date(2024, 9, 30), "quarterly")] == 2024
-
-
-# ---- fix round 2 ----
-
-F20, F20B, F40 = "0000000042-25-000020", "0000000042-25-000021", "0000000042-25-000040"
-
-
-def test_all_20f_issuer_gets_fiscal_years():
-    rows, _ = _rows({"Revenues": {"USD": [
-        point(400, "2024-03-31", start="2023-04-01", accn=F20, form="20-F"),
-        point(300, "2025-03-31", start="2024-04-01", accn=F20B, form="20-F/A"),
-    ]}}, acceptance={})
-    assert [r["fiscal_year"] for r in rows] == [2024, 2025]
-
-
-def test_40f_year_ends_count():
-    rows, _ = _rows({"Revenues": {"USD": [
-        point(400, "2024-12-31", start="2024-01-01", accn=F40, form="40-F")]},
-        "LongTermDebt": {"USD": [point(5, "2024-09-30", accn=F40, form="40-F")]}},
-        acceptance={})
-    assert {r["concept"]: r["fiscal_year"] for r in rows}["long_term_debt"] == 2024
-
-
-def test_6k_semiannual_and_ttm_points_are_not_year_ends():
-    rows, _ = _rows({"Revenues": {"USD": [
-        point(400, "2024-03-31", start="2023-04-01", accn=F20, form="20-F"),
-        point(150, "2024-09-30", start="2024-04-01", accn=F20B, form="6-K"),   # semiannual
-        point(390, "2024-12-31", start="2024-01-01", accn=F40, form="6-K"),    # TTM
-    ]}}, acceptance={})
-    fy = {r["valid_date"]: r["fiscal_year"] for r in rows}
-    assert fy[date(2024, 9, 30)] == 2025 and fy[date(2024, 12, 31)] == 2025
-
-
-def test_ambiguous_annual_key_still_contributes_its_year_end():
-    same = {K24: ACCEPT[K24], K25: ACCEPT[K24]}
-    rows, c = _rows({"Revenues": {"USD": [
-        point(100, "2024-12-31", start="2024-01-01", accn=K24),
-        point(200, "2024-12-31", start="2024-01-01", accn=K25)]},
-        "LongTermDebt": {"USD": [point(5, "2024-09-30", accn=K26, form="10-Q")]}},
-        acceptance=same | {K26: ACCEPT[K26]})
-    assert c["ambiguous_observation"] == 1
-    assert [(r["concept"], r["fiscal_year"]) for r in rows] == [("long_term_debt", 2024)]
-
-
-def test_year_end_hidden_by_a_same_second_10q_still_counts():
-    same = {K24: ACCEPT[K24], K25: ACCEPT[K24]}
-    rows, _ = _rows({"Revenues": {"USD": [
-        point(100, "2024-12-31", start="2024-01-01", accn=K25, form="10-K"),
-        point(100, "2024-12-31", start="2024-01-01", accn=K24, form="10-Q")]},
-        "LongTermDebt": {"USD": [point(5, "2024-09-30", accn=K26, form="10-Q")]}},
-        acceptance=same | {K26: ACCEPT[K26]})
-    assert {r["concept"]: r["fiscal_year"] for r in rows}["long_term_debt"] == 2024
-
-
-def test_annual_forms_config_validation():
-    for bad in ((), ("10-K", ""), "10-K", ["10-K"]):
-        with pytest.raises(ValueError):
-            Config(store_annual_report_forms=bad)
-
-
-@pytest.mark.parametrize("bad", [-1, 365, 400])
-def test_fiscal_year_slack_is_bounded(bad):
-    with pytest.raises(ValueError):
-        Config(store_fiscal_year_slack_days=bad)
 
 
 def test_wall_clock_cap_is_counted():

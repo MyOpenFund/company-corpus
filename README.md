@@ -104,17 +104,22 @@ the archive as layer 0, like `companyfacts.json`. A dry run reports an issuer
 without an archive as `pending_fetch` and writes nothing.
 
 **Point selection and `known_at`.** Fundamentals durations are classified by
-fiscal-week bands (`Config.store_duration_bands`); fiscal year-ends come from the
-annual-report forms in `Config.store_annual_report_forms` (default prefixes `10-K`,
-`20-F`, `40-F`). `known_at` is the filing's acceptance time. When a filing has no
+fiscal-week bands (`Config.store_duration_bands`). `known_at` is the filing's
+acceptance time. When a filing has no
 acceptance time, a fallback is used (`Config.store_known_at_fallback_tz` /
 `store_known_at_fallback_time`); when that filing was filed on the run day, the
 fallback is capped at run time, so a later run records another version with a later
 `known_at` (a new vintage, not a conflict) -- visible as `known_at_capped`.
-`Config.store_fiscal_year_slack_days` (`0 <= slack < 365`) tolerates period ends that
-drift from the fiscal year-end and also drives the backward projection before the
-first year-end. `Config.edgar_country_codes` maps EDGAR state/country codes to
-countries; an unmapped code is reported, never guessed.
+`Config.edgar_country_codes` maps EDGAR state/country codes to countries; an unmapped
+code is reported, never guessed.
+
+**`fiscal_year` is null by design.** The column is in every row and is always null; a
+reader view in my-open-data will derive it. Fiscal years can only be computed from the
+year-ends known today, so a later 10-K or 10-KT changes the label of rows that are
+already published. The full history is re-emitted every run, and the publisher
+quarantines a batch whose row has the same `(natural_key, known_at)` as a published row
+but another value (`conflicting_republish`): the issuer's batch would stay quarantined
+for good. Every emitted column must be a pure function of immutable inputs.
 
 **Run report.** `data/runs.jsonl` carries `details.store_batches` (per-issuer status,
 rows, batch ids, counters, plus totals). Counters:

@@ -115,7 +115,6 @@ def test_store_defaults_are_the_fiscal_week_bands():
     )
     assert c.store_known_at_fallback_tz == "America/New_York"
     assert c.store_known_at_fallback_time == "23:59:59"
-    assert c.store_fiscal_year_slack_days == 7
     assert c.edgar_country_codes["L2"] == "IE" and c.edgar_country_codes["A6"] == "CA"
 
 

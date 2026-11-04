@@ -1,5 +1,4 @@
 from collections import Counter
-from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -101,53 +100,3 @@ def test_bad_points_and_period_shapes_are_counted():
     })
     assert pts == []
     assert c["dropped:bad_point"] == 3 and c["dropped:period_shape"] == 2
-
-
-def _transitions(us_gaap, dei=None):
-    ends = {}
-    select_points(flatten_with_namespace(companyfacts(us_gaap, dei)),
-                  DEFAULT_DURATION_BANDS, Counter(), ends)
-    return ends
-
-
-def test_transition_end_is_the_max_duration_end_per_10kt_accession():
-    ends = _transitions({"Revenues": {"USD": [
-        point(1, "2023-12-31", start="2023-01-01", accn="a-1", form="10-KT"),
-        point(2, "2024-06-30", start="2024-01-01", accn="a-1", form="10-KT"),
-        point(3, "2024-03-31", start="2024-01-01", accn="a-1", form="10-KT"),
-        point(4, "2025-06-30", start="2025-01-01", accn="a-2", form="10-KT"),
-        point(5, "2025-09-30", start="2025-01-01", accn="a-3", form="10-K"),
-    ]}})
-    assert ends == {"a-1": date(2024, 6, 30), "a-2": date(2025, 6, 30)}
-
-
-def test_10kt_amendment_is_recorded_too():
-    ends = _transitions({"Revenues": {"USD": [
-        point(1, "2024-06-30", start="2023-08-01", accn="a-1", form="10-KT/A")]}})
-    assert ends == {"a-1": date(2024, 6, 30)}
-
-
-def test_dropped_odd_duration_10kt_point_is_still_recorded():
-    ends = _transitions({"Revenues": {"USD": [
-        point(1, "2024-06-30", start="2023-08-01", accn="a-1", form="10-KT")]}})  # 335 days
-    assert ends == {"a-1": date(2024, 6, 30)}
-
-
-def test_10kt_instant_point_is_not_recorded():
-    ends = _transitions({"LongTermDebt": {"USD": [point(1, "2024-06-30", accn="a-1", form="10-KT")]}})
-    assert ends == {}
-
-
-def test_10kt_duration_point_in_a_non_reporting_currency_is_still_recorded():
-    ends = _transitions({"Revenues": {
-        "USD": [point(v, f"2024-0{v}-28", start=f"2024-0{v - 1}-01", accn="a-9", form="10-Q")
-                for v in (3, 4, 5)],
-        "EUR": [point(1, "2024-06-30", start="2023-08-01", accn="a-1", form="10-KT")],
-    }})
-    assert ends["a-1"] == date(2024, 6, 30)
-
-
-def test_10kt_point_with_an_unparseable_end_is_not_recorded():
-    ends = _transitions({"Revenues": {"USD": [
-        point(1, "garbage", start="2023-08-01", accn="a-1", form="10-KT")]}})
-    assert ends == {}
