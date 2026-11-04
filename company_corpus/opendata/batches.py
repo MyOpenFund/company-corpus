@@ -5,7 +5,7 @@ through the my-open-data writer into a landing zone. Stateless: full history eve
 store's publisher skips what it already holds. An issuer's failure never stops the others.
 Dry-run (``write=False``) computes and validates everything from disk and writes nothing.
 
-A submissions archive older than a filing its companyfacts cites is re-fetched once, on
+A submissions archive older than a filing its companyfacts cites is re-fetched once per run, on
 ``write`` without ``offline``: otherwise that filing would get the fallback ``known_at`` and a
 later refresh would add a second vintage with an earlier ``known_at``.
 """
@@ -16,7 +16,7 @@ import json
 import logging
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -147,15 +147,22 @@ def store_batches(ciks, *, config: Config, landing: Path, write: bool, offline: 
     return rep
 
 
-def _is_stale(archive, facts: dict, config: Config) -> bool:
+def _is_stale(archive, facts: dict, config: Config, now: datetime) -> bool:
     """True when a point of ``facts`` comes from a filing the archive does not list and that
-    can have been accepted after the archive was fetched: EDGAR's filing date is never before
-    the acceptance date in Eastern time. An older missing accession stays missing whatever
-    the archive's age, so it never counts: it would refresh on every run forever."""
-    fetched_day = archive.fetched_at.astimezone(ZoneInfo(config.store_known_at_fallback_tz)).date()
+    can have been accepted after the archive was fetched: its filing date is on or after the
+    fetch day in EDGAR's zone (``store_edgar_day_tz``). A filing date is typically not before
+    the acceptance date in Eastern time; a retroactive adjustment is the exception, and costs
+    one fallback vintage, without conflict. An older missing accession stays missing whatever
+    the archive's age, so it never counts: it would refresh on every run forever. A filing
+    date more than ``store_stale_filed_max_days_ahead`` days after the RUN day is
+    implausible and ignored (an old archive with a recent filing is the legitimate case)."""
+    tz = ZoneInfo(config.store_edgar_day_tz)
+    fetched_day = archive.fetched_at.astimezone(tz).date()
+    latest = now.astimezone(tz).date() + timedelta(days=config.store_stale_filed_max_days_ahead)
     listed = archived_accessions(archive)
     points = select_points(flatten_with_namespace(facts), config.store_duration_bands, Counter())
-    return any(pt.accn not in listed and pt.filed is not None and pt.filed >= fetched_day
+    return any(pt.accn not in listed and pt.filed is not None
+               and fetched_day <= pt.filed <= latest
                for pt in points)
 
 
@@ -180,8 +187,8 @@ def _archive(out: IssuerOutcome, config: Config, *, facts, write, offline, refre
         archive = load_archive(config, out.cik)
     except ArchiveCorrupt as exc:
         raise _IssuerFailed(f"submissions_archive_corrupt: {exc} "
-                            "(re-fetch it with --refresh-submissions)") from exc
-    if not _is_stale(archive, facts, config):
+                            "(re-fetch it with --refresh-submissions --write)") from exc
+    if not _is_stale(archive, facts, config, now):
         return archive
     if not online:
         out.counters["submissions_stale"] += 1

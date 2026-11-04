@@ -115,6 +115,8 @@ def test_store_defaults_are_the_fiscal_week_bands():
     )
     assert c.store_known_at_fallback_tz == "America/New_York"
     assert c.store_known_at_fallback_time == "23:59:59"
+    assert c.store_edgar_day_tz == "America/New_York"
+    assert c.store_stale_filed_max_days_ahead == 7
     assert c.edgar_country_codes["L2"] == "IE" and c.edgar_country_codes["A6"] == "CA"
 
 
@@ -140,6 +142,8 @@ def test_bad_duration_bands_are_refused(bands, match):
 def test_bad_fallback_settings_are_refused():
     with pytest.raises(ValueError, match="time zone"):
         Config(store_known_at_fallback_tz="Mars/Olympus")
+    with pytest.raises(ValueError, match="store_edgar_day_tz"):
+        Config(store_edgar_day_tz="Mars/Olympus")
     with pytest.raises(ValueError, match="HH:MM:SS"):
         Config(store_known_at_fallback_time="midnight")
 

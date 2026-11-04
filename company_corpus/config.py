@@ -123,6 +123,13 @@ class Config:
     #: acceptance), capped at the run's own time.
     store_known_at_fallback_tz: str = "America/New_York"
     store_known_at_fallback_time: str = "23:59:59"
+    #: The zone in which EDGAR dates a filing (Eastern time). The stale-archive rule compares
+    #: filing dates with the archive's fetch day and the run day in this zone; the fallback
+    #: knob above does not affect it.
+    store_edgar_day_tz: str = "America/New_York"
+    #: A filing absent from the archive whose ``filed`` date is more than this many days after
+    #: the run day is implausible (a typo in the feed): it never triggers a refresh.
+    store_stale_filed_max_days_ahead: int = 7
     edgar_country_codes: dict[str, str] = field(
         default_factory=lambda: dict(DEFAULT_EDGAR_COUNTRY_CODES))
 
@@ -141,6 +148,11 @@ class Config:
             raise ValueError(
                 f"store_known_at_fallback_tz: unknown time zone "
                 f"{self.store_known_at_fallback_tz!r}") from exc
+        try:
+            ZoneInfo(self.store_edgar_day_tz)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(
+                f"store_edgar_day_tz: unknown time zone {self.store_edgar_day_tz!r}") from exc
         try:
             time.fromisoformat(self.store_known_at_fallback_time)
         except ValueError as exc:

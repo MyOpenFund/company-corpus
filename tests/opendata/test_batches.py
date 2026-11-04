@@ -221,7 +221,7 @@ def test_an_old_accession_missing_from_the_archive_never_refreshes(config, tmp_p
 
 
 @pytest.mark.parametrize("filed, stale", [("2026-11-01", True), ("2026-10-31", False)])
-def test_the_fetch_day_is_counted_in_the_fallback_zone(config, tmp_path, filed, stale):
+def test_the_fetch_day_is_counted_in_the_edgar_day_zone(config, tmp_path, filed, stale):
     # 02:00Z on 2 Nov is still 1 Nov in New York, where EDGAR's filing date is decided: a
     # filing dated 1 Nov can have been accepted after this fetch.
     _issuer_with_new_filing(config, filed=filed)
@@ -298,4 +298,41 @@ def test_a_corrupt_archive_error_says_how_to_repair_it(config, tmp_path):
     (archive_dir(config, A) / f"CIK{A}.json").write_text("{}", encoding="utf-8")
     out = _run_a(config, tmp_path / "l", FakeFetcher({}, config=config), now=NOW)
     assert out.status == "failed" and out.error.startswith("submissions_archive_corrupt")
-    assert "--refresh-submissions" in out.error
+    assert "--refresh-submissions --write" in out.error
+
+
+def test_the_fallback_zone_knob_does_not_move_the_stale_rule(config, tmp_path):
+    # The fetch is 1 Nov in New York, 2 Nov in Tokyo: only store_edgar_day_tz decides.
+    config.store_known_at_fallback_tz = "Asia/Tokyo"
+    _issuer_with_new_filing(config, filed="2026-11-01")
+    write_archive(config, A, submissions_main(
+        cik=A, filings=[(K, "2024-07-30T20:06:22.000Z", "10-K")]),
+        now=datetime(2026, 11, 2, 2, tzinfo=timezone.utc))
+    fetcher = FakeFetcher({MAIN: _main_with_new_filing()}, config=config)
+    _run_a(config, tmp_path / "l", fetcher)
+    assert len(fetcher.calls) == 1
+
+
+def test_a_filing_date_far_ahead_of_the_run_day_never_refreshes(config, tmp_path):
+    _issuer_with_new_filing(config, filed="2026-11-20")     # run day 3 Nov, limit 7 days
+    fetcher = FakeFetcher({MAIN: _main_with_new_filing()}, config=config)
+    out = _run_a(config, tmp_path / "l", fetcher)
+    assert fetcher.calls == [] and out.status == "ok"
+    assert not out.counters["submissions_stale"]
+
+
+def test_a_filing_date_within_the_allowed_days_ahead_still_refreshes(config, tmp_path):
+    _issuer_with_new_filing(config, filed="2026-11-10")     # exactly run day + 7
+    fetcher = FakeFetcher({MAIN: _main_with_new_filing()}, config=config)
+    _run_a(config, tmp_path / "l", fetcher)
+    assert len(fetcher.calls) == 1
+
+
+def test_an_old_archive_with_a_filing_from_yesterday_still_refreshes(config, tmp_path):
+    _issuer_with_new_filing(config, filed="2026-11-02")
+    write_archive(config, A, submissions_main(
+        cik=A, filings=[(K, "2024-07-30T20:06:22.000Z", "10-K")]),
+        now=datetime(2026, 8, 5, 9, tzinfo=timezone.utc))   # 90 days before the run
+    fetcher = FakeFetcher({MAIN: _main_with_new_filing()}, config=config)
+    out = _run_a(config, tmp_path / "l", fetcher)
+    assert len(fetcher.calls) == 1 and out.counters["submissions_refreshed:stale"] == 1
