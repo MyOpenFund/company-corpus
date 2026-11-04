@@ -179,7 +179,8 @@ def _archive(out: IssuerOutcome, config: Config, *, facts, write, offline, refre
     try:
         archive = load_archive(config, out.cik)
     except ArchiveCorrupt as exc:
-        raise _IssuerFailed(f"submissions_archive_corrupt: {exc}") from exc
+        raise _IssuerFailed(f"submissions_archive_corrupt: {exc} "
+                            "(re-fetch it with --refresh-submissions)") from exc
     if not _is_stale(archive, facts, config):
         return archive
     if not online:

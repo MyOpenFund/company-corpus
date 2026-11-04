@@ -7,7 +7,7 @@ pytest.importorskip("myopendata")
 pq = pytest.importorskip("pyarrow.parquet")
 
 from company_corpus.opendata.batches import store_batches  # noqa: E402
-from company_corpus.opendata.submissions import load_archive  # noqa: E402
+from company_corpus.opendata.submissions import archive_dir, load_archive  # noqa: E402
 from tests.conftest import FakeFetcher  # noqa: E402
 from tests.opendata.factories import (  # noqa: E402
     companyfacts, point, submissions_main, write_archive, write_companyfacts)
@@ -291,3 +291,11 @@ def test_an_explicit_refresh_is_not_counted_as_stale(config, tmp_path):
                         run_id="r", now=AFTER_FETCH, fetcher=fetcher)
     assert len(fetcher.calls) == 1
     assert not rep.issuers[0].counters["submissions_refreshed:stale"]
+
+
+def test_a_corrupt_archive_error_says_how_to_repair_it(config, tmp_path):
+    _issuer(config, A)
+    (archive_dir(config, A) / f"CIK{A}.json").write_text("{}", encoding="utf-8")
+    out = _run_a(config, tmp_path / "l", FakeFetcher({}, config=config), now=NOW)
+    assert out.status == "failed" and out.error.startswith("submissions_archive_corrupt")
+    assert "--refresh-submissions" in out.error
