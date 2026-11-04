@@ -100,3 +100,27 @@ def test_bad_points_and_period_shapes_are_counted():
     })
     assert pts == []
     assert c["dropped:bad_point"] == 3 and c["dropped:period_shape"] == 2
+
+
+def _rev(value, end, accn):
+    return point(value, end, start=f"{int(end[:4]) - 1}{end[4:]}", accn=accn)
+
+
+def test_the_reporting_currency_is_that_of_each_filing():
+    # An issuer switching currency: the later, more numerous filings must not change which
+    # points of the earlier one are selected, or a published row would change (conflict).
+    early = {"Revenues": {"USD": [_rev(100, "2020-12-31", "A1")]}}
+    late = {"Revenues": {"USD": [_rev(100, "2020-12-31", "A1")],
+                         "EUR": [_rev(90, f"{y}-12-31", f"B{y}") for y in (2021, 2022, 2023)]}}
+    before, _ = _select(early)
+    after, c = _select(late)
+    assert [(p.accn, p.value, p.unit) for p in before] == [("A1", Decimal(100), "USD")]
+    assert ("A1", Decimal(100), "USD") in [(p.accn, p.value, p.unit) for p in after]
+    assert len(after) == 4 and c["dropped:non_reporting_currency"] == 0
+
+
+def test_a_convenience_translation_inside_a_filing_is_still_dropped():
+    pts, c = _select({"Revenues": {
+        "EUR": [_rev(90, "2023-12-31", "A1"), _rev(80, "2022-12-31", "A1")],
+        "USD": [_rev(99, "2023-12-31", "A1")]}})
+    assert {p.unit for p in pts} == {"EUR"} and c["dropped:non_reporting_currency"] == 1

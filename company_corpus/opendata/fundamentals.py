@@ -84,7 +84,7 @@ def _decimal(value) -> Decimal | None:
 
 def _unit_drop(concept: Concept, unit: str, currency: str | None) -> str | None:
     """Why a point's unit disqualifies it, or None. Monetary and per-share values keep only
-    the issuer's reporting currency (a convenience translation is not a second fact)."""
+    the filing's reporting currency (a convenience translation is not a second fact)."""
     if concept.unit == "shares":
         return None if unit == "shares" else "unexpected_unit"
     if concept.unit.endswith("/shares"):
@@ -134,18 +134,29 @@ def _point(concept: Concept, prio: int, p: dict, currency: str | None, bands,
                  p["unit"], accn, form, _day(p.get("filed")))
 
 
+def _filing_currencies(flat: dict[str, list[dict]]) -> dict[str, str | None]:
+    """Reporting currency of each filing, from that filing's own facts only. An issuer-wide
+    count would change as filings accumulate: a currency switch could then change the points
+    selected from filings already published, which the publisher quarantines."""
+    by_filing: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
+    for tag, points in flat.items():
+        for p in points:
+            by_filing[p.get("accn") or ""][tag].append(p)
+    return {accn: reporting_currency(facts) for accn, facts in by_filing.items()}
+
+
 def select_points(flat: dict[str, list[dict]], bands, counters: Counter) -> list[Point]:
     """Every usable point of the curated concepts; per (concept, period end, frequency,
     filing) only the points of the highest-priority tag present (spec S6).
     ``shares_outstanding`` may yield both the balance-sheet-date value
     (``CommonStockSharesOutstanding``) and the cover-date value
     (``dei:EntityCommonStockSharesOutstanding``) of the same filing: their valid dates differ."""
-    currency = reporting_currency(flat)
+    currencies = _filing_currencies(flat)
     groups: dict[tuple, list[Point]] = defaultdict(list)
     for concept in CONCEPTS:
         for prio, tag in enumerate(concept.tags):
             for p in flat.get(tag, []):
-                pt = _point(concept, prio, p, currency, bands, counters)
+                pt = _point(concept, prio, p, currencies[p.get("accn") or ""], bands, counters)
                 if pt is not None:
                     groups[(pt.concept, pt.end, pt.frequency, pt.accn)].append(pt)
     out: list[Point] = []
