@@ -185,8 +185,11 @@ The command prints at most 10 failed issuers; the run report has them all.
   never moves. The tag chains (`financials.CONCEPTS`), the form taxonomy
   (`taxonomy.from_edgar_form`) and the currency rule are frozen once published, short of a
   store migration. A new tag may only be appended at the lowest priority of its concept.
-  `tests/opendata/test_published_derivations.py` pins them: changing them alters rows
-  already published at the same `known_at`, which the publisher quarantines.
+  `tests/opendata/test_published_derivations.py` pins the tag chains, the whole form index
+  (additions and removals fail; 10-KT and 10-QT stay unmapped), the currency anchor tags, the
+  ISO currency pattern and the `source_doc_id` recipe (one literal hash). The vote rule itself
+  is covered by the point-selection tests, not the golden file. Changing a pinned item alters
+  rows already published at the same `known_at`, which the publisher quarantines.
 - Known limit: two filings of one issuer accepted in the same second (or sharing a `filed`
   day on the fallback path), with an equal value, where the lower accession appears only in
   a later companyfacts. `source_doc_id` then changes for that key, and the fundamentals

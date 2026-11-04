@@ -537,12 +537,52 @@
  ],
  "forms": {
   "10-K": "A1",
+  "10-KSB": "A1",
+  "10-K405": "A1",
   "10-Q": "A2",
-  "8-K": "B1",
+  "10-QSB": "A2",
   "20-F": "A3",
   "40-F": "A4",
+  "8-K": "B1",
   "6-K": "B2",
-  "10-KT": null,
-  "10-QT": null
+  "DEF 14A": "C1",
+  "DEFA14A": "C2",
+  "PRE 14A": "C2",
+  "DEFM14A": "C2",
+  "S-1": "D1",
+  "S-1/A": "D1",
+  "S-4": "D2",
+  "S-4/A": "D2",
+  "424B1": "D3",
+  "424B2": "D3",
+  "424B3": "D3",
+  "424B4": "D3",
+  "424B5": "D3",
+  "3": "E1",
+  "4": "E1",
+  "5": "E1",
+  "13F-HR": "E2",
+  "13F-NT": "E2",
+  "SC 13D": "E3",
+  "SC 13G": "E3",
+  "SC 13D/A": "E3",
+  "SC 13G/A": "E3"
+ },
+ "unmapped_forms": [
+  "10-KT",
+  "10-QT"
+ ],
+ "currency_anchor_tags": [
+  "Assets",
+  "Liabilities",
+  "StockholdersEquity",
+  "LiabilitiesAndStockholdersEquity"
+ ],
+ "currency_pattern": "^[A-Z]{3}$",
+ "source_doc_id": {
+  "cik": "0000000042",
+  "form": "10-K",
+  "accession": "0000000042-24-000001",
+  "doc_id": "24dd249c58b42ac0"
  }
 }
