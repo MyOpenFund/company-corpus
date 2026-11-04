@@ -4,6 +4,9 @@ EDGAR-only and minimal: the CIK itself (current and former names, country), and 
 (non-resolving in my-open-data, so they never merge entities). known_at is the archive's
 fetch time (kind ``collected``): replaying an unchanged archive re-emits identical rows,
 a refreshed archive is a new observation (SCD2 in the store).
+Each refresh, explicit or automatic, adds identity rows at a new ``valid_date`` (about 3 to 4
+per issuer per year): ``entity_observations`` is not one row per identifier, and
+``entity_attributes`` collapses them.
 """
 from __future__ import annotations
 

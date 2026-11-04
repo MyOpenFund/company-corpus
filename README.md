@@ -108,14 +108,23 @@ without an archive as `pending_fetch` and writes nothing.
 So on `--write` without `--offline`, an issuer's archive is re-fetched once
 (`submissions_refreshed:stale`) when its companyfacts has a point the run would emit from
 a filing the archive does not list and whose `filed` date is on or after the archive's
-`fetched_at` date, in `Config.store_known_at_fallback_tz` (EDGAR's filing date is never
-before the acceptance date in Eastern time, so such a filing can be newer than the
-archive). Older accessions missing from the archive never trigger a refresh: they keep
-the fallback `known_at`, or they would refresh on every run. A dry run and `--offline`
+`fetched_at` date, in `Config.store_edgar_day_tz` (default `America/New_York`; independent
+of the fallback zone). EDGAR's filing date is typically not before the acceptance date in
+Eastern time, so such a filing can be newer than the archive; a retroactive adjustment is
+the exception and costs one fallback vintage, without conflict. Older accessions missing
+from the archive never trigger a refresh: they keep the fallback `known_at`, or they would
+refresh on every run. A `filed` date more than `Config.store_stale_filed_max_days_ahead`
+(default 7) days after the run day is implausible and ignored; the archive's own age does
+not matter, so an old archive with a recent filing still refreshes. A dry run and `--offline`
 never fetch: they count `submissions_stale` and keep the fallback. A failed refresh is
 that issuer's failure, like any fetch failure, and leaves its archive as it was. A
-refresh, automatic or not, also adds new identity observations, because the
-`entity_observations` `known_at` is the archive's fetch time.
+refresh, automatic or not, also adds new identity rows, because the
+`entity_observations` `known_at` is the archive's fetch time, at a new `valid_date`: about
+3 to 4 per issuer per year. `entity_observations` is therefore not one row per identifier;
+`entity_attributes` collapses them.
+
+`--offline --write` with a stale archive publishes the fallback vintage, and those rows
+stay in the append-only store.
 
 **Point selection and `known_at`.** Fundamentals durations are classified by
 fiscal-week bands (`Config.store_duration_bands`). `known_at` is the filing's
@@ -124,6 +133,11 @@ acceptance time, a fallback is used (`Config.store_known_at_fallback_tz` /
 `store_known_at_fallback_time`); when that filing was filed on the run day, the
 fallback is capped at run time, so a later run records another version with a later
 `known_at` (a new vintage, not a conflict) -- visible as `known_at_capped`.
+
+**Reporting currency.** It is decided per filing, from that filing's own `us-gaap` facts
+(most facts, then USD, then the alphabetically lowest unit). An issuer that switches
+currency therefore has one natural key with different units across vintages, as filed.
+This differs from the F1 engine's issuer-wide rule.
 `Config.edgar_country_codes` maps EDGAR state/country codes to countries; an unmapped
 code is reported, never guessed.
 
@@ -146,7 +160,7 @@ rows, batch ids, counters, plus totals). Counters:
 | `ambiguous_observation` | competing points the selection could not separate |
 | `submissions_refreshed:stale`, `submissions_stale` | the archive was older than a filing in companyfacts: re-fetched / not re-fetched (dry run, `--offline`) |
 | `known_at_fallback`, `known_at_capped`, `known_at_naive` | `known_at` derived without an acceptance time (capped at run time / naive timestamp) |
-| `source_doc_id_null` | form outside the taxonomy (10-KT, 10-QT): the row has a null `source_doc_id` |
+| `source_doc_id_null` | any form outside the taxonomy (10-KT, 10-QT, some proxy forms): the row has a null `source_doc_id` |
 | `filing_not_in_manifest` | informational: the `source_doc_id` is set but no manifest row holds it; most issuers' manifests hold only F1 summaries |
 | `value_rounded` | value rounded to fit the contract |
 | `country_unknown[:code]` | unmapped EDGAR country code |
@@ -158,10 +172,21 @@ The command prints at most 10 failed issuers; the run report has them all.
 
 **Good to know.**
 
-- Changing `edgar_country_codes`, or any other derivation table, after a publish needs
-  `--refresh-submissions` for the affected issuers, so that the new value carries a new
-  `known_at`. Otherwise the same `(natural_key, known_at)` comes back with another value
-  and the publisher quarantines the batch as `conflicting_republish`.
+- Changing `edgar_country_codes` after a publish needs `--refresh-submissions --write`
+  for the affected issuers: identity rows then get a new `known_at`. Otherwise the same
+  `(natural_key, known_at)` comes back with another value and the publisher quarantines
+  the batch as `conflicting_republish`.
+- A refresh does **not** help fundamentals: their `known_at` is the acceptance time, which
+  never moves. The tag chains (`financials.CONCEPTS`), the form taxonomy
+  (`taxonomy.from_edgar_form`) and the currency rule are frozen once published, short of a
+  store migration. A new tag may only be appended at the lowest priority of its concept.
+  `tests/opendata/test_published_derivations.py` pins them: changing them alters rows
+  already published at the same `known_at`, which the publisher quarantines.
+- Known limit: two filings of one issuer accepted in the same second (or sharing a `filed`
+  day on the fallback path), with an equal value, where the lower accession appears only in
+  a later companyfacts. `source_doc_id` then changes for that key, and the fundamentals
+  batch is quarantined (`conflicting_republish`) until an operator repairs it. It is loud
+  and has not been seen in the corpus.
 - Former-name identity rows have a null country: EDGAR gives a country only for the
   current address.
 - A 17-week fourth quarter (119 days) falls outside the default quarterly band (81 to
