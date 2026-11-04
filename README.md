@@ -146,13 +146,26 @@ rows, batch ids, counters, plus totals). Counters:
 | `ambiguous_observation` | competing points the selection could not separate |
 | `submissions_refreshed:stale`, `submissions_stale` | the archive was older than a filing in companyfacts: re-fetched / not re-fetched (dry run, `--offline`) |
 | `known_at_fallback`, `known_at_capped`, `known_at_naive` | `known_at` derived without an acceptance time (capped at run time / naive timestamp) |
-| `source_doc_id_null`, `filing_not_in_manifest` | filing not resolvable to a stored document |
+| `source_doc_id_null` | form outside the taxonomy (10-KT, 10-QT): the row has a null `source_doc_id` |
+| `filing_not_in_manifest` | informational: the `source_doc_id` is set but no manifest row holds it; most issuers' manifests hold only F1 summaries |
 | `value_rounded` | value rounded to fit the contract |
 | `country_unknown[:code]` | unmapped EDGAR country code |
 | `former_name_shadowed`, `former_name_undated` | former-name handling in identity rows |
 
 An unexpected exception in one issuer is recorded as `failed` with
 `unexpected: <Type>: <msg>` and the run continues with the next issuer.
+The command prints at most 10 failed issuers; the run report has them all.
+
+**Good to know.**
+
+- Changing `edgar_country_codes`, or any other derivation table, after a publish needs
+  `--refresh-submissions` for the affected issuers, so that the new value carries a new
+  `known_at`. Otherwise the same `(natural_key, known_at)` comes back with another value
+  and the publisher quarantines the batch as `conflicting_republish`.
+- Former-name identity rows have a null country: EDGAR gives a country only for the
+  current address.
+- A 17-week fourth quarter (119 days) falls outside the default quarterly band (81 to
+  115 days) and is dropped as `odd_duration`.
 
 **Exit codes.** `0` every issuer emitted (or pending, in a dry run); `3` at least one
 issuer failed (the run is `degraded`); `1` fatal (landing zone not writable,
