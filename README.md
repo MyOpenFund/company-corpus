@@ -156,6 +156,7 @@ rows, batch ids, counters, plus totals). Counters:
 |---|---|
 | `dropped:ytd9`, `dropped:odd_duration`, `dropped:period_shape` | duration points outside the configured bands or shape |
 | `dropped:non_reporting_currency`, `dropped:unexpected_unit` | unit filters; the reporting currency is that of each filing, so later filings never change the points selected from earlier ones |
+| `dropped:currency_ambiguous` | a filing's vote over its monetary facts and the currency of its balance sheet totals contradict each other, or tie with nothing to settle them: the filing publishes no money rather than risk a wrong row. Investigate any non-zero count |
 | `dropped:bad_point`, `dropped:no_known_at`, `dropped:value_out_of_range` | unusable points |
 | `ambiguous_observation` | competing points the selection could not separate |
 | `submissions_refreshed:stale`, `submissions_stale` | the archive was older than a filing in companyfacts: re-fetched / not re-fetched (dry run, `--offline`) |

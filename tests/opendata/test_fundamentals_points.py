@@ -135,15 +135,85 @@ def test_a_dei_value_in_another_currency_does_not_vote():
     assert c["dropped:non_reporting_currency"] == 0
 
 
-@pytest.mark.parametrize("order", [("EUR", "GBP"), ("GBP", "EUR")])
-def test_a_currency_tie_does_not_depend_on_tag_order(order):
+@pytest.mark.parametrize("order", [("EUR", "GBP"), ("GBP", "EUR"), ("EUR", "USD"), ("USD", "EUR")])
+def test_a_currency_tie_is_never_guessed_whatever_the_tag_order(order):
     us_gaap = {tag: {unit: [_rev(i + 1, "2023-12-31", "A1")]}
                for i, (tag, unit) in enumerate(zip(("Revenues", "NetIncomeLoss"), order))}
-    pts, _ = _select(us_gaap)
-    assert {p.unit for p in pts} == {"EUR"}
+    pts, c = _select(us_gaap)
+    assert pts == [] and c["dropped:currency_ambiguous"] == 2
 
 
-def test_a_currency_tie_with_usd_goes_to_usd():
-    pts, _ = _select({"Revenues": {"EUR": [_rev(1, "2023-12-31", "A1")]},
-                      "NetIncomeLoss": {"USD": [_rev(2, "2023-12-31", "A1")]}})
-    assert {p.unit for p in pts} == {"USD"}
+# --- The reporting currency: shapes taken from real filings, and the fail-safe.
+
+
+def _inst(value, end, accn="A1"):
+    return point(value, end, accn=accn)
+
+
+def test_convenience_column_first_on_the_balance_sheet_keeps_the_real_currency():
+    # Baidu's 2013 20-F: USD convenience for the latest year, CNY for both years.
+    pts, c = _select({"Assets": {"USD": [_inst(11_726_016, "2013-12-31")],
+                                 "CNY": [_inst(70_985_788, "2013-12-31"),
+                                         _inst(45_668_890, "2012-12-31")]}})
+    assert {p.unit for p in pts} == {"CNY"} and len(pts) == 2
+    assert c["dropped:non_reporting_currency"] == 1 and c["dropped:currency_ambiguous"] == 0
+
+
+def test_a_balance_sheet_that_contradicts_the_vote_publishes_no_money():
+    # Most facts in USD, but the balance sheet totals in EUR: one signal must be wrong.
+    pts, c = _select({
+        "Assets": {"EUR": [_inst(100, "2024-06-30"), _inst(90, "2023-06-30")]},
+        "Revenues": {"USD": [_rev(1, "2024-06-30", "A1"), _rev(2, "2023-06-30", "A1"),
+                             _rev(3, "2022-06-30", "A1")]},
+    })
+    assert pts == [] and c["dropped:currency_ambiguous"] == 5
+
+
+def test_a_tied_vote_is_settled_by_the_balance_sheet():
+    pts, c = _select({
+        "Assets": {"EUR": [_inst(100, "2024-06-30")]},
+        "Revenues": {"USD": [_rev(1, "2024-06-30", "A1"), _rev(2, "2023-06-30", "A1")],
+                     "EUR": [_rev(3, "2022-06-30", "A1")]},
+    })
+    # USD 2 vs EUR 2, balance sheet in EUR.
+    assert {p.unit for p in pts} == {"EUR"} and c["dropped:currency_ambiguous"] == 0
+
+
+def test_a_tie_with_no_balance_sheet_publishes_no_money():
+    pts, c = _select({"Revenues": {"USD": [_rev(1, "2024-06-30", "A1")],
+                                   "EUR": [_rev(2, "2023-06-30", "A1")]}})
+    assert pts == [] and c["dropped:currency_ambiguous"] == 2
+
+
+def test_a_tied_balance_sheet_leaves_the_vote_in_charge():
+    pts, c = _select({
+        "Assets": {"USD": [_inst(100, "2024-06-30")], "EUR": [_inst(90, "2024-06-30")]},
+        "Revenues": {"EUR": [_rev(3, "2024-06-30", "A1")]},
+    })
+    assert {p.unit for p in pts} == {"EUR"} and c["dropped:currency_ambiguous"] == 0
+
+
+def test_an_ambiguous_filing_still_gives_its_share_counts():
+    pts, c = _select({
+        "Revenues": {"USD": [_rev(1, "2024-06-30", "A1")], "EUR": [_rev(2, "2023-06-30", "A1")]},
+        "CommonStockSharesOutstanding": {"shares": [_inst(7, "2024-06-30")]},
+    })
+    assert [p.unit for p in pts] == ["shares"] and c["dropped:currency_ambiguous"] == 2
+
+
+def test_the_ambiguity_of_one_filing_does_not_touch_another():
+    pts, _ = _select({"Revenues": {
+        "USD": [_rev(1, "2024-06-30", "A1"), _rev(5, "2023-06-30", "B1")],
+        "EUR": [_rev(2, "2022-06-30", "A1")]}})
+    assert [(p.accn, p.unit) for p in pts] == [("B1", "USD")]
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_the_currency_never_depends_on_fact_order(reverse):
+    facts = [("USD", _rev(1, "2024-06-30", "A1")), ("EUR", _rev(2, "2023-06-30", "A1")),
+             ("EUR", _rev(3, "2022-06-30", "A1"))]
+    units = {}
+    for unit, p in (reversed(facts) if reverse else facts):
+        units.setdefault(unit, []).append(p)
+    pts, _ = _select({"Revenues": units})
+    assert {p.unit for p in pts} == {"EUR"} and len(pts) == 2

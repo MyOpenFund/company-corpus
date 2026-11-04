@@ -160,7 +160,8 @@ def _is_stale(archive, facts: dict, config: Config, now: datetime) -> bool:
     fetched_day = archive.fetched_at.astimezone(tz).date()
     latest = now.astimezone(tz).date() + timedelta(days=config.store_stale_filed_max_days_ahead)
     listed = archived_accessions(archive)
-    points = select_points(flatten_with_namespace(facts), config.store_duration_bands, Counter())
+    points = select_points(flatten_with_namespace(facts), config.store_duration_bands, Counter(),
+                           config.store_currency_anchor_tags)
     return any(pt.accn not in listed and pt.filed is not None
                and fetched_day <= pt.filed <= latest
                for pt in points)

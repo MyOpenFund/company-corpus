@@ -55,6 +55,12 @@ DEFAULT_DURATION_BANDS: tuple[tuple[str, int, int], ...] = (
     ("annual", 360, 374),
 )
 
+#: Balance sheet totals whose currency must agree with a filing's vote over its monetary facts
+#: (``opendata.fundamentals``). On a real scan of 39,428 filings they never disagree.
+DEFAULT_CURRENCY_ANCHOR_TAGS: tuple[str, ...] = (
+    "Assets", "Liabilities", "StockholdersEquity", "LiabilitiesAndStockholdersEquity",
+)
+
 #: EDGAR state/country codes of foreign business addresses -> ISO 3166-1 alpha-2, for
 #: ``entity_observations.country``. Source: SEC "EDGAR State and Country Codes". A code not
 #: listed gives country null, counted ``country_unknown`` in the run report: extend this
@@ -118,6 +124,8 @@ class Config:
 
     # my-open-data batches (chantier 8, ``store-batches``).
     store_duration_bands: tuple[tuple[str, int, int], ...] = DEFAULT_DURATION_BANDS
+    #: Tags cross-checking each filing's reporting currency. Frozen after a first publish.
+    store_currency_anchor_tags: tuple[str, ...] = DEFAULT_CURRENCY_ANCHOR_TAGS
     #: A filing with no EDGAR acceptance time gets known_at = its filing date at this
     #: wall-clock time in this zone (end of the filing day, so never before the real
     #: acceptance), capped at the run's own time.
@@ -142,6 +150,8 @@ class Config:
                 f"limit of {SEC_MAX_REQUESTS_PER_SECOND}/s"
             )
         _check_duration_bands(self.store_duration_bands)
+        if not self.store_currency_anchor_tags:
+            raise ValueError("store_currency_anchor_tags must not be empty")
         try:
             ZoneInfo(self.store_known_at_fallback_tz)
         except (ZoneInfoNotFoundError, ValueError) as exc:

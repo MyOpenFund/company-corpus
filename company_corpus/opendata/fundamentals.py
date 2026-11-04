@@ -14,7 +14,7 @@ from datetime import date, datetime, time, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from zoneinfo import ZoneInfo
 
-from ..config import Config, normalize_cik
+from ..config import DEFAULT_CURRENCY_ANCHOR_TAGS, Config, normalize_cik
 from ..financials import _CURRENCY_RE, CONCEPTS, Concept
 from ..models import FilingRecord
 from ..taxonomy import from_edgar_form
@@ -82,11 +82,16 @@ def _decimal(value) -> Decimal | None:
     return d if d.is_finite() else None
 
 
+AMBIGUOUS_CURRENCY = "?"  # a filing whose currency signals do not settle; no ISO unit matches
+
+
 def _unit_drop(concept: Concept, unit: str, currency: str | None) -> str | None:
     """Why a point's unit disqualifies it, or None. Monetary and per-share values keep only
     the filing's reporting currency (a convenience translation is not a second fact)."""
     if concept.unit == "shares":
         return None if unit == "shares" else "unexpected_unit"
+    if currency == AMBIGUOUS_CURRENCY:
+        return "currency_ambiguous"
     if concept.unit.endswith("/shares"):
         if not unit.endswith("/shares"):
             return "unexpected_unit"
@@ -134,29 +139,54 @@ def _point(concept: Concept, prio: int, p: dict, currency: str | None, bands,
                  p["unit"], accn, form, _day(p.get("filed")))
 
 
-def _filing_currencies(flat: dict[str, list[dict]]) -> dict[str, str | None]:
-    """Reporting currency of each filing, from that filing's own us-gaap facts only (a dei
-    value such as the public float can be in another currency). An issuer-wide count would
-    change as filings accumulate: a currency switch could then change the points selected
-    from filings already published, which the publisher quarantines. Total order: most facts,
-    then USD, then the alphabetically lowest unit, so tag or JSON order never matters."""
-    counts: dict[str, Counter] = defaultdict(Counter)
-    for points in flat.values():
+def _unique_top(counts: Counter) -> str | None:
+    """The most frequent key, or None when empty or tied."""
+    top = counts.most_common(2)
+    if not top or (len(top) == 2 and top[0][1] == top[1][1]):
+        return None
+    return top[0][0]
+
+
+def _filing_currencies(flat: dict[str, list[dict]],
+                       anchor_tags: Collection[str]) -> dict[str, str]:
+    """Reporting currency of each filing, from that filing's own us-gaap facts only: a dei value
+    such as the public float can be in another currency, and an issuer-wide count would change
+    as filings accumulate, so that a published row could change, which the publisher quarantines.
+
+    Two signals: the vote over the filing's monetary facts, and the currency of its balance
+    sheet totals (``anchor_tags``). A convenience translation loses both, since it usually covers
+    the latest year only. They must agree: a tied vote is settled by the balance sheet, and when
+    nothing settles it, or they contradict each other, the filing is ``AMBIGUOUS_CURRENCY`` and
+    publishes no money. A row held back can still be published later; a wrong one cannot be
+    corrected in an append-only store."""
+    votes: dict[str, Counter] = defaultdict(Counter)
+    anchors: dict[str, Counter] = defaultdict(Counter)
+    for tag, points in flat.items():
         for p in points:
             unit = p.get("unit") or ""
             if p.get("ns") == "us-gaap" and _CURRENCY_RE.match(unit):
-                counts[p.get("accn") or ""][unit] += 1
-    return {accn: max(c, key=lambda u: (c[u], u == "USD", tuple(-ord(ch) for ch in u)))
-            for accn, c in counts.items()}
+                accn = p.get("accn") or ""
+                votes[accn][unit] += 1
+                if tag in anchor_tags:
+                    anchors[accn][unit] += 1
+    out = {}
+    for accn, vote in votes.items():
+        by_vote, by_anchor = _unique_top(vote), _unique_top(anchors[accn])
+        if by_vote and by_anchor and by_vote != by_anchor:
+            out[accn] = AMBIGUOUS_CURRENCY
+        else:
+            out[accn] = by_vote or by_anchor or AMBIGUOUS_CURRENCY
+    return out
 
 
-def select_points(flat: dict[str, list[dict]], bands, counters: Counter) -> list[Point]:
+def select_points(flat: dict[str, list[dict]], bands, counters: Counter,
+                  anchor_tags: Collection[str] = DEFAULT_CURRENCY_ANCHOR_TAGS) -> list[Point]:
     """Every usable point of the curated concepts; per (concept, period end, frequency,
     filing) only the points of the highest-priority tag present (spec S6).
     ``shares_outstanding`` may yield both the balance-sheet-date value
     (``CommonStockSharesOutstanding``) and the cover-date value
     (``dei:EntityCommonStockSharesOutstanding``) of the same filing: their valid dates differ."""
-    currencies = _filing_currencies(flat)
+    currencies = _filing_currencies(flat, anchor_tags)
     groups: dict[tuple, list[Point]] = defaultdict(list)
     for concept in CONCEPTS:
         for prio, tag in enumerate(concept.tags):
@@ -199,7 +229,8 @@ def fundamentals_rows(cik: str, facts: dict, *, acceptance: Mapping[str, datetim
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     cik, counters = normalize_cik(cik), Counter()
-    points = select_points(flatten_with_namespace(facts), config.store_duration_bands, counters)
+    points = select_points(flatten_with_namespace(facts), config.store_duration_bands, counters,
+                           config.store_currency_anchor_tags)
     tz = ZoneInfo(config.store_known_at_fallback_tz)
     at = time.fromisoformat(config.store_known_at_fallback_time)
     by_key: dict[tuple, list[tuple[Point, bool]]] = defaultdict(list)
