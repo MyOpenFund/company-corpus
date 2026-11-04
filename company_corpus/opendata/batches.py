@@ -4,6 +4,10 @@ Per issuer: one ``entity_observations`` batch, then one ``fundamentals`` batch, 
 through the my-open-data writer into a landing zone. Stateless: full history every run; the
 store's publisher skips what it already holds. An issuer's failure never stops the others.
 Dry-run (``write=False``) computes and validates everything from disk and writes nothing.
+
+A submissions archive older than a filing its companyfacts cites is re-fetched once, on
+``write`` without ``offline``: otherwise that filing would get the fallback ``known_at`` and a
+later refresh would add a second vintage with an earlier ``known_at``.
 """
 from __future__ import annotations
 
@@ -15,16 +19,18 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 from ..config import Config, normalize_cik
 from ..http import Fetcher
 from ..storage import Storage
-from .fundamentals import fundamentals_rows
+from .fundamentals import flatten_with_namespace, fundamentals_rows, select_points
 from .identity import identity_rows
 from .submissions import (
     ArchiveCorrupt,
     acceptance_times,
     archive_dir,
+    archived_accessions,
     fetch_archive,
     load_archive,
     main_name,
@@ -141,22 +147,47 @@ def store_batches(ciks, *, config: Config, landing: Path, write: bool, offline: 
     return rep
 
 
-def _archive(out: IssuerOutcome, config: Config, *, write, offline, refresh, fetcher, now):
+def _is_stale(archive, facts: dict, config: Config) -> bool:
+    """True when a point of ``facts`` comes from a filing the archive does not list and that
+    can have been accepted after the archive was fetched: EDGAR's filing date is never before
+    the acceptance date in Eastern time. An older missing accession stays missing whatever
+    the archive's age, so it never counts: it would refresh on every run forever."""
+    fetched_day = archive.fetched_at.astimezone(ZoneInfo(config.store_known_at_fallback_tz)).date()
+    listed = archived_accessions(archive)
+    points = select_points(flatten_with_namespace(facts), config.store_duration_bands, Counter())
+    return any(pt.accn not in listed and pt.filed is not None and pt.filed >= fetched_day
+               for pt in points)
+
+
+def _fetch(out: IssuerOutcome, config: Config, fetcher, now):
+    try:
+        return fetch_archive(config, out.cik, fetcher, now=now)
+    except Exception as exc:  # noqa: BLE001 - any fetch failure is this issuer's
+        raise _IssuerFailed(f"submissions_fetch_failed: {type(exc).__name__}: {exc}") from exc
+
+
+def _archive(out: IssuerOutcome, config: Config, *, facts, write, offline, refresh, fetcher, now):
     present = (archive_dir(config, out.cik) / main_name(out.cik)).is_file()
-    if write and not offline and (refresh or not present):
-        try:
-            return fetch_archive(config, out.cik, fetcher, now=now)
-        except Exception as exc:  # noqa: BLE001 - any fetch failure is this issuer's
-            raise _IssuerFailed(f"submissions_fetch_failed: {type(exc).__name__}: {exc}") from exc
+    online = write and not offline
+    if online and (refresh or not present):
+        return _fetch(out, config, fetcher, now)
     if not present:
         if offline:
             raise _IssuerFailed("submissions_archive_missing (--offline)")
         out.status = "pending_fetch"
         return None
     try:
-        return load_archive(config, out.cik)
+        archive = load_archive(config, out.cik)
     except ArchiveCorrupt as exc:
         raise _IssuerFailed(f"submissions_archive_corrupt: {exc}") from exc
+    if not _is_stale(archive, facts, config):
+        return archive
+    if not online:
+        out.counters["submissions_stale"] += 1
+        return archive
+    archive = _fetch(out, config, fetcher, now)
+    out.counters["submissions_refreshed:stale"] += 1
+    return archive
 
 
 def _issuer(out: IssuerOutcome, mod, *, config, storage, landing, write, offline, refresh,
@@ -169,7 +200,7 @@ def _issuer(out: IssuerOutcome, mod, *, config, storage, landing, write, offline
         facts = json.loads(facts_bytes)
     except ValueError as exc:
         raise _IssuerFailed(f"companyfacts_unreadable: {exc}") from exc
-    archive = _archive(out, config, write=write, offline=offline, refresh=refresh,
+    archive = _archive(out, config, facts=facts, write=write, offline=offline, refresh=refresh,
                        fetcher=fetcher, now=now)
     if archive is None:
         return

@@ -4,8 +4,10 @@ from datetime import datetime, timezone
 import pytest
 
 pytest.importorskip("myopendata")
+pq = pytest.importorskip("pyarrow.parquet")
 
 from company_corpus.opendata.batches import store_batches  # noqa: E402
+from company_corpus.opendata.submissions import load_archive  # noqa: E402
 from tests.conftest import FakeFetcher  # noqa: E402
 from tests.opendata.factories import (  # noqa: E402
     companyfacts, point, submissions_main, write_archive, write_companyfacts)
@@ -150,3 +152,142 @@ def test_report_totals_and_details(config, tmp_path):
     assert t["rows"] == {"entity_observations_v1": 2, "fundamentals_v2": 2}
     d = rep.to_details()["store_batches"]
     assert d["write"] is True and d["issuers"][B]["error"] == "companyfacts_missing"
+
+
+# ---- a stale archive refreshes itself ----
+
+NEW = "0000000042-26-000100"
+AFTER_FETCH = datetime(2026, 11, 3, 12, tzinfo=timezone.utc)  # the archive: 2026-11-01 09:00Z
+MAIN = f"submissions/CIK{A}.json"
+
+
+def _main_with_new_filing():
+    return json.dumps(submissions_main(cik=A, filings=[
+        (K, "2024-07-30T20:06:22.000Z", "10-K"), (NEW, "2026-11-02T21:30:00.000Z", "10-Q")]))
+
+
+def _issuer_with_new_filing(config, *, filed="2026-11-02", tag="Revenues"):
+    """Companyfacts cites NEW, filed after the archive was fetched and absent from it."""
+    write_companyfacts(config, A, companyfacts({
+        "LongTermDebt": {"USD": [point(50, "2024-06-30", accn=K)]},
+        tag: {"USD": [point(30, "2026-09-30", start="2026-07-01", accn=NEW, form="10-Q",
+                            filed=filed)]}}))
+    write_archive(config, A, submissions_main(
+        cik=A, filings=[(K, "2024-07-30T20:06:22.000Z", "10-K")]))
+
+
+def _run_a(config, landing, fetcher, *, write=True, offline=False, now=AFTER_FETCH):
+    rep = store_batches([A], config=config, landing=landing, write=write, offline=offline,
+                        run_id="r", now=now, fetcher=fetcher)
+    return rep.issuers[0]
+
+
+def _known_ats(landing, table, column="known_at"):
+    rows = pq.read_table(next((landing / table).rglob("*.parquet"))).to_pylist()
+    return {r["id_value"] if "id_value" in r else r["concept"]: r[column] for r in rows}
+
+
+def test_a_filing_newer_than_the_archive_refreshes_it_once(config, tmp_path):
+    _issuer_with_new_filing(config)
+    fetcher = FakeFetcher({MAIN: _main_with_new_filing()}, config=config)
+    out = _run_a(config, tmp_path / "l", fetcher)
+    assert out.status == "ok" and len(fetcher.calls) == 1
+    assert out.counters["submissions_refreshed:stale"] == 1
+    assert out.counters["known_at_fallback"] == 0
+    assert _known_ats(tmp_path / "l", "fundamentals_v2")["revenue"] == datetime(
+        2026, 11, 2, 21, 30, tzinfo=timezone.utc)
+    # The refresh is a new identity observation.
+    assert _known_ats(tmp_path / "l", "entity_observations_v1")[A] == AFTER_FETCH
+
+
+def test_the_run_after_a_refresh_fetches_nothing(config, tmp_path):
+    _issuer_with_new_filing(config)
+    fetcher = FakeFetcher({MAIN: _main_with_new_filing()}, config=config)
+    first = _run_a(config, tmp_path / "l1", fetcher)
+    again = _run_a(config, tmp_path / "l2", fetcher)
+    assert len(fetcher.calls) == 1
+    assert again.counters["submissions_refreshed:stale"] == 0
+    assert first.batches == again.batches
+
+
+def test_an_old_accession_missing_from_the_archive_never_refreshes(config, tmp_path):
+    # Filed the day before the fetch: the archive will never hold it, or it would already.
+    _issuer_with_new_filing(config, filed="2026-10-31")
+    fetcher = FakeFetcher({}, config=config)
+    out = _run_a(config, tmp_path / "l", fetcher)
+    assert out.status == "ok" and fetcher.calls == []
+    assert out.counters["known_at_fallback"] == 1
+    assert not out.counters["submissions_refreshed:stale"] and not out.counters["submissions_stale"]
+
+
+@pytest.mark.parametrize("filed, stale", [("2026-11-01", True), ("2026-10-31", False)])
+def test_the_fetch_day_is_counted_in_the_fallback_zone(config, tmp_path, filed, stale):
+    # 02:00Z on 2 Nov is still 1 Nov in New York, where EDGAR's filing date is decided: a
+    # filing dated 1 Nov can have been accepted after this fetch.
+    _issuer_with_new_filing(config, filed=filed)
+    write_archive(config, A, submissions_main(
+        cik=A, filings=[(K, "2024-07-30T20:06:22.000Z", "10-K")]),
+        now=datetime(2026, 11, 2, 2, tzinfo=timezone.utc))
+    fetcher = FakeFetcher({MAIN: _main_with_new_filing()}, config=config)
+    _run_a(config, tmp_path / "l", fetcher)
+    assert bool(fetcher.calls) is stale
+
+
+@pytest.mark.parametrize("kw", [{"offline": True}, {"write": False}], ids=["offline", "dry-run"])
+def test_offline_and_dry_run_count_a_stale_archive_and_never_fetch(config, tmp_path, kw):
+    _issuer_with_new_filing(config)
+    fetcher = FakeFetcher({MAIN: _main_with_new_filing()}, config=config)
+    out = _run_a(config, tmp_path / "l", fetcher, **kw)
+    assert out.status == "ok" and fetcher.calls == []
+    assert out.counters["submissions_stale"] == 1
+    assert out.counters["known_at_fallback"] == 1
+    assert not out.counters["submissions_refreshed:stale"]
+
+
+def test_a_failed_refresh_fails_that_issuer_and_keeps_its_archive(config, tmp_path):
+    _issuer_with_new_filing(config)
+    _issuer(config, B)
+    before = load_archive(config, A).fetched_at
+    fetcher = FakeFetcher({}, config=config)
+    rep = store_batches([A, B], config=config, landing=tmp_path / "l", write=True, run_id="r",
+                        now=AFTER_FETCH, fetcher=fetcher)
+    assert [o.status for o in rep.issuers] == ["failed", "ok"]
+    assert rep.issuers[0].error.startswith("submissions_fetch_failed")
+    assert not rep.issuers[0].batches and rep.issuers[1].batches
+    assert load_archive(config, A).fetched_at == before
+
+
+def test_a_refresh_that_does_not_list_the_filing_yet_keeps_the_fallback(config, tmp_path):
+    _issuer_with_new_filing(config)
+    fetcher = FakeFetcher({MAIN: json.dumps(submissions_main(
+        cik=A, filings=[(K, "2024-07-30T20:06:22.000Z", "10-K")]))}, config=config)
+    out = _run_a(config, tmp_path / "l", fetcher)
+    assert out.status == "ok" and len(fetcher.calls) == 1
+    assert out.counters["submissions_refreshed:stale"] == 1
+    assert out.counters["known_at_fallback"] == 1
+
+
+def test_a_listed_filing_with_a_malformed_acceptance_time_is_not_stale(config, tmp_path):
+    _issuer_with_new_filing(config)
+    write_archive(config, A, submissions_main(cik=A, filings=[
+        (K, "2024-07-30T20:06:22.000Z", "10-K"), (NEW, "not a time", "10-Q")]))
+    fetcher = FakeFetcher({}, config=config)
+    out = _run_a(config, tmp_path / "l", fetcher)
+    assert fetcher.calls == [] and out.counters["known_at_fallback"] == 1
+
+
+def test_a_filing_that_gives_no_row_never_refreshes(config, tmp_path):
+    _issuer_with_new_filing(config, tag="SomeTagOutsideTheCuratedConcepts")
+    fetcher = FakeFetcher({}, config=config)
+    out = _run_a(config, tmp_path / "l", fetcher)
+    assert out.status == "ok" and fetcher.calls == []
+    assert not out.counters["submissions_stale"]
+
+
+def test_an_explicit_refresh_is_not_counted_as_stale(config, tmp_path):
+    _issuer_with_new_filing(config)
+    fetcher = FakeFetcher({MAIN: _main_with_new_filing()}, config=config)
+    rep = store_batches([A], config=config, landing=tmp_path / "l", write=True, refresh=True,
+                        run_id="r", now=AFTER_FETCH, fetcher=fetcher)
+    assert len(fetcher.calls) == 1
+    assert not rep.issuers[0].counters["submissions_refreshed:stale"]

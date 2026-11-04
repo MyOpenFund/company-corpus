@@ -1538,9 +1538,10 @@ def build_parser() -> argparse.ArgumentParser:
     sb.add_argument("--refresh-submissions", action="store_true", dest="refresh_submissions",
                     help="re-fetch the EDGAR submissions archive (new identity observations)")
     sb.add_argument("--offline", action="store_true",
-                    help="never fetch: an issuer without a submissions archive fails")
+                    help="never fetch: an issuer without a submissions archive fails, a "
+                         "stale one is only counted")
     sb.add_argument("--write", action="store_true",
-                    help="write batches and fetch missing archives (else dry-run)")
+                    help="write batches and fetch missing or stale archives (else dry-run)")
     sb.set_defaults(func=_cmd_store_batches)
 
     euf = sub.add_parser("eu-financials",

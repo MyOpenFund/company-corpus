@@ -103,6 +103,20 @@ fails. `--refresh-submissions` with `--offline` is a usage error. `verify` treat
 the archive as layer 0, like `companyfacts.json`. A dry run reports an issuer
 without an archive as `pending_fetch` and writes nothing.
 
+**Stale archive.** A new filing absent from the archive would get the fallback
+`known_at`, and a later refresh would add a second vintage with an earlier `known_at`.
+So on `--write` without `--offline`, an issuer's archive is re-fetched once
+(`submissions_refreshed:stale`) when its companyfacts has a point the run would emit from
+a filing the archive does not list and whose `filed` date is on or after the archive's
+`fetched_at` date, in `Config.store_known_at_fallback_tz` (EDGAR's filing date is never
+before the acceptance date in Eastern time, so such a filing can be newer than the
+archive). Older accessions missing from the archive never trigger a refresh: they keep
+the fallback `known_at`, or they would refresh on every run. A dry run and `--offline`
+never fetch: they count `submissions_stale` and keep the fallback. A failed refresh is
+that issuer's failure, like any fetch failure, and leaves its archive as it was. A
+refresh, automatic or not, also adds new identity observations, because the
+`entity_observations` `known_at` is the archive's fetch time.
+
 **Point selection and `known_at`.** Fundamentals durations are classified by
 fiscal-week bands (`Config.store_duration_bands`). `known_at` is the filing's
 acceptance time. When a filing has no
@@ -130,6 +144,7 @@ rows, batch ids, counters, plus totals). Counters:
 | `dropped:non_reporting_currency`, `dropped:unexpected_unit` | unit filters |
 | `dropped:bad_point`, `dropped:no_known_at`, `dropped:value_out_of_range` | unusable points |
 | `ambiguous_observation` | competing points the selection could not separate |
+| `submissions_refreshed:stale`, `submissions_stale` | the archive was older than a filing in companyfacts: re-fetched / not re-fetched (dry run, `--offline`) |
 | `known_at_fallback`, `known_at_capped`, `known_at_naive` | `known_at` derived without an acceptance time (capped at run time / naive timestamp) |
 | `source_doc_id_null`, `filing_not_in_manifest` | filing not resolvable to a stored document |
 | `value_rounded` | value rounded to fit the contract |

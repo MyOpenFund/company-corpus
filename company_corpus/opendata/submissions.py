@@ -129,13 +129,22 @@ def _read(config: Config, path: Path) -> tuple[ArchivedFile, dict]:
     return ArchivedFile(path.name, rel, actual, url, fetched_at.astimezone(timezone.utc)), body
 
 
+def _filing_blocks(archive: SubmissionsArchive) -> list[dict]:
+    return [((archive.main.get("filings") or {}).get("recent") or {}), *archive.pages]
+
+
+def archived_accessions(archive: SubmissionsArchive) -> set[str]:
+    """Every accession the archive lists, with or without a usable acceptance time."""
+    return {accn for block in _filing_blocks(archive)
+            for accn in block.get("accessionNumber") or [] if accn}
+
+
 def acceptance_times(archive: SubmissionsArchive) -> dict[str, datetime]:
     """accession -> EDGAR acceptance time (UTC). A value without a zone is skipped: the API
     writes UTC with a ``Z`` (checked 2026-11-02 against an SGML header: 06:20:51 ET =
     11:20:51Z), so a zone-less value is malformed and never guessed."""
     out: dict[str, datetime] = {}
-    blocks = [((archive.main.get("filings") or {}).get("recent") or {}), *archive.pages]
-    for block in blocks:
+    for block in _filing_blocks(archive):
         for accn, when in zip(block.get("accessionNumber") or [],
                               block.get("acceptanceDateTime") or []):
             if not accn or not isinstance(when, str):
