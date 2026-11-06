@@ -36,3 +36,17 @@ def test_a_filing_on_the_day_the_period_ends_counts():
 
 def test_a_period_only_seen_before_it_ended_is_no_summary():
     assert (date(2014, 3, 31), "quarterly") not in _summaries(_DIVIDEND)
+
+
+def test_a_period_dated_by_a_balance_sheet_filed_after_it_ended():
+    cash_early = ("CashAndCashEquivalentsAtCarryingValue", "USD", None, "2014-03-31", 9, "0-K", "10-K", "2014-02-20")
+    cash_late = ("CashAndCashEquivalentsAtCarryingValue", "USD", None, "2014-03-31", 10, "0-E", "8-K", "2014-04-20")
+    s = _summaries(_REVENUE, cash_early, cash_late)[(date(2014, 3, 31), "quarterly")]
+    assert (s.publication_date, s.accession) == (date(2014, 4, 20), "0-E")
+
+
+def test_a_semi_annual_issuer_is_dated_the_same_way():
+    half = ("Revenues", "USD", "2014-01-01", "2014-06-30", 100, "0-H", "6-K", "2014-08-01")
+    early = ("Revenues", "USD", "2014-01-01", "2014-06-30", 90, "0-E", "20-F", "2014-03-01")
+    s = _summaries(half, early)[(date(2014, 6, 30), "semi-annual")]
+    assert (s.publication_date, s.accession) == (date(2014, 8, 1), "0-H")

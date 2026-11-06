@@ -679,7 +679,7 @@ class PeriodSummary:
 
     period_end: date | None
     frequency: str                 # annual | quarterly | semi-annual
-    publication_date: date | None  # earliest `filed` for this period (first published)
+    publication_date: date | None  # earliest `filed` for this period; SEC: once it had ended
     sec_form: str                  # form of the first report (10-K / 10-Q / ...)
     accession: str
     company: str                   # point-in-time name
@@ -870,10 +870,10 @@ def _standalone_quarter(series: FlowSeries, key: str, end: date) -> float | None
     if fy is None:
         return None
     # The FY-end quarter (Q4) = FY total - 9-month YTD ending ~one quarter earlier.
-    for q3_end, ytd in series.ytd9.get(key, {}).items():
-        if 80 <= (end - q3_end).days <= 100:
-            return fy - ytd
-    return None
+    # Two can qualify (a merger, a changed calendar): the latest, whatever the order of the rows.
+    ytd9 = series.ytd9.get(key, {})
+    q3_ends = [q3_end for q3_end in ytd9 if 80 <= (end - q3_end).days <= 100]
+    return fy - ytd9[max(q3_ends)] if q3_ends else None
 
 
 def _quarter_ends(series: FlowSeries) -> list[date]:
