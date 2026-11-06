@@ -13,8 +13,10 @@ def test_marriott_debt_comes_from_the_balance_sheet():
     ltd = pick(rows, "long_term_debt", "2025-12-31")
     assert millions(ltd) == 14995 and ltd["location"] == "statement" and not ltd["conflict"]
     assert millions(pick(rows, "lt_debt_current", "2025-12-31")) == 1209
-    total = pick(rows, "debt_total", "2025-12-31")    # the note's total; the stray 23M tag disagrees
-    assert millions(total) == 16204 and total["location"] == "note" and total["conflict"]
+    total = pick(rows, "debt_total", "2025-12-31")    # the note's total
+    assert millions(total) == 16204 and total["location"] == "note"
+    assert millions(pick(rows, "long_term_debt_incl_current", "2025-12-31")) == 23    # stray tag
+    assert pick(rows, "long_term_debt_lines", "2025-12-31") is None
 
 
 def test_metlife_revenue_is_the_statement_total():
@@ -22,12 +24,13 @@ def test_metlife_revenue_is_the_statement_total():
     assert millions(r) == 77084 and r["location"] == "statement" and r["conflict"]
 
 
-def test_oracle_stray_zero_only_raises_a_flag():
+def test_oracle_stray_zero_stays_in_its_own_concept():
     rows = selected("oracle")
     ltd = pick(rows, "long_term_debt", "2022-05-31")
     assert millions(ltd) == 72110 and ltd["original_tag"] == "us-gaap:LongTermNotesAndLoans"
     total = pick(rows, "debt_total", "2022-05-31")
-    assert millions(total) == 75859 and total["conflict"]
+    assert millions(total) == 75859
+    assert millions(pick(rows, "long_term_debt_incl_current", "2022-05-31")) == 0
     assert millions(pick(selected("oracle_fy26"), "long_term_debt", "2026-05-31")) == 122342
 
 
@@ -57,8 +60,10 @@ def test_a_bank_without_operating_income_is_no_error():
 
 
 def test_a_filing_newer_than_the_bulk_files_borrows_the_previous_positions():
-    r = pick(selected("equinix"), "long_term_debt", "2026-09-30")
-    assert millions(r) == 20963 and r["location"] == "inferred" and r["conflict"]
+    rows = selected("equinix")
+    r = pick(rows, "long_term_debt_incl_current", "2026-09-30")
+    assert millions(r) == 22839 and r["location"] == "inferred"
+    assert millions(pick(rows, "long_term_debt_lines", "2026-09-30")) == 20976
 
 
 def test_an_issuer_with_no_positions_at_all_is_unknown_in_dictionary_order():
@@ -104,9 +109,9 @@ def _run(facts, positions):
 
 def test_a_later_note_with_another_tag_does_not_beat_an_earlier_statement():
     old, new = (2025, 2, 1), (2025, 8, 1)
-    rows = _run([_fact("SeniorLongTermNotes", 1000, "A", old),
+    rows = _run([_fact("LongTermNotesAndLoans", 1000, "A", old),
                  _fact("LongTermDebtNoncurrent", 20, "B", new)],
-                [_pos("SeniorLongTermNotes", "A", old), _pos("Assets", "B", new)])
+                [_pos("LongTermNotesAndLoans", "A", old), _pos("Assets", "B", new)])
     (r,) = rows
     assert r["value"] == 1000 and r["location"] == "statement" and r["conflict"]
 
@@ -133,21 +138,21 @@ def test_a_strong_change_of_the_same_tag_is_flagged_and_still_replaces():
 
 def test_real_positions_replace_borrowed_ones_as_soon_as_they_exist():
     old, new = (2025, 2, 1), (2025, 8, 1)
-    facts = [_fact("SeniorLongTermNotes", 1000, "A", old), _fact("SeniorLongTermNotes", 1100, "B", new)]
-    before = [_pos("SeniorLongTermNotes", "A", old)]
+    facts = [_fact("LongTermNotesAndLoans", 1000, "A", old), _fact("LongTermNotesAndLoans", 1100, "B", new)]
+    before = [_pos("LongTermNotesAndLoans", "A", old)]
     (r,) = _run(facts, before)
     assert r["value"] == 1100 and r["location"] == "inferred"
-    (r,) = _run(facts, [*before, _pos("SeniorLongTermNotes", "B", new)])
+    (r,) = _run(facts, [*before, _pos("LongTermNotesAndLoans", "B", new)])
     assert r["value"] == 1100 and r["location"] == "statement"
 
 
 def test_real_positions_can_change_the_borrowed_choice():
     old, new = (2025, 2, 1), (2025, 8, 1)
-    facts = [_fact("SeniorLongTermNotes", 1000, "B", new), _fact("LongTermNotesPayable", 40, "B", new)]
-    before = [_pos("SeniorLongTermNotes", "A", old)]
+    facts = [_fact("LongTermNotesAndLoans", 1000, "B", new), _fact("LongTermDebtAndCapitalLeaseObligations", 40, "B", new)]
+    before = [_pos("LongTermNotesAndLoans", "A", old)]
     (r,) = _run(facts, before)
     assert r["value"] == 1000 and r["location"] == "inferred"
-    (r,) = _run(facts, [*before, _pos("LongTermNotesPayable", "B", new)])
+    (r,) = _run(facts, [*before, _pos("LongTermDebtAndCapitalLeaseObligations", "B", new)])
     assert r["value"] == 40 and r["location"] == "statement"
 
 
@@ -158,11 +163,11 @@ def test_a_statement_only_tag_in_a_note_is_no_candidate():
 
 def test_conflict_tolerance_and_a_zero_value():
     k = (2025, 2, 1)
-    near = _run([_fact("LongTermDebtNoncurrent", 1000, "A", k), _fact("LongTermNotesPayable", 1005, "A", k)], [])
+    near = _run([_fact("LongTermDebtNoncurrent", 1000, "A", k), _fact("LongTermDebtAndCapitalLeaseObligations", 1005, "A", k)], [])
     assert not near[0]["conflict"]
-    far = _run([_fact("LongTermDebtNoncurrent", 1000, "A", k), _fact("LongTermNotesPayable", 1020, "A", k)], [])
+    far = _run([_fact("LongTermDebtNoncurrent", 1000, "A", k), _fact("LongTermDebtAndCapitalLeaseObligations", 1020, "A", k)], [])
     assert far[0]["conflict"]
-    zero = _run([_fact("LongTermDebtNoncurrent", 0, "A", k), _fact("LongTermNotesPayable", 5, "A", k)], [])
+    zero = _run([_fact("LongTermDebtNoncurrent", 0, "A", k), _fact("LongTermDebtAndCapitalLeaseObligations", 5, "A", k)], [])
     assert zero[0]["conflict"]
 
 
@@ -226,21 +231,47 @@ def test_positions_under_one_entity_only_are_decided_per_entity():
 
 def test_a_borrowed_filing_never_crosses_entities():
     old, new = (2025, 2, 1), (2025, 8, 1)
-    facts = [*_for("1", [_fact("SeniorLongTermNotes", 1000, "B", new)]),
-             *_for("2", [_fact("SeniorLongTermNotes", 7, "B", new)])]
-    rows = {r["entity_value"]: r for r in _run(facts, _for("1", [_pos("SeniorLongTermNotes", "A", old)]))}
+    facts = [*_for("1", [_fact("LongTermNotesAndLoans", 1000, "B", new)]),
+             *_for("2", [_fact("LongTermNotesAndLoans", 7, "B", new)])]
+    rows = {r["entity_value"]: r for r in _run(facts, _for("1", [_pos("LongTermNotesAndLoans", "A", old)]))}
     assert rows["1"]["location"] == "inferred" and rows["2"]["location"] == "unknown"
 
 
 def test_huge_values_cannot_overflow_the_tolerance_checks():
     k = (2025, 2, 1)
     rows = _run([_fact("LongTermDebtNoncurrent", 10**31, "A", k),
-                 _fact("LongTermNotesPayable", 5, "A", k)], [])
+                 _fact("LongTermDebtAndCapitalLeaseObligations", 5, "A", k)], [])
     assert rows[0]["conflict"]
     opposite = _run([_fact("LongTermDebtNoncurrent", 9 * 10**31, "A", k),
-                     _fact("LongTermNotesPayable", -9 * 10**31, "A", k)], [])
+                     _fact("LongTermDebtAndCapitalLeaseObligations", -9 * 10**31, "A", k)], [])
     assert opposite[0]["conflict"]
     old, new = (2025, 2, 1), (2025, 8, 1)
     restated = _run([_fact("LongTermDebtNoncurrent", 9 * 10**31, "A", old),
                      _fact("LongTermDebtNoncurrent", -9 * 10**31, "B", new)], [])
     assert restated[0]["conflict"]
+
+
+def test_cash_only_counts_on_the_balance_sheet():
+    k = (2025, 2, 1)
+    assert _run([_fact("Cash", 250, "A", k)], [_pos("Assets", "A", k)]) == []
+    (on_bs,) = _run([_fact("Cash", 250, "A", k)], [_pos("Cash", "A", k)])
+    assert on_bs["concept"] == "cash" and on_bs["value"] == 250
+
+
+def test_net_income_prefers_the_parent_line_then_the_common_line():
+    k = (2025, 2, 1)
+    both = [_fact("NetIncomeLoss", 100, "A", k),
+            _fact("NetIncomeLossAvailableToCommonStockholdersBasic", 90, "A", k)]
+    pos = [_pos(t, "A", k, "IS") for t in ("NetIncomeLoss", "NetIncomeLossAvailableToCommonStockholdersBasic")]
+    (r,) = _run(both, pos)
+    assert r["original_tag"] == "us-gaap:NetIncomeLoss"
+    (r,) = _run(both[1:], pos[1:])
+    assert r["original_tag"] == "us-gaap:NetIncomeLossAvailableToCommonStockholdersBasic"
+
+
+def test_debt_lines_are_summed_when_on_the_statement_only():
+    k = (2025, 2, 1)
+    facts = [_fact("LongTermLineOfCredit", 360, "A", k), _fact("SeniorLongTermNotes", 500, "A", k),
+             _fact("LongTermLoansPayable", 7, "A", k)]
+    (r,) = _run(facts, [_pos("LongTermLineOfCredit", "A", k), _pos("SeniorLongTermNotes", "A", k)])
+    assert r["concept"] == "long_term_debt_lines" and r["value"] == 860 and r["location"] == "derived"

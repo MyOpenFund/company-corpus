@@ -6,9 +6,9 @@ import pytest
 
 from company_corpus.concepts.dictionary import DictionaryError, load_dictionary, parse_dictionary
 
-REVIEWED_NEW = {"payables_and_accrued", "receivables_total", "debt_total", "debt_components",
-                "debt_current_total", "net_income_consolidated", "interest_net",
-                "cash_and_st_investments"}
+REVIEWED_NEW = {"long_term_debt_lines", "long_term_debt_incl_current", "payables_and_accrued",
+                "receivables_total", "debt_total", "debt_components", "debt_current_total",
+                "net_income_consolidated", "interest_net", "cash_and_st_investments"}
 
 
 def _raw() -> dict:
@@ -20,10 +20,11 @@ def test_the_packaged_dictionary_has_the_decided_shape():
     d = load_dictionary()
     assert d.version == "1.0.0" and d.taxonomy == "us-gaap" and d.conflict_tolerance == 0.01
     assert d.restatement_tolerance == 0.5
-    assert len(d.concepts) == 69
+    assert len(d.concepts) == 71
     reviewed = {k for k, c in d.concepts.items() if c.status == "reviewed"}
-    assert len(reviewed) == 46 and REVIEWED_NEW <= reviewed
-    assert [k for k, c in d.concepts.items() if c.on_several == "sum"] == ["debt_components"]
+    assert len(reviewed) == 48 and REVIEWED_NEW <= reviewed
+    assert [k for k, c in d.concepts.items() if c.on_several == "sum"] == [
+        "long_term_debt_lines", "debt_components"]
     assert d.concepts["liabilities"].computed.total_tag == "us-gaap:LiabilitiesAndStockholdersEquity"
     assert "dei:EntityCommonStockSharesOutstanding" in d.concepts["shares_outstanding"].tags
 

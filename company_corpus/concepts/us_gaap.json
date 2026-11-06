@@ -172,7 +172,8 @@
    "status": "reviewed",
    "on_several": "first",
    "tags": [
-    "NetIncomeLoss"
+    "NetIncomeLoss",
+    "NetIncomeLossAvailableToCommonStockholdersBasic"
    ],
    "statement_only_tags": []
   },
@@ -454,10 +455,10 @@
    "on_several": "first",
    "tags": [
     "CashAndCashEquivalentsAtCarryingValue",
-    "Cash",
     "CashAndCashEquivalentsAtCarryingValueIncludingDiscontinuedOperations"
    ],
    "statement_only_tags": [
+    "Cash",
     "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
     "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsIncludingDisposalGroupAndDiscontinuedOperations",
     "CashAndDueFromBanks"
@@ -670,7 +671,18 @@
    "tags": [
     "LongTermDebtNoncurrent",
     "LongTermDebtAndCapitalLeaseObligations",
-    "LongTermNotesAndLoans",
+    "LongTermNotesAndLoans"
+   ],
+   "statement_only_tags": []
+  },
+  "long_term_debt_lines": {
+   "label": "Long-term debt lines (sum)",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "sum",
+   "tags": [
     "LongTermNotesPayable",
     "SeniorLongTermNotes",
     "ConvertibleLongTermNotesPayable",
@@ -678,6 +690,19 @@
     "LongTermLoansPayable",
     "SecuredLongTermDebt",
     "UnsecuredLongTermDebt"
+   ],
+   "statement_only_tags": []
+  },
+  "long_term_debt_incl_current": {
+   "label": "Long-term debt including current maturities",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities",
+    "LongTermDebt"
    ],
    "statement_only_tags": []
   },
@@ -690,9 +715,7 @@
    "on_several": "first",
    "tags": [
     "DebtAndCapitalLeaseObligations",
-    "LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities",
-    "DebtLongtermAndShorttermCombinedAmount",
-    "LongTermDebt"
+    "DebtLongtermAndShorttermCombinedAmount"
    ],
    "statement_only_tags": []
   },

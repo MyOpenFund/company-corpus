@@ -345,23 +345,25 @@ def _sector_relevant(is_financial: bool | None, key: str) -> bool | None:
     return not is_financial
 
 
+def _largest(*amounts: float | int | None) -> float | int | None:
+    return max((a for a in amounts if a is not None), default=None)
+
+
 def _total_debt_from_concepts(values: dict[str, dict]) -> float | int | None:
     """Total debt where each concept has one meaning (the SEC dictionary): nothing to infer from a
-    tag. Noncurrent debt plus its current lines; without noncurrent debt, a reported total, then
-    the balance sheet's debt lines, then the current lines alone. None for a debt-free filer."""
-    ltd, cur, st = (_num(values, k) for k in ("long_term_debt", "lt_debt_current", "short_term_debt"))
-    current_total = _num(values, "debt_current_total")
-    if ltd is not None:
-        if cur is None and st is None and current_total is not None:
-            return ltd + current_total
-        return ltd + (cur or 0) + (st or 0)
-    for key in ("debt_total", "debt_components"):
-        reported = _num(values, key)
-        if reported is not None:
-            return reported
-    if cur is not None or st is not None:
-        return (cur or 0) + (st or 0)
-    return current_total
+    tag. The largest of the available builds, since a sum of parts cannot exceed its whole: a
+    noncurrent figure plus current debt; a total with current maturities plus short-term
+    borrowings; an all-in total. None for a debt-free filer."""
+    cur, st = _num(values, "lt_debt_current"), _num(values, "short_term_debt")
+    lines = None if cur is None and st is None else (cur or 0) + (st or 0)
+    current = _largest(lines, _num(values, "debt_current_total"))
+    noncurrent = _largest(_num(values, "long_term_debt"), _num(values, "long_term_debt_lines"))
+    if noncurrent is None:
+        noncurrent = _num(values, "debt_components")
+    with_current = None if noncurrent is None and current is None else (noncurrent or 0) + (current or 0)
+    incl_current = _num(values, "long_term_debt_incl_current")
+    with_short_term = None if incl_current is None else incl_current + (st or 0)
+    return _largest(with_current, with_short_term, _num(values, "debt_total"))
 
 
 def compute_derived(

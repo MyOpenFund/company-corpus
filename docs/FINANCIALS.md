@@ -47,25 +47,29 @@ and `pension_obligations`.
 
 Figures of different meanings are different concepts: `payables` and `payables_and_accrued`,
 `receivables` and `receivables_total`, `net_income` and `net_income_consolidated`, `cash` and
-`cash_and_st_investments`, `long_term_debt` and `debt_total`. `equity` is **parent-only**; the
+`cash_and_st_investments`, `long_term_debt`, `long_term_debt_lines`,
+`long_term_debt_incl_current` and `debt_total`. `equity` is **parent-only**; the
 NCI-inclusive figure lives in `equity_total`, so ROE and book value never divide parent income by
 parent+NCI equity.
 
 Tag choices that still matter to a reader:
 
 - `net_income` is the parent's share (`NetIncomeLoss`, after NCI); `ProfitLoss` is the consolidated
-  total. `net_income_nci` is the NCI part, for reconciliation only.
+  total. A filer whose income statement only has
+  `NetIncomeLossAvailableToCommonStockholdersBasic` gets that line, which is after preferred dividends. `net_income_nci` is the NCI part, for reconciliation only.
 - `pretax_income` leaves out the domestic-only subtotal: for a multinational it would make the tax
   rate use domestic pretax income. Some filers tag only the domestic and foreign parts
   (`pretax_domestic`, `pretax_foreign`); their sum stands in for pretax income.
 - `long_term_investments` are noncurrent marketable securities, which net debt must offset for
   cash-rich issuers. Financial issuers tag them differently, and net debt is flagged by sector.
-- `long_term_debt` is the noncurrent tag, so it does not overlap the current portion.
-  `LongTermDebtAndCapitalLeaseObligations` comes second, after `LongTermDebtNoncurrent` and ahead of
-  the narrower lines (`LongTermNotesAndLoans`, `SeniorLongTermNotes`, ...): it is a full noncurrent
-  total, whereas those can be one part of the debt. It includes finance leases, which is acceptable
-  when the filer reports debt only in that combined form. The including-current-maturities variant
-  is not in this chain: it is in `debt_total`.
+- `long_term_debt` holds noncurrent totals only, so it does not overlap the current portion:
+  `LongTermDebtNoncurrent`, then `LongTermDebtAndCapitalLeaseObligations` (which includes finance
+  leases), then `LongTermNotesAndLoans`. Narrower lines (`LongTermLineOfCredit`,
+  `SeniorLongTermNotes`, ...) can be one part of the debt: `long_term_debt_lines` adds up those on
+  the balance sheet. Totals that include current maturities are in `long_term_debt_incl_current`
+  (`LongTermDebt`, ...), and totals that also include short-term borrowings in `debt_total`.
+- `cash`: `Cash` counts only on the balance sheet. In a note it can be one part of a line that
+  bundles cash and short-term investments.
 - `preferred_stock` prefers the carrying value (`PreferredStockIncludingAdditionalPaidInCapital`) over
   the par-only `PreferredStockValue`, which is zero or par at most filers and absent at some banks.
 
@@ -124,7 +128,7 @@ ratios are `%` or `x`.
 
 | Metric | Definition |
 |---|---|
-| `total_debt` | SEC: `long_term_debt` + `lt_debt_current` + `short_term_debt` (or + `debt_current_total` when the separate lines are absent); with no `long_term_debt`, `debt_total`, else `debt_components`, else the current lines alone. EU and registers: the same three lines, with roll-up tags not double-counted |
+| `total_debt` | SEC: the largest of three builds, since a sum of parts cannot exceed its whole. Noncurrent + current, where noncurrent is the larger of `long_term_debt` and `long_term_debt_lines` (`debt_components` when both are empty) and current is the larger of `lt_debt_current` + `short_term_debt` and `debt_current_total`; `long_term_debt_incl_current` + `short_term_debt`; `debt_total`. EU and registers: `long_term_debt` + `lt_debt_current` + `short_term_debt`, with roll-up tags not double-counted |
 | `total_debt_incl_leases` | total debt + finance & operating lease liabilities |
 | `net_debt` | total debt − cash − short-term investments − **long-term investments** |
 | `net_cash` | −`net_debt` (positive = net cash; offsets ST **and** LT investments) |
@@ -166,7 +170,7 @@ preferred), matching the per-share book values banks report (verified vs BofA / 
 
 The first two overlaps apply only to the EU and register path (`debt_rule="tags"`), whose chains
 mix roll-ups and components, so the resolved source tag decides. On the SEC path each concept has one
-meaning: `LongTermDebt` is in `debt_total` and `DebtCurrent` in `debt_current_total`, and
+meaning: `LongTermDebt` is in `long_term_debt_incl_current` and `DebtCurrent` in `debt_current_total`, and
 `total_debt` is built from the concepts (see the table above). Three FASB-confirmed overlaps:
 
 - **`LongTermDebt`** is the roll-up (`= LongTermDebtCurrent + LongTermDebtNoncurrent`).

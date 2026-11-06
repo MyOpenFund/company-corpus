@@ -12,14 +12,24 @@ def _v(**kw):
 @pytest.mark.parametrize("values, expected", [
     (dict(long_term_debt=100, lt_debt_current=10, short_term_debt=5), 115),
     (dict(long_term_debt=100, debt_current_total=30), 130),
-    (dict(long_term_debt=100, debt_current_total=30, short_term_debt=5), 105),
-    (dict(long_term_debt=100, debt_total=999), 100),
+    (dict(long_term_debt=100, debt_current_total=30, short_term_debt=5), 130),
+    (dict(long_term_debt=100, debt_current_total=3, short_term_debt=5), 105),
+    (dict(long_term_debt=100, debt_total=999), 999),
+    (dict(long_term_debt=100, lt_debt_current=10, debt_total=50), 110),
+    (dict(long_term_debt=100, long_term_debt_lines=300, lt_debt_current=10), 310),
+    (dict(long_term_debt=100, long_term_debt_lines=30, lt_debt_current=10), 110),
+    (dict(long_term_debt_lines=30, lt_debt_current=10), 40),
+    (dict(long_term_debt_incl_current=100, short_term_debt=5), 105),
+    (dict(long_term_debt_incl_current=100, lt_debt_current=10), 100),
+    (dict(long_term_debt=100, lt_debt_current=10, long_term_debt_incl_current=90, short_term_debt=5), 115),
     (dict(debt_total=500, lt_debt_current=10), 500),
-    (dict(debt_components=70, lt_debt_current=10), 70),
+    (dict(debt_components=70, lt_debt_current=10), 80),
+    (dict(debt_components=70, long_term_debt=50), 50),
     (dict(debt_total=500, debt_components=70), 500),
     (dict(short_term_debt=5), 5),
     (dict(lt_debt_current=10, short_term_debt=5), 15),
     (dict(debt_current_total=30), 30),
+    (dict(debt_current_total=30, short_term_debt=5), 30),
 ])
 def test_total_debt_order(values, expected):
     assert compute_derived(_v(**values), debt_rule="concepts")["total_debt"]["value"] == expected
@@ -61,6 +71,36 @@ def test_marriott_total_debt_end_to_end():
              if s.frequency == "annual" and s.period_end.isoformat() == "2025-12-31"]
     assert fy.values["long_term_debt"]["tag"] == "LongTermDebtAndCapitalLeaseObligations"
     assert fy.derived["total_debt"]["value"] == 16204000000
+
+
+@pytest.mark.parametrize("name, end, total, cash, net_debt", [
+    ("block", "2025-12-31", 7289018000, 6564092000, 724926000),      # note total beats a partial line
+    ("eqt", "2025-12-31", 7800328000, None, None),                   # a partial line is not the total
+    ("truist", "2025-12-31", 69802000000, None, None),               # short-term borrowings kept
+    ("jpmorgan", "2025-12-31", 499982000000, None, None),            # total + short-term borrowings
+    ("target", "2026-01-31", 16456000000, None, 10968000000),        # note Cash ignored, bundled used
+])
+def test_total_debt_on_real_filings(name, end, total, cash, net_debt):
+    fx = fixture(name)
+    (fy,) = [s for s in build_period_summaries(fx["facts"], company=name, company_current=name,
+                                               statements=fx["statements"])
+             if s.frequency == "annual" and s.period_end.isoformat() == end]
+    assert fy.derived["total_debt"]["value"] == total
+    if cash is not None:
+        assert fy.values["cash"]["value"] == cash
+    if name == "target":
+        assert "cash" not in fy.values
+    if net_debt is not None:
+        assert fy.derived["net_debt"]["value"] == net_debt
+
+
+def test_net_income_falls_back_to_the_common_line_on_the_income_statement():
+    fx = fixture("caterpillar")
+    (fy,) = [s for s in build_period_summaries(fx["facts"], company="C", company_current="C",
+                                               statements=fx["statements"])
+             if s.frequency == "annual" and s.period_end.isoformat() == "2025-12-31"]
+    assert fy.values["net_income"]["tag"] == "NetIncomeLossAvailableToCommonStockholdersBasic"
+    assert fy.values["net_income"]["value"] == 8884000000
 
 
 def test_xbrl_reports_a_failed_statements_refresh_and_still_builds(config, xbrl_fetcher, monkeypatch):
