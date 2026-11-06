@@ -80,9 +80,13 @@ python -m company_corpus register-financials --ch-bulk accounts_monthly_2024_01.
 
 `store-batches` turns layer 0 (the stored `companyfacts.json` and the EDGAR
 submissions archive) into [my-open-data](https://github.com/MyOpenFund/my-open-data)
-batches. For each issuer it emits one `entity_observations` batch and one
-`fundamentals` 2.0.0 batch, always the full history; replaying the same inputs is a
-no-op in the store. It writes into a landing zone and never publishes: you run
+batches. For each issuer it emits one `entity_observations` batch, one `fundamentals` 3.0.0
+batch (facts as filed, by tag) and one `filing_statements` 1.0.0 batch (which tag is on which
+statement), always the full history; replaying the same inputs is a no-op in the store.
+`company-corpus statements --universe <name> --write` first archives the SEC bulk files
+(5.7 GB under `raw/_sec_statements/`) and extracts the positions per issuer. Which tag answers
+which concept is decided when reading: see [`docs/FINANCIALS.md`](docs/FINANCIALS.md).
+`store-batches` writes into a landing zone and never publishes: you run
 `myopendata publish` afterwards. It is a dry run unless `--write`.
 
 ```bash
@@ -154,19 +158,24 @@ but another value (`conflicting_republish`): the issuer's batch would stay quara
 for good. Every emitted column must be a pure function of immutable inputs.
 
 **Run report.** `data/runs.jsonl` carries `details.store_batches` (per-issuer status,
-rows, batch ids, counters, plus totals). Counters:
+rows, batch ids, counters, plus totals). The run also prints one `coverage <concept>: ...` line
+per concept, counting how many issuers have it on a statement, in a note, inferred, absent and so
+on. Counters:
 
 | counter | meaning |
 |---|---|
 | `dropped:ytd9`, `dropped:odd_duration`, `dropped:period_shape` | duration points outside the configured bands or shape |
 | `dropped:non_reporting_currency`, `dropped:unexpected_unit` | unit filters; the reporting currency is that of each filing, so later filings never change the points selected from earlier ones |
 | `dropped:currency_ambiguous` | a filing's vote over its monetary facts and the currency of its balance sheet totals contradict each other, or tie with nothing to settle them (also: per-share points only, in several currencies): the filing publishes no money rather than risk a wrong row. Investigate any non-zero count |
+| `dropped:not_a_report` | a point from a form that is not a financial report (`Config.store_report_forms`), such as a proxy statement |
+| `dropped:other_namespace` | a point whose tag is in another taxonomy than the dictionary entry (for example a company extension that reuses a us-gaap name) |
+| `statements_missing` | no statement positions archived for the issuer: run `company-corpus statements` |
 | `dropped:bad_point`, `dropped:no_known_at`, `dropped:value_out_of_range` | unusable points |
 | `dropped:implausible_filed` | a point with no acceptance time whose `filed` date is more than `Config.store_stale_filed_max_days_ahead` days after the run day (Eastern): dropped, or it would be a new vintage on every run |
 | `ambiguous_observation` | competing points the selection could not separate |
 | `submissions_refreshed:stale`, `submissions_stale` | the archive was older than a filing in companyfacts: re-fetched / not re-fetched (dry run, `--offline`) |
 | `known_at_fallback`, `known_at_capped`, `known_at_naive` | `known_at` derived without an acceptance time (capped at run time / naive timestamp) |
-| `source_doc_id_null` | any form outside the taxonomy (10-KT, 10-QT, some proxy forms): the row has a null `source_doc_id` |
+| `source_doc_id_null` | any report form outside the taxonomy (10-KT, 10-QT): the row has a null `source_doc_id` |
 | `filing_not_in_manifest` | informational: the `source_doc_id` is set but no manifest row holds it; most issuers' manifests hold only F1 summaries |
 | `value_rounded` | value rounded to fit the contract |
 | `country_unknown[:code]` | unmapped EDGAR country code |
@@ -183,10 +192,10 @@ The command prints at most 10 failed issuers; the run report has them all.
   `(natural_key, known_at)` comes back with another value and the publisher quarantines
   the batch as `conflicting_republish`.
 - A refresh does **not** help fundamentals: their `known_at` is the acceptance time, which
-  never moves. The tag chains (`financials.CONCEPTS`), the form taxonomy
-  (`taxonomy.from_edgar_form`) and the currency rule are frozen once published, short of a
-  store migration. A new tag may only be appended at the lowest priority of its concept.
-  `tests/opendata/test_published_derivations.py` pins the tag chains, the whole form index
+  never moves. The form taxonomy (`taxonomy.from_edgar_form`) and the currency rule are
+  frozen once published, short of a store migration. The concept dictionary is not: rows are
+  as filed, so changing it changes no row, and a new tag brings new rows.
+  `tests/opendata/test_published_derivations.py` checks that, and pins the whole form index
   (additions and removals fail; 10-KT and 10-QT stay unmapped), the currency anchor tags, the
   ISO currency pattern and the `source_doc_id` recipe (one literal hash). The vote rule itself
   is covered by the point-selection tests, not the golden file. Changing a pinned item alters
