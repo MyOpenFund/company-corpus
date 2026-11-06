@@ -7,14 +7,14 @@ from company_corpus.config import DEFAULT_CURRENCY_ANCHOR_TAGS, DEFAULT_DURATION
 from company_corpus.opendata.fundamentals import (
     classify_duration,
     flatten_with_namespace,
-    select_points,
+    as_filed_points,
 )
 from tests.opendata.factories import companyfacts, point
 
 
 def _select(us_gaap, dei=None):
     counters = Counter()
-    pts = select_points(flatten_with_namespace(companyfacts(us_gaap, dei)),
+    pts = as_filed_points(flatten_with_namespace(companyfacts(us_gaap, dei)),
                         DEFAULT_DURATION_BANDS, counters, DEFAULT_CURRENCY_ANCHOR_TAGS)
     return pts, counters
 
@@ -41,17 +41,17 @@ def test_instant_and_durations_get_their_frequency():
             point(50, "2024-06-30", start="2023-08-01", form="10-KT"),      # 335 days
         ]},
     })
-    got = sorted((p.concept, p.frequency, p.value) for p in pts)
+    got = sorted((p.tag, p.frequency, p.value) for p in pts)
     assert got == [
-        ("long_term_debt", "instant", Decimal(100)),
-        ("revenue", "annual", Decimal(40)),
-        ("revenue", "quarterly", Decimal(10)),
-        ("revenue", "semiannual", Decimal(20)),
+        ("LongTermDebt", "instant", Decimal(100)),
+        ("Revenues", "annual", Decimal(40)),
+        ("Revenues", "quarterly", Decimal(10)),
+        ("Revenues", "semiannual", Decimal(20)),
     ]
     assert c["dropped:ytd9"] == 1 and c["dropped:odd_duration"] == 1
 
 
-def test_first_tag_of_the_chain_wins_per_filing_and_period():
+def test_every_dictionary_tag_is_kept_whatever_its_place_in_the_chain():
     pts, _ = _select({
         "RevenueFromContractWithCustomerExcludingAssessedTax": {"USD": [
             point(100, "2024-06-30", start="2023-07-01")]},
@@ -61,9 +61,26 @@ def test_first_tag_of_the_chain_wins_per_filing_and_period():
     })
     got = sorted((p.end.isoformat(), p.tag, p.value) for p in pts)
     assert got == [
-        ("2023-06-30", "Revenues", Decimal(90)),          # only tag present for that period
+        ("2023-06-30", "Revenues", Decimal(90)),
         ("2024-06-30", "RevenueFromContractWithCustomerExcludingAssessedTax", Decimal(100)),
+        ("2024-06-30", "Revenues", Decimal(101)),
     ]
+
+
+def test_a_proxy_statement_is_not_a_financial_report():
+    pts, c = _select({"NetIncomeLoss": {"USD": [
+        point(590185000, "2025-12-31", start="2025-01-01"),
+        point(609467, "2025-12-31", start="2025-01-01", accn="0001104659-26-045753",
+              form="DEF 14A", filed="2026-04-21")]}})
+    assert [p.value for p in pts] == [Decimal(590185000)] and c["dropped:not_a_report"] == 1
+
+
+def test_a_helper_tag_is_ingested_and_a_tag_out_of_the_dictionary_is_not():
+    pts, _ = _select({
+        "LiabilitiesAndStockholdersEquity": {"USD": [point(5, "2024-06-30")]},
+        "SomeOtherTag": {"USD": [point(6, "2024-06-30")]},
+    })
+    assert [p.tag for p in pts] == ["LiabilitiesAndStockholdersEquity"]
 
 
 def test_convenience_translation_and_unexpected_units_are_dropped():
@@ -77,8 +94,9 @@ def test_convenience_translation_and_unexpected_units_are_dropped():
                                      "USD/shares": [point(1.6, "2024-06-30", start="2023-07-01")]},
         "LongTermDebt": {"shares": [point(3, "2024-06-30")]},
     })
-    assert sorted((p.concept, p.unit) for p in pts) == [
-        ("eps_diluted", "USD/shares"), ("revenue", "USD"), ("revenue", "USD"), ("revenue", "USD")]
+    assert sorted((p.tag, p.unit) for p in pts) == [
+        ("EarningsPerShareDiluted", "USD/shares"), ("Revenues", "USD"), ("Revenues", "USD"),
+        ("Revenues", "USD")]
     assert c["dropped:non_reporting_currency"] == 2 and c["dropped:unexpected_unit"] == 1
 
 
@@ -86,8 +104,7 @@ def test_dei_fallback_tag_keeps_its_namespace():
     pts, _ = _select({}, dei={"EntityCommonStockSharesOutstanding": {
         "shares": [point(7426194552, "2026-10-22", form="10-Q")]}})
     (p,) = pts
-    assert (p.concept, p.ns, p.tag, p.frequency) == (
-        "shares_outstanding", "dei", "EntityCommonStockSharesOutstanding", "instant")
+    assert (p.ns, p.tag, p.frequency) == ("dei", "EntityCommonStockSharesOutstanding", "instant")
 
 
 def test_bad_points_and_period_shapes_are_counted():

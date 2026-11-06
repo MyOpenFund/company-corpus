@@ -55,6 +55,15 @@ DEFAULT_DURATION_BANDS: tuple[tuple[str, int, int], ...] = (
     ("annual", 360, 374),
 )
 
+#: Forms whose facts are financial reports. companyfacts also carries proxy statements: their
+#: pay-versus-performance table tags net income, sometimes at the wrong scale, and it would replace
+#: the 10-K's figure (measured 2026-11-06 on 672 issuers: 259 proxies, 177 changes over 1%).
+#: An allow-list, so that an unknown form is held back and counted, never published by default.
+DEFAULT_REPORT_FORMS: tuple[str, ...] = (
+    "10-K", "10-K/A", "10-Q", "10-Q/A", "10-KT", "10-KT/A", "10-QT", "10-QT/A",
+    "20-F", "20-F/A", "40-F", "40-F/A", "6-K", "6-K/A", "8-K", "8-K/A",
+)
+
 #: Balance sheet totals whose currency must agree with a filing's vote over its monetary facts
 #: (``opendata.fundamentals``). On 39,428 filings with balance sheet totals, scanned 2026-11-04, they never disagree.
 DEFAULT_CURRENCY_ANCHOR_TAGS: tuple[str, ...] = (
@@ -126,6 +135,7 @@ class Config:
     store_duration_bands: tuple[tuple[str, int, int], ...] = DEFAULT_DURATION_BANDS
     #: Tags cross-checking each filing's reporting currency. Frozen after a first publish.
     store_currency_anchor_tags: tuple[str, ...] = DEFAULT_CURRENCY_ANCHOR_TAGS
+    store_report_forms: tuple[str, ...] = DEFAULT_REPORT_FORMS
     #: A filing with no EDGAR acceptance time gets known_at = its filing date at this
     #: wall-clock time in this zone (end of the filing day, so never before the real
     #: acceptance), capped at the run's own time.

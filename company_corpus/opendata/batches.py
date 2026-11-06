@@ -24,7 +24,7 @@ from zoneinfo import ZoneInfo
 from ..config import Config, normalize_cik
 from ..http import Fetcher
 from ..storage import Storage
-from .fundamentals import flatten_with_namespace, fundamentals_rows, select_points
+from .fundamentals import as_filed_points, flatten_with_namespace, fundamentals_rows
 from .identity import identity_rows
 from .submissions import (
     ArchiveCorrupt,
@@ -41,7 +41,7 @@ PRODUCER = "company-corpus"
 
 
 class StoreUnavailable(RuntimeError):
-    """my-open-data (with fundamentals 2.x) is not installed."""
+    """my-open-data (with fundamentals 3.x) is not installed."""
 
 
 class _IssuerFailed(RuntimeError):
@@ -58,8 +58,8 @@ def _myopendata() -> SimpleNamespace:
     except ImportError as exc:
         raise StoreUnavailable(
             "store-batches needs my-open-data: pip install 'company-corpus[store]'") from exc
-    if FUNDAMENTALS.major != 2:
-        raise StoreUnavailable(f"store-batches needs fundamentals 2.x, found {FUNDAMENTALS.version}")
+    if FUNDAMENTALS.major != 3:
+        raise StoreUnavailable(f"store-batches needs fundamentals 3.x, found {FUNDAMENTALS.version}")
     return SimpleNamespace(pa=pa, BatchInvalid=BatchInvalid, conform=conform,
                            ENTITY_OBSERVATIONS=ENTITY_OBSERVATIONS, FUNDAMENTALS=FUNDAMENTALS,
                            write_batch=write_batch, batch_id_for=batch_id_for,
@@ -160,8 +160,9 @@ def _is_stale(archive, facts: dict, config: Config, now: datetime) -> bool:
     fetched_day = archive.fetched_at.astimezone(tz).date()
     latest = now.astimezone(tz).date() + timedelta(days=config.store_stale_filed_max_days_ahead)
     listed = archived_accessions(archive)
-    points = select_points(flatten_with_namespace(facts), config.store_duration_bands, Counter(),
-                           config.store_currency_anchor_tags)
+    points = as_filed_points(flatten_with_namespace(facts), config.store_duration_bands, Counter(),
+                             config.store_currency_anchor_tags,
+                             report_forms=config.store_report_forms)
     return any(pt.accn not in listed and pt.filed is not None
                and fetched_day <= pt.filed <= latest
                for pt in points)

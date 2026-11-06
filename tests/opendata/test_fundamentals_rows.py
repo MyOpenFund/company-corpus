@@ -24,7 +24,7 @@ ACCEPT = {
 def _rows(us_gaap, *, acceptance=ACCEPT, manifest=(), config=None, now=NOW):
     res = fundamentals_rows(CIK, companyfacts(us_gaap), acceptance=acceptance,
                             manifest_doc_ids=set(manifest), config=config or Config(), now=now)
-    return sorted(res.rows, key=lambda r: (r["concept"], r["valid_date"], r["known_at"])), \
+    return sorted(res.rows, key=lambda r: (r["original_tag"], r["valid_date"], r["known_at"])), \
         res.counters
 
 
@@ -36,11 +36,11 @@ def test_a_row_has_the_contract_columns_and_constants():
     (r,), _ = _rows({"LongTermDebt": {"USD": [point(40152000000, "2024-06-30", accn=K24)]}},
                     manifest=[_doc(K24)])
     assert r == {
-        "entity_scheme": "cik", "entity_value": CIK, "concept": "long_term_debt",
+        "entity_scheme": "cik", "entity_value": CIK,
         "original_tag": "us-gaap:LongTermDebt", "period_start": None, "frequency": "instant",
         "fiscal_year": None, "basis": "consolidated", "value": Decimal("40152000000.000000"),
         "unit": "USD", "extraction_method": "xbrl_filed", "confidence": None,
-        "source_page": None, "valid_date": date(2024, 6, 30), "known_at": ACCEPT[K24],
+        "source_page": None, "filing_ref": K24, "valid_date": date(2024, 6, 30), "known_at": ACCEPT[K24],
         "known_at_kind": "published", "source_code": "sec", "source_doc_id": _doc(K24),
     }
 
@@ -116,7 +116,7 @@ def test_value_is_rounded_to_six_decimals_and_counted():
 def _published(us_gaap, acceptance):
     """{natural key + known_at: row}, as the publisher compares them."""
     rows, _ = _rows(us_gaap, acceptance=acceptance)
-    return {(r["entity_value"], r["concept"], r["valid_date"], r["frequency"], r["basis"],
+    return {(r["entity_value"], r["original_tag"], r["valid_date"], r["frequency"], r["basis"],
              r["known_at"]): r for r in rows}
 
 
@@ -302,5 +302,6 @@ def test_custom_currency_anchor_tags_are_honoured_through_fundamentals_rows():
     rows, c = _rows(us_gaap)       # Assets (EUR) contradicts the USD vote: no money
     assert rows == [] and c["dropped:currency_ambiguous"] == 3
     rows, c = _rows(us_gaap, config=Config(store_currency_anchor_tags=("Revenues",)))
-    assert {(r["concept"], r["unit"]) for r in rows} == {("revenue", "USD"), ("net_income", "USD")}
+    assert {(r["original_tag"], r["unit"]) for r in rows} == {
+        ("us-gaap:Revenues", "USD"), ("us-gaap:NetIncomeLoss", "USD")}
     assert c["dropped:currency_ambiguous"] == 0

@@ -36,7 +36,7 @@ def test_an_issuer_without_companyfacts_mid_run_exits_three(config, tmp_path, mo
     rep = _report(config.data_dir)
     assert rep["outcome"] == "degraded"
     assert rep["details"]["store_batches"]["issuers"][B]["status"] == "ok"
-    assert list((tmp_path / "l" / "fundamentals_v2").iterdir())
+    assert list((tmp_path / "l" / "fundamentals_v3").iterdir())
 
 
 def test_dry_run_takes_no_lock_and_writes_no_landing(config, tmp_path, monkeypatch):
@@ -71,3 +71,4 @@ def test_missing_myopendata_is_fatal(config, tmp_path, monkeypatch):
     monkeypatch.setattr(batches, "_myopendata", unavailable)
     _issuer(config, A)
     assert _main(config, monkeypatch, "--ciks", A, "--landing", str(tmp_path / "l")) == 1
+
