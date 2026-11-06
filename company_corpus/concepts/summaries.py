@@ -115,7 +115,9 @@ def build_summaries(facts: dict, *, company: str, company_current: str, name_for
                     dictionary: Dictionary | None = None) -> list[PeriodSummary]:
     """One summary per reporting period as the company reports it: annual, plus quarterly, or
     semi-annual when the issuer has no quarters. The publication date is the earliest filing of
-    any of the period's facts; the values are the selection's."""
+    any of the period's facts made once the period had ended: a filing can already hold a fact about
+    a later period, such as a declared dividend. A period only seen before it ended has no summary.
+    The values are the selection's."""
     d = dictionary or load_dictionary()
     selected = select_for_f1(facts, statements, d)
     specs = d.tag_specs()
@@ -145,8 +147,11 @@ def build_summaries(facts: dict, *, company: str, company_current: str, name_for
             continue
         merged = {**per_concept, **instant.get(end, {})}
         values = {key: _value(merged[key], d, namespaces) for key in d.concepts if key in merged}
-        first = min((*points_at.get((end, freq), ()), *points_at.get((end, "instant"), ())),
-                    key=lambda p: p.filed)
+        reported = [p for p in (*points_at.get((end, freq), ()), *points_at.get((end, "instant"), ()))
+                    if p.filed >= end]
+        if not reported:
+            continue
+        first = min(reported, key=lambda p: p.filed)
         pit = name_for_date(first.filed) if name_for_date else company
         summaries.append(PeriodSummary(
             period_end=end, frequency=_F1_LABEL.get(freq, freq), publication_date=first.filed,
