@@ -3,4 +3,7 @@ beautifulsoup4>=4.12
 lxml>=5.0
 pandas>=2.0
 python-dateutil>=2.9
+# The concept selection runs one SQL statement, in the F1 engine as in the store.
+duckdb>=2.0,<3
+pyarrow>=17
 # curl_cffi>=0.7  # optional — only for the BE (FSMA STORI) backend: pip install ".[be]"

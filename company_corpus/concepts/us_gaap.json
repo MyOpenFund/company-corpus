@@ -1,0 +1,933 @@
+{
+ "version": "1.0.0",
+ "taxonomy": "us-gaap",
+ "namespace": "us-gaap",
+ "conflict_tolerance": 0.01,
+ "restatement_tolerance": 0.5,
+ "concepts": {
+  "revenue": {
+   "label": "Revenue",
+   "statement": "IS",
+   "instant": false,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "Revenues",
+    "RevenueFromContractWithCustomerExcludingAssessedTax",
+    "RevenueFromContractWithCustomerIncludingAssessedTax",
+    "SalesRevenueNet",
+    "RevenuesNetOfInterestExpense",
+    "RegulatedAndUnregulatedOperatingRevenue"
+   ],
+   "statement_only_tags": []
+  },
+  "cost_of_revenue": {
+   "label": "Cost of revenue",
+   "statement": "IS",
+   "instant": false,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "CostOfRevenue",
+    "CostOfGoodsAndServicesSold",
+    "CostOfGoodsSold",
+    "CostOfGoodsAndServiceExcludingDepreciationDepletionAndAmortization"
+   ],
+   "statement_only_tags": []
+  },
+  "gross_profit": {
+   "label": "Gross profit",
+   "statement": "IS",
+   "instant": false,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "GrossProfit"
+   ],
+   "statement_only_tags": []
+  },
+  "sga_expense": {
+   "label": "SG&A expense",
+   "statement": "IS",
+   "instant": false,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "SellingGeneralAndAdministrativeExpense",
+    "GeneralAndAdministrativeExpense"
+   ],
+   "statement_only_tags": []
+  },
+  "rnd_expense": {
+   "label": "R&D expense",
+   "statement": "IS",
+   "instant": false,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "ResearchAndDevelopmentExpense"
+   ],
+   "statement_only_tags": []
+  },
+  "operating_income": {
+   "label": "Operating income",
+   "statement": "IS",
+   "instant": false,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "OperatingIncomeLoss"
+   ],
+   "statement_only_tags": []
+  },
+  "interest_expense": {
+   "label": "Interest expense",
+   "statement": "IS",
+   "instant": false,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "InterestExpense",
+    "InterestExpenseNonoperating",
+    "InterestAndDebtExpense",
+    "InterestExpenseOperating",
+    "InterestExpenseDebt"
+   ],
+   "statement_only_tags": []
+  },
+  "interest_net": {
+   "label": "Interest income (expense), net",
+   "statement": "IS",
+   "instant": false,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "InterestIncomeExpenseNonoperatingNet",
+    "InterestIncomeExpenseNet"
+   ],
+   "statement_only_tags": []
+  },
+  "pretax_income": {
+   "label": "Pretax income",
+   "statement": "IS",
+   "instant": false,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+    "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments"
+   ],
+   "statement_only_tags": []
+  },
+  "pretax_domestic": {
+   "label": "Pretax income (domestic)",
+   "statement": "IS",
+   "instant": false,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic"
+   ],
+   "statement_only_tags": []
+  },
+  "pretax_foreign": {
+   "label": "Pretax income (foreign)",
+   "statement": "IS",
+   "instant": false,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "IncomeLossFromContinuingOperationsBeforeIncomeTaxesForeign"
+   ],
+   "statement_only_tags": []
+  },
+  "income_tax": {
+   "label": "Income tax expense",
+   "statement": "IS",
+   "instant": false,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "IncomeTaxExpenseBenefit"
+   ],
+   "statement_only_tags": []
+  },
+  "net_income": {
+   "label": "Net income",
+   "statement": "IS",
+   "instant": false,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "NetIncomeLoss"
+   ],
+   "statement_only_tags": []
+  },
+  "net_income_consolidated": {
+   "label": "Net income including NCI",
+   "statement": "IS",
+   "instant": false,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "ProfitLoss"
+   ],
+   "statement_only_tags": []
+  },
+  "net_income_nci": {
+   "label": "Net income attributable to NCI",
+   "statement": "IS",
+   "instant": false,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "NetIncomeLossAttributableToNoncontrollingInterest"
+   ],
+   "statement_only_tags": []
+  },
+  "preferred_dividends": {
+   "label": "Preferred dividends",
+   "statement": "IS",
+   "instant": false,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "PreferredStockDividendsAndOtherAdjustments",
+    "PreferredStockDividendsIncomeStatementImpact"
+   ],
+   "statement_only_tags": []
+  },
+  "dep_amort": {
+   "label": "Depreciation & amortization",
+   "statement": "CF",
+   "instant": false,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "DepreciationDepletionAndAmortization",
+    "DepreciationAndAmortization",
+    "DepreciationAmortizationAndAccretionNet"
+   ],
+   "statement_only_tags": []
+  },
+  "eps_basic": {
+   "label": "EPS (basic)",
+   "statement": "IS",
+   "instant": false,
+   "unit": "USD/shares",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "EarningsPerShareBasic",
+    "NetIncomeLossPerOutstandingLimitedPartnershipUnitBasicNetOfTax"
+   ],
+   "statement_only_tags": []
+  },
+  "eps_diluted": {
+   "label": "EPS (diluted)",
+   "statement": "IS",
+   "instant": false,
+   "unit": "USD/shares",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "EarningsPerShareDiluted",
+    "NetIncomeLossNetOfTaxPerOutstandingLimitedPartnershipUnitDiluted"
+   ],
+   "statement_only_tags": []
+  },
+  "dividends_per_share": {
+   "label": "Dividends declared per share",
+   "statement": "IS",
+   "instant": false,
+   "unit": "USD/shares",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "CommonStockDividendsPerShareDeclared"
+   ],
+   "statement_only_tags": []
+  },
+  "cfo": {
+   "label": "Cash from operations",
+   "statement": "CF",
+   "instant": false,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "NetCashProvidedByUsedInOperatingActivities",
+    "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"
+   ],
+   "statement_only_tags": []
+  },
+  "cfi": {
+   "label": "Cash from investing",
+   "statement": "CF",
+   "instant": false,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "NetCashProvidedByUsedInInvestingActivities",
+    "NetCashProvidedByUsedInInvestingActivitiesContinuingOperations"
+   ],
+   "statement_only_tags": []
+  },
+  "cff": {
+   "label": "Cash from financing",
+   "statement": "CF",
+   "instant": false,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "NetCashProvidedByUsedInFinancingActivities",
+    "NetCashProvidedByUsedInFinancingActivitiesContinuingOperations"
+   ],
+   "statement_only_tags": []
+  },
+  "capex": {
+   "label": "Capital expenditures",
+   "statement": "CF",
+   "instant": false,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "PaymentsToAcquirePropertyPlantAndEquipment",
+    "PaymentsToAcquireProductiveAssets",
+    "PaymentsForCapitalImprovements"
+   ],
+   "statement_only_tags": []
+  },
+  "stock_comp": {
+   "label": "Stock-based compensation",
+   "statement": "CF",
+   "instant": false,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "ShareBasedCompensation"
+   ],
+   "statement_only_tags": []
+  },
+  "dividends_paid": {
+   "label": "Dividends paid",
+   "statement": "CF",
+   "instant": false,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "PaymentsOfDividendsCommonStock",
+    "PaymentsOfDividends"
+   ],
+   "statement_only_tags": []
+  },
+  "buybacks": {
+   "label": "Share repurchases",
+   "statement": "CF",
+   "instant": false,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "PaymentsForRepurchaseOfCommonStock",
+    "PaymentsForRepurchaseOfEquity"
+   ],
+   "statement_only_tags": []
+  },
+  "acquisitions_net": {
+   "label": "Acquisitions (net of cash acquired)",
+   "statement": "CF",
+   "instant": false,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "PaymentsToAcquireBusinessesNetOfCashAcquired",
+    "PaymentsToAcquireBusinessesGross"
+   ],
+   "statement_only_tags": []
+  },
+  "debt_proceeds": {
+   "label": "Debt issuance proceeds",
+   "statement": "CF",
+   "instant": false,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "ProceedsFromIssuanceOfLongTermDebt",
+    "ProceedsFromDebtNetOfIssuanceCosts",
+    "ProceedsFromIssuanceOfDebt"
+   ],
+   "statement_only_tags": []
+  },
+  "debt_repayments": {
+   "label": "Debt repayments",
+   "statement": "CF",
+   "instant": false,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "RepaymentsOfLongTermDebt",
+    "RepaymentsOfDebt"
+   ],
+   "statement_only_tags": []
+  },
+  "finance_lease_principal": {
+   "label": "Finance lease principal payments",
+   "statement": "CF",
+   "instant": false,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "FinanceLeasePrincipalPayments"
+   ],
+   "statement_only_tags": []
+  },
+  "asset_sale_proceeds": {
+   "label": "Proceeds from asset/business sales",
+   "statement": "CF",
+   "instant": false,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "ProceedsFromSaleOfPropertyPlantAndEquipment",
+    "ProceedsFromDivestitureOfBusinessesNetOfCashDivested"
+   ],
+   "statement_only_tags": []
+  },
+  "assets": {
+   "label": "Total assets",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "Assets"
+   ],
+   "statement_only_tags": []
+  },
+  "assets_current": {
+   "label": "Current assets",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "AssetsCurrent"
+   ],
+   "statement_only_tags": []
+  },
+  "cash": {
+   "label": "Cash & equivalents",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "CashAndCashEquivalentsAtCarryingValue",
+    "Cash",
+    "CashAndCashEquivalentsAtCarryingValueIncludingDiscontinuedOperations"
+   ],
+   "statement_only_tags": [
+    "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+    "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsIncludingDisposalGroupAndDiscontinuedOperations",
+    "CashAndDueFromBanks"
+   ]
+  },
+  "cash_and_st_investments": {
+   "label": "Cash, equivalents and short-term investments",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "CashCashEquivalentsAndShortTermInvestments"
+   ],
+   "statement_only_tags": []
+  },
+  "short_term_investments": {
+   "label": "Short-term investments",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "ShortTermInvestments",
+    "MarketableSecuritiesCurrent",
+    "AvailableForSaleSecuritiesDebtSecuritiesCurrent"
+   ],
+   "statement_only_tags": []
+  },
+  "long_term_investments": {
+   "label": "Long-term investments",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "MarketableSecuritiesNoncurrent",
+    "AvailableForSaleSecuritiesDebtSecuritiesNoncurrent",
+    "LongTermInvestments"
+   ],
+   "statement_only_tags": []
+  },
+  "restricted_cash": {
+   "label": "Restricted cash",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "RestrictedCashAndCashEquivalents",
+    "RestrictedCashNoncurrent",
+    "RestrictedCashAndCashEquivalentsCurrentAndNoncurrent"
+   ],
+   "statement_only_tags": []
+  },
+  "receivables": {
+   "label": "Accounts receivable",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "AccountsReceivableNetCurrent"
+   ],
+   "statement_only_tags": []
+  },
+  "receivables_total": {
+   "label": "Receivables, total (trade and other)",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "ReceivablesNetCurrent",
+    "AccountsNotesAndLoansReceivableNetCurrent"
+   ],
+   "statement_only_tags": []
+  },
+  "inventory": {
+   "label": "Inventory",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "InventoryNet"
+   ],
+   "statement_only_tags": []
+  },
+  "ppe_net": {
+   "label": "Property, plant & equipment (net)",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "PropertyPlantAndEquipmentNet"
+   ],
+   "statement_only_tags": [
+    "PropertyPlantAndEquipmentAndFinanceLeaseRightOfUseAssetAfterAccumulatedDepreciationAndAmortization"
+   ]
+  },
+  "goodwill": {
+   "label": "Goodwill",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "Goodwill"
+   ],
+   "statement_only_tags": []
+  },
+  "intangibles": {
+   "label": "Intangible assets (ex-goodwill)",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "IntangibleAssetsNetExcludingGoodwill",
+    "FiniteLivedIntangibleAssetsNet",
+    "IndefiniteLivedIntangibleAssetsExcludingGoodwill"
+   ],
+   "statement_only_tags": []
+  },
+  "liabilities": {
+   "label": "Total liabilities",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "Liabilities"
+   ],
+   "statement_only_tags": [],
+   "computed": {
+    "total_tag": "LiabilitiesAndStockholdersEquity",
+    "minus_first_of": [
+     "equity_total",
+     "equity"
+    ],
+    "minus_first_tag_of": [
+     "TemporaryEquityCarryingAmountAttributableToParent",
+     "TemporaryEquityCarryingAmountIncludingPortionAttributableToNoncontrollingInterests",
+     "RedeemableNoncontrollingInterestEquityCarryingAmount",
+     "RedeemableNoncontrollingInterestEquityFairValue",
+     "TemporaryEquityCarryingAmount",
+     "RedeemablePreferredStockCarryingAmount",
+     "RedeemableNoncontrollingInterestEquityCommonCarryingAmount",
+     "RedeemableNoncontrollingInterestEquityOtherCarryingAmount"
+    ]
+   }
+  },
+  "liabilities_current": {
+   "label": "Current liabilities",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "LiabilitiesCurrent"
+   ],
+   "statement_only_tags": []
+  },
+  "payables": {
+   "label": "Accounts payable",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "AccountsPayableCurrent"
+   ],
+   "statement_only_tags": []
+  },
+  "payables_and_accrued": {
+   "label": "Payables and accrued liabilities",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "AccountsPayableAndAccruedLiabilitiesCurrent",
+    "AccountsPayableAndAccruedLiabilitiesCurrentAndNoncurrent"
+   ],
+   "statement_only_tags": []
+  },
+  "long_term_debt": {
+   "label": "Long-term debt (noncurrent)",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "LongTermDebtNoncurrent",
+    "LongTermDebtAndCapitalLeaseObligations",
+    "LongTermNotesAndLoans",
+    "LongTermNotesPayable",
+    "SeniorLongTermNotes",
+    "ConvertibleLongTermNotesPayable",
+    "LongTermLineOfCredit",
+    "LongTermLoansPayable",
+    "SecuredLongTermDebt",
+    "UnsecuredLongTermDebt"
+   ],
+   "statement_only_tags": []
+  },
+  "debt_total": {
+   "label": "Total debt as reported",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "DebtAndCapitalLeaseObligations",
+    "LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities",
+    "DebtLongtermAndShorttermCombinedAmount",
+    "LongTermDebt"
+   ],
+   "statement_only_tags": []
+  },
+  "debt_components": {
+   "label": "Debt lines on the balance sheet (sum)",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "sum",
+   "tags": [
+    "SeniorNotes",
+    "UnsecuredDebt",
+    "SecuredDebt",
+    "NotesPayable",
+    "NotesAndLoansPayable",
+    "ConvertibleNotesPayable",
+    "LoansPayable"
+   ],
+   "statement_only_tags": []
+  },
+  "lt_debt_current": {
+   "label": "Long-term debt (current portion)",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "LongTermDebtCurrent",
+    "LongTermDebtAndCapitalLeaseObligationsCurrent"
+   ],
+   "statement_only_tags": []
+  },
+  "short_term_debt": {
+   "label": "Short-term borrowings",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "ShortTermBorrowings",
+    "CommercialPaper",
+    "NotesPayableCurrent"
+   ],
+   "statement_only_tags": []
+  },
+  "debt_current_total": {
+   "label": "Current debt, total",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "DebtCurrent"
+   ],
+   "statement_only_tags": []
+  },
+  "finance_lease_current": {
+   "label": "Finance lease liability (current)",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "FinanceLeaseLiabilityCurrent"
+   ],
+   "statement_only_tags": []
+  },
+  "finance_lease_noncurrent": {
+   "label": "Finance lease liability (noncurrent)",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "FinanceLeaseLiabilityNoncurrent"
+   ],
+   "statement_only_tags": []
+  },
+  "operating_lease_current": {
+   "label": "Operating lease liability (current)",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "OperatingLeaseLiabilityCurrent"
+   ],
+   "statement_only_tags": []
+  },
+  "operating_lease_noncurrent": {
+   "label": "Operating lease liability (noncurrent)",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "OperatingLeaseLiabilityNoncurrent"
+   ],
+   "statement_only_tags": []
+  },
+  "equity": {
+   "label": "Stockholders' equity (parent)",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "StockholdersEquity",
+    "PartnersCapital"
+   ],
+   "statement_only_tags": []
+  },
+  "equity_total": {
+   "label": "Total equity (incl. NCI)",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+    "PartnersCapitalIncludingPortionAttributableToNoncontrollingInterest"
+   ],
+   "statement_only_tags": []
+  },
+  "noncontrolling_interest": {
+   "label": "Noncontrolling interest",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "MinorityInterest"
+   ],
+   "statement_only_tags": []
+  },
+  "preferred_stock": {
+   "label": "Preferred stock (carrying value)",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "PreferredStockIncludingAdditionalPaidInCapital",
+    "PreferredStockValueOutstanding",
+    "PreferredStockLiquidationPreferenceValue",
+    "PreferredStockValue"
+   ],
+   "statement_only_tags": []
+  },
+  "retained_earnings": {
+   "label": "Retained earnings / (accumulated deficit)",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "RetainedEarningsAccumulatedDeficit"
+   ],
+   "statement_only_tags": []
+  },
+  "treasury_stock": {
+   "label": "Treasury stock",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "TreasuryStockValue",
+    "TreasuryStockCommonValue"
+   ],
+   "statement_only_tags": []
+  },
+  "aoci": {
+   "label": "Accumulated other comprehensive income / (loss)",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "AccumulatedOtherComprehensiveIncomeLossNetOfTax"
+   ],
+   "statement_only_tags": []
+  },
+  "pension_obligations": {
+   "label": "Pension & post-retirement obligations (noncurrent)",
+   "statement": "BS",
+   "instant": true,
+   "unit": "USD",
+   "status": "not_reviewed",
+   "on_several": "first",
+   "tags": [
+    "PensionAndOtherPostretirementDefinedBenefitPlansLiabilitiesNoncurrent"
+   ],
+   "statement_only_tags": []
+  },
+  "shares_outstanding": {
+   "label": "Shares outstanding",
+   "statement": "BS",
+   "instant": true,
+   "unit": "shares",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "CommonStockSharesOutstanding",
+    "dei:EntityCommonStockSharesOutstanding"
+   ],
+   "statement_only_tags": []
+  },
+  "wavg_shares_diluted": {
+   "label": "Weighted-avg diluted shares",
+   "statement": "IS",
+   "instant": false,
+   "unit": "shares",
+   "status": "reviewed",
+   "on_several": "first",
+   "tags": [
+    "WeightedAverageNumberOfDilutedSharesOutstanding",
+    "WeightedAverageLimitedPartnershipUnitsOutstandingDiluted"
+   ],
+   "statement_only_tags": []
+  }
+ }
+}
