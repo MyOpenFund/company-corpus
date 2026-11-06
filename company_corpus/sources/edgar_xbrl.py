@@ -8,11 +8,14 @@ reporting period. Point-in-time issuer naming reuses the submissions API's
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Sequence
 
 from ..config import normalize_cik
+from ..concepts.summaries import f1_coverage
 from ..financials import PeriodSummary, attach_ttm_metrics, build_period_summaries
 from ..naming import name_as_of, parse_former_names
+from ..opendata.statements import load_statements
 from .base import Source
 from .edgar_submissions import SUBMISSIONS_URL
 
@@ -23,6 +26,10 @@ class EdgarXBRL(Source):
     """Yield per-period financial summaries for a CIK from XBRL company facts."""
 
     name = "edgar_xbrl"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.coverage: Counter = Counter()
 
     def companyfacts(self, cik: str) -> dict | None:
         url = COMPANYFACTS_URL.format(cik=normalize_cik(cik))
@@ -57,12 +64,17 @@ class EdgarXBRL(Source):
         def name_for_date(d):
             return name_as_of(d, current, former)
 
+        statements = load_statements(self.config, cik)
+        if statements is None:
+            self.coverage["statements_missing"] += 1
+            statements = []
         summaries = build_period_summaries(
             facts, company=current, company_current=current,
             name_for_date=name_for_date, since_year=since_year, until_year=until_year,
-            sic=sic,
+            sic=sic, statements=statements,
         )
-        attach_ttm_metrics(facts, summaries)
+        attach_ttm_metrics(facts, summaries, statements=statements)
+        self.coverage.update(f1_coverage(facts, statements))
         return facts, summaries
 
     # Uniform Source surface (kept for symmetry with other sources).

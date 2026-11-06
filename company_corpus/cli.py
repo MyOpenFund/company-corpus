@@ -105,6 +105,7 @@ from pathlib import Path
 
 from . import __version__
 from .completeness import build_matrix, summarize
+from .concepts.coverage import format_coverage
 from .config import Config, normalize_cik
 from .entity import EntityRegistry
 from .http import Fetcher
@@ -901,6 +902,11 @@ def _cmd_xbrl(args: argparse.Namespace) -> int:
     print(f"  seen={s.seen} added={s.added} updated={s.updated} unchanged={s.unchanged}")
     if rep.errors:
         print(f"  errors: {len(rep.errors)} (see discovery_errors.jsonl)")
+    for line in format_coverage(rep.coverage):
+        print(f"  {line}")
+    report = getattr(args, "report", None)
+    if report is not None:
+        report.details = {"xbrl": {"coverage": dict(sorted(rep.coverage.items()))}}
     # The unit of work is the period summary (computed in dry-run too), not the
     # manifest record: `rep.stats.added` is 0 on a re-run that still produced them.
     _feed_report(getattr(args, "report", None), "sec", seen=rep.issuers,

@@ -1,5 +1,5 @@
 from company_corpus.financials import (
-    CONCEPTS, build_period_summaries, summaries_from_flat, flatten_points,
+    CONCEPTS, summaries_from_flat, flatten_points,
 )
 
 FACTS = {"facts": {"us-gaap": {
@@ -10,12 +10,6 @@ FACTS = {"facts": {"us-gaap": {
         {"val": 500, "end": "2022-12-31",
          "filed": "2023-02-01", "form": "10-K", "accn": "a1"}]}},
 }}}
-
-
-def test_refactor_default_matches_explicit_pack():
-    a = build_period_summaries(FACTS, company="X", company_current="X")
-    b = build_period_summaries(FACTS, company="X", company_current="X", concepts=CONCEPTS)
-    assert [s.values for s in a] == [s.values for s in b]
 
 
 def test_summaries_from_flat_is_the_engine_core():

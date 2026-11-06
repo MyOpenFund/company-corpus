@@ -24,6 +24,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
 
+from .concepts.dictionary import load_dictionary
+
 # A bare ISO-4217 currency unit (e.g. "USD", "EUR"), as opposed to composite or
 # non-monetary XBRL units like "USD/shares", "shares" or "pure".
 _CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
@@ -40,160 +42,13 @@ class Concept:
     unit: str = "USD"      # expected unit (USD / USD/shares / shares)
 
 
-# Curated set (~40 raw line items). Order = display order in the summary. These
-# are the *reported* figures; ratios/aggregates (total debt, EBITDA, leverage,
-# margins…) are computed from them in :func:`compute_derived`.
-CONCEPTS: tuple[Concept, ...] = (
-    # --- Income statement (duration) ---
-    Concept("revenue", "Revenue",
-            ("RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues",
-             "RevenueFromContractWithCustomerIncludingAssessedTax", "SalesRevenueNet"), False),
-    Concept("cost_of_revenue", "Cost of revenue",
-            ("CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsSold"), False),
-    Concept("gross_profit", "Gross profit", ("GrossProfit",), False),
-    Concept("sga_expense", "SG&A expense",
-            ("SellingGeneralAndAdministrativeExpense",
-             "GeneralAndAdministrativeExpense"), False),
-    Concept("rnd_expense", "R&D expense", ("ResearchAndDevelopmentExpense",), False),
-    Concept("operating_income", "Operating income", ("OperatingIncomeLoss",), False),
-    Concept("interest_expense", "Interest expense",
-            ("InterestExpense", "InterestExpenseNonoperating", "InterestAndDebtExpense",
-             "InterestExpenseOperating"), False),
-    # Pretax income: the Domestic-only subtotal is deliberately excluded -- for a
-    # multinational it would make effective_tax_rate = total tax / domestic pretax.
-    Concept("pretax_income", "Pretax income",
-            ("IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
-             "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments"), False),
-    # Geographic split: some filers (e.g. McDonald's) tag only Domestic + Foreign
-    # and no consolidated pretax line; the sum reconstructs pretax (see compute_derived).
-    Concept("pretax_domestic", "Pretax income (domestic)",
-            ("IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic",), False),
-    Concept("pretax_foreign", "Pretax income (foreign)",
-            ("IncomeLossFromContinuingOperationsBeforeIncomeTaxesForeign",), False),
-    Concept("income_tax", "Income tax expense", ("IncomeTaxExpenseBenefit",), False),
-    # NetIncomeLoss is attributable to the parent (after NCI); ProfitLoss is the
-    # consolidated total. net_income_nci is the NCI portion (reconciliation only).
-    Concept("net_income", "Net income", ("NetIncomeLoss", "ProfitLoss"), False),
-    Concept("net_income_nci", "Net income attributable to NCI",
-            ("NetIncomeLossAttributableToNoncontrollingInterest",), False),
-    Concept("preferred_dividends", "Preferred dividends",
-            ("PreferredStockDividendsAndOtherAdjustments",
-             "PreferredStockDividendsIncomeStatementImpact"), False),
-    # Depreciation & amortization (cash-flow statement; needed for EBITDA)
-    Concept("dep_amort", "Depreciation & amortization",
-            ("DepreciationDepletionAndAmortization", "DepreciationAmortizationAndAccretionNet",
-             "DepreciationAndAmortization"), False),
-    # --- Per share (duration, USD/shares) ---
-    Concept("eps_basic", "EPS (basic)", ("EarningsPerShareBasic",), False, "USD/shares"),
-    Concept("eps_diluted", "EPS (diluted)", ("EarningsPerShareDiluted",), False, "USD/shares"),
-    Concept("dividends_per_share", "Dividends declared per share",
-            ("CommonStockDividendsPerShareDeclared",), False, "USD/shares"),
-    # --- Cash flow (duration) ---
-    Concept("cfo", "Cash from operations",
-            ("NetCashProvidedByUsedInOperatingActivities",
-             "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"), False),
-    Concept("cfi", "Cash from investing",
-            ("NetCashProvidedByUsedInInvestingActivities",), False),
-    Concept("cff", "Cash from financing",
-            ("NetCashProvidedByUsedInFinancingActivities",), False),
-    Concept("capex", "Capital expenditures",
-            ("PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets",
-             "PaymentsForCapitalImprovements"), False),
-    Concept("stock_comp", "Stock-based compensation", ("ShareBasedCompensation",), False),
-    Concept("dividends_paid", "Dividends paid",
-            ("PaymentsOfDividendsCommonStock", "PaymentsOfDividends"), False),
-    Concept("buybacks", "Share repurchases",
-            ("PaymentsForRepurchaseOfCommonStock", "PaymentsForRepurchaseOfEquity"), False),
-    Concept("acquisitions_net", "Acquisitions (net of cash acquired)",
-            ("PaymentsToAcquireBusinessesNetOfCashAcquired", "PaymentsToAcquireBusinessesGross"), False),
-    Concept("debt_proceeds", "Debt issuance proceeds",
-            ("ProceedsFromIssuanceOfLongTermDebt", "ProceedsFromDebtNetOfIssuanceCosts",
-             "ProceedsFromIssuanceOfDebt"), False),
-    Concept("debt_repayments", "Debt repayments",
-            ("RepaymentsOfLongTermDebt", "RepaymentsOfDebt"), False),
-    Concept("finance_lease_principal", "Finance lease principal payments",
-            ("FinanceLeasePrincipalPayments",), False),
-    Concept("asset_sale_proceeds", "Proceeds from asset/business sales",
-            ("ProceedsFromSaleOfPropertyPlantAndEquipment",
-             "ProceedsFromDivestitureOfBusinessesNetOfCashDivested"), False),
-    # --- Balance sheet (instant) ---
-    Concept("assets", "Total assets", ("Assets",), True),
-    Concept("assets_current", "Current assets", ("AssetsCurrent",), True),
-    Concept("cash", "Cash & equivalents",
-            ("CashAndCashEquivalentsAtCarryingValue", "CashCashEquivalentsAndShortTermInvestments"), True),
-    Concept("short_term_investments", "Short-term investments",
-            ("ShortTermInvestments", "MarketableSecuritiesCurrent",
-             "AvailableForSaleSecuritiesDebtSecuritiesCurrent"), True),
-    # Long-term marketable securities: a large liquid asset for cash-rich issuers
-    # (Apple, Microsoft, ...) that net debt must offset. (Financial-sector issuers
-    # hold these under sector-specific tags; net debt is sector-flagged anyway.)
-    Concept("long_term_investments", "Long-term investments",
-            ("MarketableSecuritiesNoncurrent", "AvailableForSaleSecuritiesDebtSecuritiesNoncurrent",
-             "LongTermInvestments"), True),
-    Concept("restricted_cash", "Restricted cash",
-            ("RestrictedCashAndCashEquivalents", "RestrictedCashNoncurrent",
-             "RestrictedCashAndCashEquivalentsCurrentAndNoncurrent"), True),
-    Concept("receivables", "Accounts receivable",
-            ("AccountsReceivableNetCurrent", "ReceivablesNetCurrent"), True),
-    Concept("inventory", "Inventory", ("InventoryNet",), True),
-    Concept("ppe_net", "Property, plant & equipment (net)",
-            ("PropertyPlantAndEquipmentNet",), True),
-    Concept("goodwill", "Goodwill", ("Goodwill",), True),
-    Concept("intangibles", "Intangible assets (ex-goodwill)",
-            ("IntangibleAssetsNetExcludingGoodwill", "FiniteLivedIntangibleAssetsNet",
-             "IndefiniteLivedIntangibleAssetsExcludingGoodwill"), True),
-    Concept("liabilities", "Total liabilities", ("Liabilities",), True),
-    Concept("liabilities_current", "Current liabilities", ("LiabilitiesCurrent",), True),
-    Concept("payables", "Accounts payable",
-            ("AccountsPayableCurrent", "AccountsPayableAndAccruedLiabilitiesCurrent"), True),
-    # Debt components (needed for total debt / leverage). Long-term debt is
-    # anchored on the noncurrent tag so it does not overlap the current portion.
-    # The ...AndCapitalLeaseObligations tags (e.g. Comcast) are last-resort fallbacks:
-    # they bundle capitalised (finance) leases into the debt figure, which is debt-like
-    # and acceptable when the filer reports debt only in that combined form.
-    Concept("long_term_debt", "Long-term debt (noncurrent)",
-            ("LongTermDebtNoncurrent", "LongTermDebt",
-             "LongTermDebtAndCapitalLeaseObligations"), True),
-    Concept("lt_debt_current", "Long-term debt (current portion)",
-            ("LongTermDebtCurrent", "LongTermDebtAndCapitalLeaseObligationsCurrent"), True),
-    Concept("short_term_debt", "Short-term borrowings",
-            ("ShortTermBorrowings", "CommercialPaper", "NotesPayableCurrent", "DebtCurrent"), True),
-    # Lease liabilities (for adjusted / lease-inclusive leverage, post ASC 842)
-    Concept("finance_lease_current", "Finance lease liability (current)",
-            ("FinanceLeaseLiabilityCurrent",), True),
-    Concept("finance_lease_noncurrent", "Finance lease liability (noncurrent)",
-            ("FinanceLeaseLiabilityNoncurrent",), True),
-    Concept("operating_lease_current", "Operating lease liability (current)",
-            ("OperatingLeaseLiabilityCurrent",), True),
-    Concept("operating_lease_noncurrent", "Operating lease liability (noncurrent)",
-            ("OperatingLeaseLiabilityNoncurrent",), True),
-    # Parent-only stockholders' equity. The NCI-inclusive figure is a DIFFERENT
-    # number (equity_total) -- keeping it out of this fallback prevents silently
-    # dividing parent-only net income by parent+NCI equity in ROE / book value.
-    Concept("equity", "Stockholders' equity (parent)", ("StockholdersEquity",), True),
-    Concept("equity_total", "Total equity (incl. NCI)",
-            ("StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",), True),
-    Concept("noncontrolling_interest", "Noncontrolling interest", ("MinorityInterest",), True),
-    # Preferred stock CARRYING value (par + APIC), not par-only: PreferredStockValue
-    # is 0/par for most filers and absent for some banks, so the incl.-APIC tag and
-    # the outstanding/liquidation tags take priority (verified against BofA/Wells).
-    Concept("preferred_stock", "Preferred stock (carrying value)",
-            ("PreferredStockIncludingAdditionalPaidInCapital", "PreferredStockValueOutstanding",
-             "PreferredStockLiquidationPreferenceValue", "PreferredStockValue"), True),
-    Concept("retained_earnings", "Retained earnings / (accumulated deficit)",
-            ("RetainedEarningsAccumulatedDeficit",), True),
-    Concept("treasury_stock", "Treasury stock",
-            ("TreasuryStockValue", "TreasuryStockCommonValue"), True),
-    Concept("aoci", "Accumulated other comprehensive income / (loss)",
-            ("AccumulatedOtherComprehensiveIncomeLossNetOfTax",), True),
-    Concept("pension_obligations", "Pension & post-retirement obligations (noncurrent)",
-            ("PensionAndOtherPostretirementDefinedBenefitPlansLiabilitiesNoncurrent",), True),
-    # --- Shares (instant, shares) ---
-    Concept("shares_outstanding", "Shares outstanding",
-            ("CommonStockSharesOutstanding", "EntityCommonStockSharesOutstanding"), True, "shares"),
-    Concept("wavg_shares_diluted", "Weighted-avg diluted shares",
-            ("WeightedAverageNumberOfDilutedSharesOutstanding",), False, "shares"),
-)
+# The curated set comes from the dictionary (``concepts/us_gaap.json``), so every pillar shares
+# its keys and labels. Tags here feed only the generic ``summaries_from_flat``; the SEC path goes
+# through ``concepts.selection``. Order = display order in the summary.
+CONCEPTS: tuple[Concept, ...] = tuple(
+    Concept(c.key, c.label, tuple(t.split(":", 1)[1] for t in (*c.tags, *c.statement_only_tags)),
+            c.instant, c.unit)
+    for c in load_dictionary().concepts.values())
 
 CONCEPTS_BY_KEY = {c.key: c for c in CONCEPTS}
 
@@ -490,9 +345,28 @@ def _sector_relevant(is_financial: bool | None, key: str) -> bool | None:
     return not is_financial
 
 
+def _total_debt_from_concepts(values: dict[str, dict]) -> float | int | None:
+    """Total debt where each concept has one meaning (the SEC dictionary): nothing to infer from a
+    tag. Noncurrent debt plus its current lines; without noncurrent debt, a reported total, then
+    the balance sheet's debt lines, then the current lines alone. None for a debt-free filer."""
+    ltd, cur, st = (_num(values, k) for k in ("long_term_debt", "lt_debt_current", "short_term_debt"))
+    current_total = _num(values, "debt_current_total")
+    if ltd is not None:
+        if cur is None and st is None and current_total is not None:
+            return ltd + current_total
+        return ltd + (cur or 0) + (st or 0)
+    for key in ("debt_total", "debt_components"):
+        reported = _num(values, key)
+        if reported is not None:
+            return reported
+    if cur is not None or st is not None:
+        return (cur or 0) + (st or 0)
+    return current_total
+
+
 def compute_derived(
     values: dict[str, dict], frequency: str = "annual", currency: str = "USD",
-    is_financial: bool | None = False,
+    is_financial: bool | None = False, debt_rule: str = "tags",
 ) -> dict[str, dict]:
     """Compute ratios/aggregates from reported concept ``values``.
 
@@ -511,6 +385,10 @@ def compute_derived(
     -- a quarterly net-debt/EBITDA would be ~4x the annual figure -- so they are
     emitted only for annual periods. (Computing a trailing-twelve-months variant
     would need the prior three quarters, which this single-period view lacks.)
+
+    ``debt_rule`` selects how total debt is built: ``"concepts"`` on the SEC path, whose concepts
+    each have one meaning; ``"tags"`` for the EU and register packs, whose chains still mix
+    roll-ups and components and need the tag to tell them apart.
     """
     out: dict[str, dict] = {}
 
@@ -559,6 +437,10 @@ def compute_derived(
     assets = _num(values, "assets")
     ac, lc = _num(values, "assets_current"), _num(values, "liabilities_current")
     cash = _num(values, "cash")
+    # A filer reporting cash only bundled with short-term investments: same figure, nothing to add.
+    cash_is_bundled = _src(values, "cash") == "CashCashEquivalentsAndShortTermInvestments"
+    if cash is None and _num(values, "cash_and_st_investments") is not None:
+        cash, cash_is_bundled = _num(values, "cash_and_st_investments"), True
 
     # E-I3: gate equity-attribution-mixed ratios when NCI is material. If `equity`
     # and `net_income` resolved from DIFFERENT attribution bases -- a parent-only
@@ -584,7 +466,9 @@ def compute_derived(
     # short_term_debt, while a genuinely debt-free filer (no component) stays None.
     debt_keys = ("long_term_debt", "lt_debt_current", "short_term_debt")
     total_debt = None
-    if any(_num(values, k) is not None for k in debt_keys):
+    if debt_rule == "concepts":
+        total_debt = _total_debt_from_concepts(values)
+    elif any(_num(values, k) is not None for k in debt_keys):
         ltd_tag = _src(values, "long_term_debt")
         short_tag = _src(values, "short_term_debt")
         ltd = opt("long_term_debt")
@@ -629,8 +513,8 @@ def compute_derived(
     net_debt = None
     if total_debt is not None and cash is not None:
         sti = opt("short_term_investments")
-        if _src(values, "cash") == "CashCashEquivalentsAndShortTermInvestments":
-            sti = 0  # cash tag already includes short-term investments
+        if cash_is_bundled:
+            sti = 0  # the cash figure already includes short-term investments
         # Long-term marketable securities are a liquid offset to debt (Apple,
         # Microsoft, ...): excluding them overstates net debt / hides net cash.
         # But the generic us-gaap:LongTermInvestments fallback routinely bundles
@@ -722,9 +606,7 @@ def compute_derived(
     if ac is not None:
         put("quick_ratio", div(ac - opt("inventory"), lc))
     if cash is not None:
-        sti = opt("short_term_investments")
-        if _src(values, "cash") == "CashCashEquivalentsAndShortTermInvestments":
-            sti = 0
+        sti = 0 if cash_is_bundled else opt("short_term_investments")
         put("cash_ratio", div(cash + sti, lc))
 
     # Efficiency / per share
@@ -777,6 +659,7 @@ class PeriodSummary:
     # (SEC / registers) still means "not classified financial" (behavior unchanged).
     sector_known: bool = True
     ttm: dict[str, dict] = field(default_factory=dict)
+    debt_rule: str = "tags"        # see compute_derived
 
     @property
     def is_financial(self) -> bool | None:
@@ -803,7 +686,7 @@ class PeriodSummary:
     def derived(self) -> dict[str, dict]:
         """Computed ratios/aggregates (total debt, EBITDA, leverage, ...)."""
         return compute_derived(self.values, self.frequency, self.currency,
-                               self.is_financial)
+                               self.is_financial, self.debt_rule)
 
 
 def _to_date(value: str | None) -> date | None:
@@ -1069,16 +952,15 @@ def summaries_from_flat(
     return summaries
 
 
-def build_period_summaries(
-    facts: dict, *, company: str, company_current: str, name_for_date=None,
-    since_year: int | None = None, until_year: int | None = None,
-    sic: str | None = None, concepts: tuple[Concept, ...] = CONCEPTS,
-) -> list[PeriodSummary]:
-    """SEC entry point: flatten companyfacts, then group (behavior unchanged)."""
-    flat = flatten_points(facts)
-    return summaries_from_flat(
-        flat, concepts=concepts, company=company, company_current=company_current,
-        name_for_date=name_for_date, since_year=since_year, until_year=until_year, sic=sic)
+def build_period_summaries(facts: dict, *, company: str, company_current: str, name_for_date=None,
+                           since_year: int | None = None, until_year: int | None = None,
+                           sic: str | None = None, statements=()) -> list[PeriodSummary]:
+    """SEC entry point; see :func:`company_corpus.concepts.summaries.build_summaries`."""
+    from .concepts.summaries import build_summaries
+
+    return build_summaries(facts, company=company, company_current=company_current,
+                           name_for_date=name_for_date, since_year=since_year,
+                           until_year=until_year, sic=sic, statements=statements)
 
 
 def _prior_year(by_end: dict[tuple[str, date], "PeriodSummary"], freq: str,
@@ -1090,9 +972,7 @@ def _prior_year(by_end: dict[tuple[str, date], "PeriodSummary"], freq: str,
     return None
 
 
-def attach_ttm_from_flat(flat, summaries, *, concepts_by_key, ttm_keys=_TTM_FLOW_KEYS) -> None:
-    currency = reporting_currency(flat)
-    series = _build_flow_series(flat, currency, concepts_by_key=concepts_by_key, ttm_keys=ttm_keys)
+def _attach_ttm(series: FlowSeries, summaries, *, ttm_keys) -> None:
     by_end = {(s.frequency, s.period_end): s for s in summaries if s.period_end}
     for s in summaries:
         if not s.period_end:
@@ -1105,18 +985,23 @@ def attach_ttm_from_flat(flat, summaries, *, concepts_by_key, ttm_keys=_TTM_FLOW
             old = _num(_prior.values, key) if _prior else None
             return (cur + old) / 2 if (cur is not None and old is not None) else None
 
-        pit_net_debt = compute_derived(
-            s.values, s.frequency, s.currency, s.is_financial).get("net_debt", {}).get("value")
+        pit_net_debt = s.derived.get("net_debt", {}).get("value")
         s.ttm = compute_ttm_derived(
             t12=t12, avg_assets=avg("assets"), avg_equity=avg("equity"),
             pit_net_debt=pit_net_debt, is_financial=s.is_financial)
 
 
-def attach_ttm_metrics(facts: dict, summaries: list[PeriodSummary], *,
-                       concepts_by_key=CONCEPTS_BY_KEY) -> None:
-    """SEC entry point (behavior unchanged): flatten companyfacts then attach TTM."""
-    flat = flatten_points(facts)
-    attach_ttm_from_flat(flat, summaries, concepts_by_key=concepts_by_key)
+def attach_ttm_from_flat(flat, summaries, *, concepts_by_key, ttm_keys=_TTM_FLOW_KEYS) -> None:
+    currency = reporting_currency(flat)
+    series = _build_flow_series(flat, currency, concepts_by_key=concepts_by_key, ttm_keys=ttm_keys)
+    _attach_ttm(series, summaries, ttm_keys=ttm_keys)
+
+
+def attach_ttm_metrics(facts: dict, summaries: list[PeriodSummary], *, statements=()) -> None:
+    """SEC entry point; see :func:`company_corpus.concepts.summaries.attach_ttm`."""
+    from .concepts.summaries import attach_ttm
+
+    attach_ttm(facts, summaries, statements=statements)
 
 
 def _fmt(value, unit: str) -> str:

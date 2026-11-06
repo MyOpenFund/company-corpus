@@ -140,6 +140,7 @@ class _FactsSource:
 
     def __init__(self, **_):
         self.errors: list[dict] = []
+        self.coverage: dict[str, int] = {}
 
     def period_summaries(self, cik, **_):
         from company_corpus.financials import build_period_summaries
@@ -160,6 +161,7 @@ class _DuplicateSource:
 
     def __init__(self, **_):
         self.errors: list[dict] = []
+        self.coverage: dict[str, int] = {}
 
     def period_summaries(self, cik, **_):
         duplicate = _summary(date(2024, 9, 30), "annual")
@@ -173,6 +175,7 @@ class _OneCollidingIssuerSource:
 
     def __init__(self, **_):
         self.errors: list[dict] = []
+        self.coverage: dict[str, int] = {}
 
     def period_summaries(self, cik, **_):
         if normalize_cik(cik) == self.colliding:
