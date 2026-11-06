@@ -47,7 +47,7 @@ STICKY_MANIFEST_FIELDS: tuple[str, ...] = (
 #: annual 52-53 weeks / calendar year, and the 9-month year-to-date (36-40 weeks). A band
 #: whose label is not a my-open-data frequency is a drop reason (``ytd9``); a duration in no
 #: band is dropped as ``odd_duration`` (monthly, stubs, 10-KT transition periods). The F1
-#: engine (``financials._classify_frequency``) keeps its own bands.
+#: engine keeps its own, wider bands (``concepts.summaries.F1_DURATION_BANDS``).
 DEFAULT_DURATION_BANDS: tuple[tuple[str, int, int], ...] = (
     ("quarterly", 81, 115),
     ("semiannual", 165, 199),
@@ -148,6 +148,11 @@ class Config:
     #: A filing absent from the archive whose ``filed`` date is more than this many days after
     #: the run day is implausible (a typo in the feed): it never triggers a refresh.
     store_stale_filed_max_days_ahead: int = 7
+    # Statement positions (chantier 9, ``statements``). Bulk files appear some weeks after their
+    # quarter: before ``statements_publish_grace_days`` a 404 is normal, after it the run fails.
+    statements_publish_grace_days: int = 45
+    # False deletes the 5.7 GB of zips once extracted; the next run downloads them all again.
+    statements_keep_archives: bool = True
     edgar_country_codes: dict[str, str] = field(
         default_factory=lambda: dict(DEFAULT_EDGAR_COUNTRY_CODES))
 
@@ -165,6 +170,8 @@ class Config:
                 and all(isinstance(t, str) and t for t in tags)):
             raise ValueError(
                 "store_currency_anchor_tags must be a non-empty tuple of non-empty strings")
+        if self.statements_publish_grace_days < 0:
+            raise ValueError("statements_publish_grace_days must be >= 0")
         if self.store_stale_filed_max_days_ahead < 0:
             raise ValueError("store_stale_filed_max_days_ahead must be >= 0")
         try:

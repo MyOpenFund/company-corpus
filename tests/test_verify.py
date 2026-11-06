@@ -619,6 +619,24 @@ def test_the_submissions_archive_is_not_an_orphan(corpus):
     assert verify(corpus) == []
 
 
+def test_statement_inputs_are_not_orphans(corpus):
+    root = corpus.raw_dir / "_sec_statements"
+    root.mkdir(parents=True)
+    (root / "2009q1.zip").write_bytes(b"x")
+    (root / "manifest.json").write_text("{}")
+    issuer = corpus.raw_dir / "0000320193" / "statements"
+    issuer.mkdir(parents=True)
+    (issuer / "statements.jsonl").write_text("")
+    assert verify(corpus) == []
+
+
+def test_staging_residue_of_a_bulk_download_is_reported(corpus):
+    root = corpus.raw_dir / "_sec_statements"
+    root.mkdir(parents=True)
+    (root / "2009q1.zip.part").write_bytes(b"x")
+    assert _kinds(verify(corpus)) == ["orphan-artefact"]
+
+
 def test_staging_residue_in_the_submissions_archive_is_reported(corpus):
     d = corpus.raw_dir / "0000320193" / "submissions"
     d.mkdir(parents=True)

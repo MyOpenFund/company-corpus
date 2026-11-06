@@ -61,7 +61,11 @@ UNREFERENCED_RAW_NAMES: frozenset[str] = frozenset({"companyfacts.json"})
 #: Directories under ``raw/<cik>/`` whose files are layer-0 inputs with no manifest row:
 #: the EDGAR submissions archive and its sidecars (chantier 8). Staging residue inside them
 #: (``.tmp`` / ``.part``) is still reported.
-UNREFERENCED_RAW_DIRS: frozenset[str] = frozenset({"submissions"})
+UNREFERENCED_RAW_DIRS: frozenset[str] = frozenset({"submissions", "statements"})
+
+#: Directories directly under ``raw/`` holding layer-0 inputs of no one issuer: the SEC's bulk
+#: statement files (chantier 9).
+UNREFERENCED_RAW_ROOTS: frozenset[str] = frozenset({"_sec_statements"})
 
 #: How many findings of one kind the text report prints before summarising the
 #: rest as a count. The JSON report always carries every finding.
@@ -596,8 +600,10 @@ def _in_unreferenced_dir(rel: str) -> bool:
     """True for ``raw/<cik>/<dir>/...`` with ``<dir>`` in UNREFERENCED_RAW_DIRS, unless the
     file is staging residue of an interrupted write."""
     parts = Path(rel).parts
-    return (len(parts) >= 4 and parts[0] == "raw" and parts[2] in UNREFERENCED_RAW_DIRS
-            and Path(rel).suffix not in STAGING_SUFFIXES)
+    if len(parts) < 3 or parts[0] != "raw" or Path(rel).suffix in STAGING_SUFFIXES:
+        return False
+    return parts[1] in UNREFERENCED_RAW_ROOTS or (len(parts) >= 4
+                                                  and parts[2] in UNREFERENCED_RAW_DIRS)
 
 
 def _is_hidden(rel: str) -> bool:

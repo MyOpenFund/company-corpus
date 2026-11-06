@@ -72,3 +72,15 @@ def test_missing_myopendata_is_fatal(config, tmp_path, monkeypatch):
     _issuer(config, A)
     assert _main(config, monkeypatch, "--ciks", A, "--landing", str(tmp_path / "l")) == 1
 
+
+def test_statements_dry_run_reports_and_a_failed_write_exits_three(config, monkeypatch, capsys):
+    import company_corpus.opendata.statements as st
+
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(config.data_dir))
+    args = ["--data-dir", str(config.data_dir), "statements", "--ciks", A]
+    cli.main(args)
+    assert "statements [DRY-RUN" in capsys.readouterr().out
+    assert not (config.raw_dir / "_sec_statements").exists()
+    monkeypatch.setattr(st, "_fetch_quarter", lambda *a: False)
+    assert cli.main([*args, "--write"]) == 3
+    assert _report(config.data_dir)["outcome"] == "degraded"

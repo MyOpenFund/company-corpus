@@ -39,6 +39,9 @@ register-financials   per        entities resolved            period summaries  
 store-batches         sec        issuers examined             issuers emitted         issuers failed
                                                               (dry-run: computed)     (any failure
                                                                                       degrades: truncated)
+statements            sec        issuers examined             issuers written         bulk files failed
+                                                              (dry-run: 0)            (any failure
+                                                                                      degrades: truncated)
 ===================== ========== ============================ ======================= ==================
 
 Three deliberate choices:
@@ -169,7 +172,7 @@ from .universe import (
 REPORTING_CMDS = {
     "discover", "discover-index", "download", "render-pdf", "xbrl",
     "ownership", "enrich-openfigi", "eu-financials", "register-financials",
-    "eu-acquire", "build-universe", "store-batches",
+    "eu-acquire", "build-universe", "store-batches", "statements",
 }
 
 
@@ -952,6 +955,25 @@ def _cmd_store_batches(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_statements(args: argparse.Namespace) -> int:
+    """SEC bulk files -> layer 0 + per-issuer statement positions. Dry-run unless --write."""
+    from .opendata.statements import fetch_statements
+
+    cfg = _config(args)
+    ciks = _ciks_for(args, cfg)
+    fetcher = Fetcher(cfg) if args.write else None
+    rep = fetch_statements(ciks, config=cfg, write=args.write, fetcher=fetcher)
+    mode = "WROTE" if args.write else "DRY-RUN (nothing written)"
+    print(f"statements [{mode}] — quarters: {rep.present} present, {rep.fetched} fetched, "
+          f"{len(rep.to_fetch)} to fetch, {len(rep.not_published_yet)} not published yet; "
+          f"{rep.issuers} issuers, {rep.rows} rows")
+    for err in rep.errors:
+        print(f"  error: {err}")
+    _feed_report(getattr(args, "report", None), "sec", seen=len(ciks), new=rep.issuers,
+                 failed=len(rep.errors), errors=rep.errors, truncated=bool(rep.errors))
+    return 0
+
+
 def _eu_specs(args: argparse.Namespace) -> list[dict]:
     if getattr(args, "leis", None):
         return [{"lei": x.strip()} for x in args.leis.split(",") if x.strip()]
@@ -1543,6 +1565,16 @@ def build_parser() -> argparse.ArgumentParser:
     sb.add_argument("--write", action="store_true",
                     help="write batches and fetch missing or stale archives (else dry-run)")
     sb.set_defaults(func=_cmd_store_batches)
+
+    st = sub.add_parser("statements",
+                        help="archive the SEC bulk statement files and extract which tag is on "
+                             "which statement, per issuer (dry-run by default)")
+    stsrc = st.add_mutually_exclusive_group(required=True)
+    stsrc.add_argument("--universe", help="universe name")
+    stsrc.add_argument("--ciks", help="comma-separated CIKs")
+    st.add_argument("--write", action="store_true",
+                    help="download missing quarters and rewrite the per-issuer files")
+    st.set_defaults(func=_cmd_statements)
 
     euf = sub.add_parser("eu-financials",
                          help="build per-period IFRS financial summaries from ESEF (filings.xbrl.org)")
