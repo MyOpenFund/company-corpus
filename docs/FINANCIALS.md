@@ -38,7 +38,7 @@ summed or divided as if it were the functional currency.
 ## Curated concepts
 
 The curated line items are data: `company_corpus/concepts/us_gaap.json`, with its own version. Each
-concept has one meaning, a preference-ordered list of tags, and the statement it belongs on. 46
+concept has one meaning, a preference-ordered list of tags, and the statement it belongs on. 48
 concepts are `reviewed`; the other 23 keep their earlier chains and are marked `not_reviewed`. Beyond
 the core lines the set includes `long_term_investments`, `preferred_stock`,
 `noncontrolling_interest`, `equity_total`, `net_income_nci`, `acquisitions_net`,
@@ -56,7 +56,9 @@ Tag choices that still matter to a reader:
 
 - `net_income` is the parent's share (`NetIncomeLoss`, after NCI); `ProfitLoss` is the consolidated
   total. A filer whose income statement only has
-  `NetIncomeLossAvailableToCommonStockholdersBasic` gets that line, which is after preferred dividends. `net_income_nci` is the NCI part, for reconciliation only.
+  `NetIncomeLossAvailableToCommonStockholdersBasic` gets that line, which is after preferred dividends.
+  A filer showing both lines with different values is flagged `conflict`, which here only reflects the
+  dividends. `net_income_nci` is the NCI part, for reconciliation only.
 - `pretax_income` leaves out the domestic-only subtotal: for a multinational it would make the tax
   rate use domestic pretax income. Some filers tag only the domestic and foreign parts
   (`pretax_domestic`, `pretax_foreign`); their sum stands in for pretax income.
@@ -128,7 +130,7 @@ ratios are `%` or `x`.
 
 | Metric | Definition |
 |---|---|
-| `total_debt` | SEC: the largest of three builds, since a sum of parts cannot exceed its whole. Noncurrent + current, where noncurrent is the larger of `long_term_debt` and `long_term_debt_lines` (`debt_components` when both are empty) and current is the larger of `lt_debt_current` + `short_term_debt` and `debt_current_total`; `long_term_debt_incl_current` + `short_term_debt`; `debt_total`. EU and registers: `long_term_debt` + `lt_debt_current` + `short_term_debt`, with roll-up tags not double-counted |
+| `total_debt` | SEC: the largest of three builds, since a partial chain can only come out low. Noncurrent + current; a total with current maturities + the short-term debt beyond them; `debt_total`. Noncurrent is the larger of `long_term_debt` and `long_term_debt_lines`. Current is `debt_current_total`, or `lt_debt_current` + `short_term_debt` when it is absent or smaller than one of them. The total with current maturities is `long_term_debt_incl_current`, or with no noncurrent figure the larger of it and `debt_components`. EU and registers: `long_term_debt` + `lt_debt_current` + `short_term_debt`, with roll-up tags not double-counted |
 | `total_debt_incl_leases` | total debt + finance & operating lease liabilities |
 | `net_debt` | total debt − cash − short-term investments − **long-term investments** |
 | `net_cash` | −`net_debt` (positive = net cash; offsets ST **and** LT investments) |

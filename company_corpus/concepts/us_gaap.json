@@ -172,10 +172,11 @@
    "status": "reviewed",
    "on_several": "first",
    "tags": [
-    "NetIncomeLoss",
-    "NetIncomeLossAvailableToCommonStockholdersBasic"
+    "NetIncomeLoss"
    ],
-   "statement_only_tags": []
+   "statement_only_tags": [
+    "NetIncomeLossAvailableToCommonStockholdersBasic"
+   ]
   },
   "net_income_consolidated": {
    "label": "Net income including NCI",

@@ -13,6 +13,7 @@ def _v(**kw):
     (dict(long_term_debt=100, lt_debt_current=10, short_term_debt=5), 115),
     (dict(long_term_debt=100, debt_current_total=30), 130),
     (dict(long_term_debt=100, debt_current_total=30, short_term_debt=5), 130),
+    (dict(long_term_debt=100, lt_debt_current=10, short_term_debt=25, debt_current_total=30), 130),  # no double count
     (dict(long_term_debt=100, debt_current_total=3, short_term_debt=5), 105),
     (dict(long_term_debt=100, debt_total=999), 999),
     (dict(long_term_debt=100, lt_debt_current=10, debt_total=50), 110),
@@ -21,9 +22,14 @@ def _v(**kw):
     (dict(long_term_debt_lines=30, lt_debt_current=10), 40),
     (dict(long_term_debt_incl_current=100, short_term_debt=5), 105),
     (dict(long_term_debt_incl_current=100, lt_debt_current=10), 100),
+    (dict(long_term_debt_incl_current=100, lt_debt_current=10, debt_current_total=30), 120),
+    (dict(long_term_debt_incl_current=100, debt_current_total=30), 100),    # its current part is unknown
+    (dict(long_term_debt_incl_current=0, debt_total=75859), 75859),         # a stray zero loses
+    (dict(long_term_debt=0), 0),
     (dict(long_term_debt=100, lt_debt_current=10, long_term_debt_incl_current=90, short_term_debt=5), 115),
     (dict(debt_total=500, lt_debt_current=10), 500),
-    (dict(debt_components=70, lt_debt_current=10), 80),
+    (dict(debt_components=70, lt_debt_current=10), 70),         # the lines include current maturities
+    (dict(debt_components=70, short_term_debt=5), 75),
     (dict(debt_components=70, long_term_debt=50), 50),
     (dict(debt_total=500, debt_components=70), 500),
     (dict(short_term_debt=5), 5),

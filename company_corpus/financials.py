@@ -308,6 +308,7 @@ _ROLLUP_OWN_CURRENT_TAGS: frozenset[str] = frozenset({"DebtCurrent", "CurrentBor
 _PARENT_ATTRIB_TAGS: frozenset[str] = frozenset({
     "StockholdersEquity", "EquityAttributableToOwnersOfParent",   # equity (owners of parent)
     "NetIncomeLoss", "ProfitLossAttributableToOwnersOfParent",    # earnings (owners of parent)
+    "NetIncomeLossAvailableToCommonStockholdersBasic",            # same, after preferred dividends
 })
 _TOTAL_ATTRIB_TAGS: frozenset[str] = frozenset({
     "Equity",        # IFRS consolidated equity (incl. NCI)
@@ -351,18 +352,28 @@ def _largest(*amounts: float | int | None) -> float | int | None:
 
 def _total_debt_from_concepts(values: dict[str, dict]) -> float | int | None:
     """Total debt where each concept has one meaning (the SEC dictionary): nothing to infer from a
-    tag. The largest of the available builds, since a sum of parts cannot exceed its whole: a
-    noncurrent figure plus current debt; a total with current maturities plus short-term
-    borrowings; an all-in total. None for a debt-free filer."""
+    tag. The largest of the available builds, since a partial chain can only come out low: a
+    noncurrent figure plus current debt; a total with current maturities plus the short-term debt
+    beyond them; an all-in total. None for a debt-free filer.
+
+    ``debt_current_total`` holds the separate current lines, unless it is smaller than one of them
+    and so cannot be their whole. ``debt_components`` lines include current maturities."""
     cur, st = _num(values, "lt_debt_current"), _num(values, "short_term_debt")
-    lines = None if cur is None and st is None else (cur or 0) + (st or 0)
-    current = _largest(lines, _num(values, "debt_current_total"))
+    whole = _num(values, "debt_current_total")
+    whole_is_valid = whole is not None and whole >= _largest(cur, st, 0)
+    if whole_is_valid:
+        current = whole
+    elif cur is None and st is None:
+        current = whole
+    else:
+        current = (cur or 0) + (st or 0)
+    beyond = max(whole - cur, 0) if whole_is_valid and cur is not None else (st or 0)
     noncurrent = _largest(_num(values, "long_term_debt"), _num(values, "long_term_debt_lines"))
-    if noncurrent is None:
-        noncurrent = _num(values, "debt_components")
     with_current = None if noncurrent is None and current is None else (noncurrent or 0) + (current or 0)
     incl_current = _num(values, "long_term_debt_incl_current")
-    with_short_term = None if incl_current is None else incl_current + (st or 0)
+    if noncurrent is None:
+        incl_current = _largest(incl_current, _num(values, "debt_components"))
+    with_short_term = None if incl_current is None else incl_current + beyond
     return _largest(with_current, with_short_term, _num(values, "debt_total"))
 
 
