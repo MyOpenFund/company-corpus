@@ -29,6 +29,12 @@ def _v(**kw):
     (dict(long_term_debt=100, lt_debt_current=10, long_term_debt_incl_current=90, short_term_debt=5), 115),
     (dict(long_term_debt=947, short_term_debt=460, long_term_debt_incl_current=1410), 1410),  # the same debt, once
     (dict(long_term_debt=100, short_term_debt=20, long_term_debt_incl_current=150), 170),     # another figure: adds
+    (dict(long_term_debt=900, lt_debt_current=47, short_term_debt=460, long_term_debt_incl_current=1410), 1410),
+    (dict(long_term_debt=947, debt_current_total=460, long_term_debt_incl_current=1410), 1410),
+    (dict(long_term_debt=947, short_term_debt=460, long_term_debt_incl_current=1435), 1435),  # at 2% still one figure
+    (dict(long_term_debt=947, short_term_debt=460, long_term_debt_incl_current=1440), 1900),  # beyond it, two
+    # The accepted cost: a gross total within 2% hides a real short-term line (the true total is 1085).
+    (dict(long_term_debt=1000, lt_debt_current=50, short_term_debt=15, long_term_debt_incl_current=1070), 1070),
     (dict(debt_total=500, lt_debt_current=10), 500),
     (dict(debt_components=70, lt_debt_current=10), 70),         # the lines include current maturities
     (dict(debt_components=70, short_term_debt=5), 75),
@@ -121,6 +127,8 @@ def test_marriott_total_debt_end_to_end():
     ("truist", "2025-12-31", 69802000000, None, None),               # short-term borrowings kept
     ("jpmorgan", "2025-12-31", 499982000000, None, None),            # total + short-term borrowings
     ("target", "2026-01-31", 16456000000, None, 10968000000),        # note Cash ignored, bundled used
+    ("waters", "2025-12-31", 1410000000, None, None),                # LongTermDebt already holds short-term
+    ("tmobile", "2025-12-31", 86282000000, None, None),              # same
 ])
 def test_total_debt_on_real_filings(name, end, total, cash, net_debt):
     fx = fixture(name)

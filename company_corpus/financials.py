@@ -385,7 +385,8 @@ def _total_debt_from_concepts(values: dict[str, dict]) -> float | int | None:
     noncurrent figure plus current debt; a total with current maturities plus the short-term debt
     beyond them; an all-in total. ``debt_components`` lines include current maturities. A total with
     current maturities that matches the first build is that same debt, short-term included, so
-    nothing is added to it. None for a debt-free filer."""
+    nothing is added to it, even if a real short-term line under that tolerance is lost. None for a
+    debt-free filer."""
     current, beyond = _current_debt(values)
     noncurrent = _largest(_num(values, "long_term_debt"), _num(values, "long_term_debt_lines"))
     with_current = None if noncurrent is None and current is None else (noncurrent or 0) + (current or 0)
