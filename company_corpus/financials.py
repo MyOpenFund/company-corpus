@@ -346,6 +346,10 @@ def _sector_relevant(is_financial: bool | None, key: str) -> bool | None:
     return not is_financial
 
 
+# Two debt builds this close are read as one figure, whatever their rounding or issuance costs.
+SAME_DEBT_TOLERANCE = 0.02
+
+
 def _largest(*amounts: float | int | None) -> float | int | None:
     return max((a for a in amounts if a is not None), default=None)
 
@@ -379,8 +383,9 @@ def _total_debt_from_concepts(values: dict[str, dict]) -> float | int | None:
     """Total debt where each concept has one meaning (the SEC dictionary): nothing to infer from a
     tag. The largest of the available builds, since a partial chain can only come out low: a
     noncurrent figure plus current debt; a total with current maturities plus the short-term debt
-    beyond them; an all-in total. ``debt_components`` lines include current maturities. None for a
-    debt-free filer."""
+    beyond them; an all-in total. ``debt_components`` lines include current maturities. A total with
+    current maturities that matches the first build is that same debt, short-term included, so
+    nothing is added to it. None for a debt-free filer."""
     current, beyond = _current_debt(values)
     noncurrent = _largest(_num(values, "long_term_debt"), _num(values, "long_term_debt_lines"))
     with_current = None if noncurrent is None and current is None else (noncurrent or 0) + (current or 0)
@@ -388,6 +393,8 @@ def _total_debt_from_concepts(values: dict[str, dict]) -> float | int | None:
     if not noncurrent:
         incl_current = _largest(incl_current, _num(values, "debt_components"))
     with_short_term = None if incl_current is None else incl_current + beyond
+    if noncurrent and incl_current is not None and abs(incl_current - with_current) <= SAME_DEBT_TOLERANCE * with_current:
+        with_short_term = incl_current
     return _largest(with_current, with_short_term, _num(values, "debt_total"))
 
 

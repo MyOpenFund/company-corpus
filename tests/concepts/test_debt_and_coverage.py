@@ -27,6 +27,8 @@ def _v(**kw):
     (dict(long_term_debt_incl_current=0, debt_total=75859), 75859),         # a stray zero loses
     (dict(long_term_debt=0), 0),
     (dict(long_term_debt=100, lt_debt_current=10, long_term_debt_incl_current=90, short_term_debt=5), 115),
+    (dict(long_term_debt=947, short_term_debt=460, long_term_debt_incl_current=1410), 1410),  # the same debt, once
+    (dict(long_term_debt=100, short_term_debt=20, long_term_debt_incl_current=150), 170),     # another figure: adds
     (dict(debt_total=500, lt_debt_current=10), 500),
     (dict(debt_components=70, lt_debt_current=10), 70),         # the lines include current maturities
     (dict(debt_components=70, short_term_debt=5), 75),
