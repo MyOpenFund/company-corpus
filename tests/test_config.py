@@ -167,3 +167,7 @@ def test_a_negative_stale_filed_margin_is_refused():
     with pytest.raises(ValueError, match="store_stale_filed_max_days_ahead"):
         Config(store_stale_filed_max_days_ahead=-1)
     assert Config(store_stale_filed_max_days_ahead=0).store_stale_filed_max_days_ahead == 0
+
+
+def test_report_forms_are_normalised_to_upper_case_stripped_tuple():
+    assert Config(store_report_forms=[" 10-q", "10-k "]).store_report_forms == ("10-Q", "10-K")

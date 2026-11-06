@@ -8,6 +8,7 @@ nothing and produces no new errors, matching cb_corpus's convergence contract.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date
@@ -29,6 +30,7 @@ from .ownership import (
     thirteenf_text,
 )
 from .sources.edgar_submissions import EdgarSubmissions
+from .opendata.statements import refresh_statements
 from .sources.edgar_xbrl import EdgarXBRL
 from .storage import SaveStats, ShrinkGuardError, Storage
 from .taxonomy import FULL_SCOPE, FormType
@@ -321,6 +323,7 @@ class FinancialsReport:
     periods: int = 0
     stats: SaveStats = field(default_factory=SaveStats)
     errors: list[dict] = field(default_factory=list)
+    coverage: Counter = field(default_factory=Counter)
 
 
 def fetch_financials(
@@ -359,11 +362,15 @@ def fetch_financials(
     cik_list = list(ciks)
 
     report = FinancialsReport(issuers=len(cik_list))
+    if not dry_run:
+        for err in refresh_statements(cik_list, config=config, fetcher=fetcher).errors:
+            report.errors.append({"source": "sec_statements", "context": "bulk files", "error": err})
     for cik in cik_list:
         source = EdgarXBRL(fetcher=fetcher, config=config)
         facts, summaries = source.period_summaries(
             cik, since_year=since_year, until_year=until_year)
         report.errors.extend(source.errors)
+        report.coverage.update(source.coverage)
         if not facts or not summaries:
             continue
 

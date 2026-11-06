@@ -15,6 +15,8 @@ dependencies = [
     "lxml>=5.0",
     "pandas>=2.0",
     "python-dateutil>=2.9",
+    "duckdb>=2.0,<3",
+    "pyarrow>=17",
 ]
 
 [project.optional-dependencies]
@@ -26,10 +28,13 @@ be = ["curl_cffi>=0.7"]
 eu-financials = ["arelle-release"]
 # my-open-data producer side (``store-batches``, chantier 8): the writer only, pinned to a
 # reviewed commit. The CI job "store" also installs the publisher (requirements-store.txt).
-store = ["my-open-data[writer] @ git+https://github.com/MyOpenFund/my-open-data@74414d681722291ecd8b25a67dd489039b4ab61a"]
+store = ["my-open-data[writer] @ git+https://github.com/MyOpenFund/my-open-data@ab7d4e868400fe764b3d889665c6d517a90d49f1"]
 
 [project.scripts]
 company-corpus = "company_corpus.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["company_corpus*"]
+
+[tool.setuptools.package-data]
+"company_corpus.concepts" = ["*.json"]

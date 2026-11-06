@@ -218,6 +218,7 @@ class _OneSummarySource:
 
     def __init__(self, **_):
         self.errors: list[dict] = []
+        self.coverage: dict[str, int] = {}
 
     def period_summaries(self, cik, **_):
         from company_corpus.financials import PeriodSummary

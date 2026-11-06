@@ -98,7 +98,7 @@ def test_preferred_concept_prioritises_carrying_value():
 
 
 def test_equity_is_parent_only():
-    assert CONCEPTS_BY_KEY["equity"].tags == ("StockholdersEquity",)
+    assert CONCEPTS_BY_KEY["equity"].tags == ("StockholdersEquity", "PartnersCapital")
     assert "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest" \
         in CONCEPTS_BY_KEY["equity_total"].tags
 

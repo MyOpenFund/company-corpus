@@ -1,9 +1,8 @@
-"""SEC companyfacts points -> my-open-data ``fundamentals`` 2.0.0 rows (spec §4, S1-S9).
+"""SEC companyfacts points -> my-open-data ``fundamentals`` 3.0.0 rows, as filed.
 
-Raw points, not the F1 summaries: the F1 engine keeps only the latest-filed value per
-period (``financials._latest_filed``), so restatements and comparatives would be lost. Every
-observation is emitted, one row per filing that reports a value (S4); the my-open-data
-publisher skips what it already holds (S3).
+Every observation of every dictionary tag is emitted, one row per filing that reports a value;
+the my-open-data publisher skips what it already holds. Which tag answers which concept is decided
+when reading (``concepts.selection``), so changing the dictionary changes no published row.
 """
 from __future__ import annotations
 
@@ -14,12 +13,13 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from zoneinfo import ZoneInfo
 
-from ..config import Config, normalize_cik
-from ..financials import _CURRENCY_RE, CONCEPTS, Concept
+from ..config import DEFAULT_REPORT_FORMS, Config, normalize_cik
+from ..concepts.dictionary import Dictionary, TagSpec, load_dictionary
+from ..financials import _CURRENCY_RE
 from ..models import FilingRecord
 from ..taxonomy import from_edgar_form
 
-#: Namespaces read from companyfacts. ``dei`` is needed because one curated chain falls
+#: Namespaces read from companyfacts. ``dei`` is needed because one dictionary chain falls
 #: back to a cover-page tag (shares_outstanding -> dei:EntityCommonStockSharesOutstanding).
 NAMESPACES: tuple[str, ...] = ("us-gaap", "dei")
 #: Duration labels that are my-open-data frequencies; any other band label is a drop reason.
@@ -28,10 +28,8 @@ EMITTED_FREQUENCIES: tuple[str, ...] = ("quarterly", "semiannual", "annual")
 
 @dataclass(frozen=True)
 class Point:
-    concept: str
     tag: str
     ns: str
-    prio: int          # position of the tag in the concept's priority chain
     start: date | None
     end: date
     frequency: str     # quarterly | semiannual | annual | instant
@@ -85,14 +83,14 @@ def _decimal(value) -> Decimal | None:
 AMBIGUOUS_CURRENCY = "?"  # a filing whose currency signals do not settle; no ISO unit matches
 
 
-def _unit_drop(concept: Concept, unit: str, currency: str | None) -> str | None:
+def _unit_drop(spec: TagSpec, unit: str, currency: str | None) -> str | None:
     """Why a point's unit disqualifies it, or None. Monetary and per-share values keep only
     the filing's reporting currency (a convenience translation is not a second fact). The shape
     of the unit is checked first, so a malformed unit is ``unexpected_unit`` whatever the
     filing's currency signals say."""
-    if concept.unit == "shares":
+    if spec.unit == "shares":
         return None if unit == "shares" else "unexpected_unit"
-    if concept.unit.endswith("/shares"):
+    if spec.unit.endswith("/shares"):
         numerator = unit[:-len("/shares")] if unit.endswith("/shares") else ""
     else:
         numerator = unit
@@ -105,13 +103,13 @@ def _unit_drop(concept: Concept, unit: str, currency: str | None) -> str | None:
     return None
 
 
-def _point(concept: Concept, prio: int, p: dict, currency: str | None, bands,
-           counters: Counter) -> Point | None:
+def _point(spec: TagSpec, p: dict, currency: str | None, bands, counters: Counter,
+           frequencies: Collection[str]) -> Point | None:
     end, raw_start = _day(p.get("end")), p.get("start")
     start = _day(raw_start) if raw_start else None
     value, accn = _decimal(p.get("val")), p.get("accn") or ""
     form = (p.get("form") or "").strip()
-    reason = _unit_drop(concept, p.get("unit") or "", currency)
+    reason = _unit_drop(spec, p.get("unit") or "", currency)
     if reason:
         counters[f"dropped:{reason}"] += 1
         return None
@@ -121,7 +119,7 @@ def _point(concept: Concept, prio: int, p: dict, currency: str | None, bands,
     if _quantized(value) is None:
         counters["dropped:value_out_of_range"] += 1
         return None
-    if (start is None) != concept.instant:
+    if (start is None) != spec.instant:
         counters["dropped:period_shape"] += 1
         return None
     if start is None:
@@ -131,12 +129,12 @@ def _point(concept: Concept, prio: int, p: dict, currency: str | None, bands,
         if label is None:
             counters["dropped:odd_duration"] += 1
             return None
-        if label not in EMITTED_FREQUENCIES:
+        if label not in frequencies:
             counters[f"dropped:{label}"] += 1
             return None
         frequency = label
-    return Point(concept.key, p["tag"], p["ns"], prio, start, end, frequency, value,
-                 p["unit"], accn, form, _day(p.get("filed")))
+    return Point(p["tag"], p["ns"], start, end, frequency, value, p["unit"], accn, form,
+                 _day(p.get("filed")))
 
 
 def _unique_top(counts: Counter) -> str | None:
@@ -147,12 +145,8 @@ def _unique_top(counts: Counter) -> str | None:
     return top[0][0]
 
 
-_PER_SHARE_TAGS = frozenset(
-    tag for c in CONCEPTS if c.unit.endswith("/shares") for tag in c.tags)
-
-
-def _filing_currencies(flat: dict[str, list[dict]],
-                       anchor_tags: Collection[str]) -> dict[str, str]:
+def _filing_currencies(flat: dict[str, list[dict]], anchor_tags: Collection[str],
+                       per_share_tags: Collection[str]) -> dict[str, str]:
     """Reporting currency of each filing, from that filing's own us-gaap facts only: a dei value
     such as the public float can be in another currency, and an issuer-wide count would change
     as filings accumulate, so that a published row could change, which the publisher quarantines.
@@ -172,7 +166,7 @@ def _filing_currencies(flat: dict[str, list[dict]],
     for tag, points in flat.items():
         for p in points:
             unit = p.get("unit") or ""
-            if tag in _PER_SHARE_TAGS and unit.endswith("/shares"):
+            if tag in per_share_tags and unit.endswith("/shares"):
                 numerator = unit[:-len("/shares")]
                 if _CURRENCY_RE.match(numerator):
                     per_share[p.get("accn") or ""].add(numerator)
@@ -194,25 +188,27 @@ def _filing_currencies(flat: dict[str, list[dict]],
     return out
 
 
-def select_points(flat: dict[str, list[dict]], bands, counters: Counter,
-                  anchor_tags: Collection[str]) -> list[Point]:
-    """Every usable point of the curated concepts; per (concept, period end, frequency,
-    filing) only the points of the highest-priority tag present (spec S6).
-    ``shares_outstanding`` may yield both the balance-sheet-date value
-    (``CommonStockSharesOutstanding``) and the cover-date value
-    (``dei:EntityCommonStockSharesOutstanding``) of the same filing: their valid dates differ."""
-    currencies = _filing_currencies(flat, anchor_tags)
-    groups: dict[tuple, list[Point]] = defaultdict(list)
-    for concept in CONCEPTS:
-        for prio, tag in enumerate(concept.tags):
-            for p in flat.get(tag, []):
-                pt = _point(concept, prio, p, currencies.get(p.get("accn") or ""), bands, counters)
-                if pt is not None:
-                    groups[(pt.concept, pt.end, pt.frequency, pt.accn)].append(pt)
+def as_filed_points(flat: dict[str, list[dict]], bands, counters: Counter,
+                    anchor_tags: Collection[str], *, dictionary: Dictionary | None = None,
+                    frequencies: Collection[str] = EMITTED_FREQUENCIES,
+                    report_forms: Collection[str] = DEFAULT_REPORT_FORMS) -> list[Point]:
+    """Every usable point of every dictionary tag from a financial report, helpers included,
+    whatever its priority."""
+    specs = (dictionary or load_dictionary()).tag_specs()
+    per_share = {tag for tag, spec in specs.items() if spec.unit.endswith("/shares")}
+    currencies = _filing_currencies(flat, anchor_tags, per_share)
     out: list[Point] = []
-    for pts in groups.values():
-        best = min(p.prio for p in pts)
-        out.extend(p for p in pts if p.prio == best)
+    for tag, spec in specs.items():
+        for p in flat.get(tag, []):
+            if p.get("ns") != spec.ns:
+                counters["dropped:other_namespace"] += 1
+                continue
+            if (p.get("form") or "").strip().upper() not in report_forms:
+                counters["dropped:not_a_report"] += 1
+                continue
+            pt = _point(spec, p, currencies.get(p.get("accn") or ""), bands, counters, frequencies)
+            if pt is not None:
+                out.append(pt)
     return out
 
 
@@ -226,72 +222,92 @@ class FundamentalsResult:
     counters: Counter = field(default_factory=Counter)
 
 
-def fundamentals_rows(cik: str, facts: dict, *, acceptance: Mapping[str, datetime],
-                      manifest_doc_ids: Collection[str], config: Config,
-                      now: datetime) -> FundamentalsResult:
-    """One row per (concept, period, frequency, known_at) the issuer's filings report.
+@dataclass(frozen=True)
+class KnownAtClock:
+    """known_at of a filing: EDGAR acceptance time, else its filing date at the configured
+    end-of-day time, capped at ``now``."""
 
-    known_at = EDGAR acceptance time of the filing (S9), else its filing date at the
-    configured end-of-day time, capped at ``now``. Two filings accepted the same second that
-    report the same key: equal values keep one row (lowest accession), different values emit
-    none (``ambiguous_observation``).
+    now: datetime
+    tz: ZoneInfo
+    at: time
+    latest_filed: date
+
+    @classmethod
+    def of(cls, config: Config, now: datetime) -> KnownAtClock:
+        if now.tzinfo is None:
+            raise ValueError("now must be timezone-aware")
+        latest = (now.astimezone(ZoneInfo(config.store_edgar_day_tz)).date()
+                  + timedelta(days=config.store_stale_filed_max_days_ahead))
+        return cls(now, ZoneInfo(config.store_known_at_fallback_tz),
+                   time.fromisoformat(config.store_known_at_fallback_time), latest)
+
+    def resolve(self, accn: str, filed: date | None, acceptance: Mapping[str, datetime],
+                counters: Counter) -> tuple[datetime | None, bool]:
+        """``(known_at, fell_back)``; known_at None when the observation must be dropped."""
+        known_at = acceptance.get(accn)
+        if known_at is not None and known_at.tzinfo is None:
+            counters["known_at_naive"] += 1   # unusable: same path as a missing acceptance
+            known_at = None
+        if known_at is not None:
+            return known_at, False
+        if filed is None:
+            counters["dropped:no_known_at"] += 1
+            return None, False
+        if filed > self.latest_filed:
+            # A typo in the feed: capped at ``now`` it would be a new vintage every run.
+            counters["dropped:implausible_filed"] += 1
+            return None, False
+        fallback = datetime.combine(filed, self.at, tzinfo=self.tz).astimezone(timezone.utc)
+        if fallback > self.now:
+            counters["known_at_capped"] += 1
+        return min(fallback, self.now), True
+
+
+def fundamentals_rows(cik: str, facts: dict, *, acceptance: Mapping[str, datetime],
+                      manifest_doc_ids: Collection[str], config: Config, now: datetime,
+                      dictionary: Dictionary | None = None) -> FundamentalsResult:
+    """One row per (tag, period, frequency, known_at) the issuer's filings report.
+
+    Two filings accepted the same second that report the same key: equal values keep one row
+    (lowest accession), different values emit none (``ambiguous_observation``).
 
     The history is re-emitted every run and the store refuses a row whose (natural key,
     known_at) it holds with another value, so every column must be a pure function of immutable
     inputs. ``fiscal_year`` is always null: it can only be derived from the year-ends known
     today, which change for already-published rows; a reader view will derive it.
     """
-    if now.tzinfo is None:
-        raise ValueError("now must be timezone-aware")
+    clock = KnownAtClock.of(config, now)
     cik, counters = normalize_cik(cik), Counter()
-    points = select_points(flatten_with_namespace(facts), config.store_duration_bands, counters,
-                           config.store_currency_anchor_tags)
-    tz = ZoneInfo(config.store_known_at_fallback_tz)
-    at = time.fromisoformat(config.store_known_at_fallback_time)
-    latest_filed = (now.astimezone(ZoneInfo(config.store_edgar_day_tz)).date()
-                    + timedelta(days=config.store_stale_filed_max_days_ahead))
+    points = as_filed_points(flatten_with_namespace(facts), config.store_duration_bands, counters,
+                             config.store_currency_anchor_tags, dictionary=dictionary,
+                             report_forms=config.store_report_forms)
     by_key: dict[tuple, list[tuple[Point, bool]]] = defaultdict(list)
     for pt in points:
-        known_at = acceptance.get(pt.accn)
-        if known_at is not None and known_at.tzinfo is None:
-            counters["known_at_naive"] += 1   # unusable: same path as a missing acceptance
-            known_at = None
-        if known_at is None:
-            if pt.filed is None:
-                counters["dropped:no_known_at"] += 1
-                continue
-            if pt.filed > latest_filed:
-                # A typo in the feed: capped at ``now`` it would be a new vintage every run.
-                counters["dropped:implausible_filed"] += 1
-                continue
-            fallback = datetime.combine(pt.filed, at, tzinfo=tz).astimezone(timezone.utc)
-            if fallback > now:
-                counters["known_at_capped"] += 1
-            by_key[(pt.concept, pt.end, pt.frequency, min(fallback, now))].append((pt, True))
-        else:
-            by_key[(pt.concept, pt.end, pt.frequency, known_at)].append((pt, False))
+        known_at, fell_back = clock.resolve(pt.accn, pt.filed, acceptance, counters)
+        if known_at is not None:
+            by_key[(pt.ns, pt.tag, pt.end, pt.frequency, known_at)].append((pt, fell_back))
     rows = []
-    for (_, _, _, known_at), cands in by_key.items():
+    for (_, _, _, _, known_at), cands in by_key.items():
         if len({_quantized(pt.value) for pt, _ in cands}) > 1:
             counters["ambiguous_observation"] += 1
             continue
-        pt, fell_back = min(cands, key=lambda c: (c[0].accn, c[0].prio, c[0].tag, c[0].unit, c[0].value,
-                                         c[0].start is not None, c[0].start or date.min,
-                                         c[0].form))
+        pt, fell_back = min(cands, key=lambda c: (c[0].accn, c[0].unit, c[0].value,
+                                                  c[0].start is not None, c[0].start or date.min,
+                                                  c[0].form))
         if fell_back:
             counters["known_at_fallback"] += 1
         rows.append(_row(cik, pt, known_at, manifest_doc_ids, counters))
     return FundamentalsResult(rows=rows, counters=counters)
 
 
-def _source_doc_id(cik: str, pt: Point, manifest_doc_ids, counters: Counter) -> str | None:
+def source_doc_id(cik: str, form: str, accn: str, manifest_doc_ids, counters: Counter) -> str | None:
     """The filing's doc_id (S2): its family from the form without "/A" (10-K/A -> A1)."""
-    form = pt.form.upper()
-    ft = from_edgar_form(form[:-2] if form.endswith("/A") else form) if form else None
+    upper = form.upper()
+    ft = from_edgar_form(upper[:-2] if upper.endswith("/A") else upper) if upper else None
     if ft is None:
         counters["source_doc_id_null"] += 1
         return None
-    doc_id = FilingRecord(cik=cik, form_type=ft, sec_form=pt.form, accession=pt.accn).doc_id
+    doc_id = FilingRecord(cik=cik, form_type=ft, sec_form=form, accession=accn).doc_id
     if doc_id not in manifest_doc_ids:
         counters["filing_not_in_manifest"] += 1
     return doc_id
@@ -313,11 +329,11 @@ def _row(cik: str, pt: Point, known_at: datetime, manifest_doc_ids,
     if value != pt.value:
         counters["value_rounded"] += 1
     return {
-        "entity_scheme": "cik", "entity_value": cik, "concept": pt.concept,
+        "entity_scheme": "cik", "entity_value": cik,
         "original_tag": f"{pt.ns}:{pt.tag}", "period_start": pt.start,
         "frequency": pt.frequency, "fiscal_year": None, "basis": "consolidated",
         "value": value, "unit": pt.unit, "extraction_method": "xbrl_filed",
-        "confidence": None, "source_page": None, "valid_date": pt.end,
+        "confidence": None, "source_page": None, "filing_ref": pt.accn, "valid_date": pt.end,
         "known_at": known_at, "known_at_kind": "published", "source_code": SOURCE_CODE,
-        "source_doc_id": _source_doc_id(cik, pt, manifest_doc_ids, counters),
+        "source_doc_id": source_doc_id(cik, pt.form, pt.accn, manifest_doc_ids, counters),
     }

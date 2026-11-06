@@ -36,7 +36,7 @@ def test_an_issuer_without_companyfacts_mid_run_exits_three(config, tmp_path, mo
     rep = _report(config.data_dir)
     assert rep["outcome"] == "degraded"
     assert rep["details"]["store_batches"]["issuers"][B]["status"] == "ok"
-    assert list((tmp_path / "l" / "fundamentals_v2").iterdir())
+    assert list((tmp_path / "l" / "fundamentals_v3").iterdir())
 
 
 def test_dry_run_takes_no_lock_and_writes_no_landing(config, tmp_path, monkeypatch):
@@ -71,3 +71,30 @@ def test_missing_myopendata_is_fatal(config, tmp_path, monkeypatch):
     monkeypatch.setattr(batches, "_myopendata", unavailable)
     _issuer(config, A)
     assert _main(config, monkeypatch, "--ciks", A, "--landing", str(tmp_path / "l")) == 1
+
+
+def test_a_failed_statements_refresh_exits_three_and_the_issuers_still_publish(
+        config, tmp_path, monkeypatch):
+    import company_corpus.opendata.batches as batches
+    from company_corpus.opendata.statements import StatementsReport
+
+    def refused(*a, **kw):
+        return StatementsReport(write=True, errors=["2026q3: expected and missing (404)"])
+
+    monkeypatch.setattr(batches, "refresh_statements", refused)
+    _issuer(config, A)
+    rc = _main(config, monkeypatch, "--ciks", A, "--landing", str(tmp_path / "l"), "--write")
+    assert rc == 3 and list((tmp_path / "l" / "fundamentals_v3").iterdir())
+
+
+def test_statements_dry_run_reports_and_a_failed_write_exits_three(config, monkeypatch, capsys):
+    import company_corpus.opendata.statements as st
+
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(config.data_dir))
+    args = ["--data-dir", str(config.data_dir), "statements", "--ciks", A]
+    cli.main(args)
+    assert "statements [DRY-RUN" in capsys.readouterr().out
+    assert not (config.raw_dir / "_sec_statements").exists()
+    monkeypatch.setattr(st, "_fetch_quarter", lambda *a: False)
+    assert cli.main([*args, "--write"]) == 3
+    assert _report(config.data_dir)["outcome"] == "degraded"

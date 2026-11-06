@@ -25,8 +25,8 @@ jobs:
         run: cd /tmp && pytest -q "$GITHUB_WORKSPACE"
 
   store:
-    # store-batches against the real my-open-data (writer + publisher, DuckLake file
-    # catalogue). Separate job: duckdb is too heavy for the unit job.
+    # store-batches and the concept Recipe against the real my-open-data (writer + publisher,
+    # DuckLake file catalogue). Separate job: my-open-data is an optional extra.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

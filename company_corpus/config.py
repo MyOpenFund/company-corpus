@@ -47,12 +47,21 @@ STICKY_MANIFEST_FIELDS: tuple[str, ...] = (
 #: annual 52-53 weeks / calendar year, and the 9-month year-to-date (36-40 weeks). A band
 #: whose label is not a my-open-data frequency is a drop reason (``ytd9``); a duration in no
 #: band is dropped as ``odd_duration`` (monthly, stubs, 10-KT transition periods). The F1
-#: engine (``financials._classify_frequency``) keeps its own bands.
+#: engine keeps its own, wider bands (``concepts.summaries.F1_DURATION_BANDS``).
 DEFAULT_DURATION_BANDS: tuple[tuple[str, int, int], ...] = (
     ("quarterly", 81, 115),
     ("semiannual", 165, 199),
     ("ytd9", 245, 285),
     ("annual", 360, 374),
+)
+
+#: Forms whose facts are financial reports. companyfacts also carries proxy statements: their
+#: pay-versus-performance table tags net income, sometimes at the wrong scale, and it would replace
+#: the 10-K's figure (measured 2026-11-06 on 672 issuers: 259 proxies, 177 changes over 1%).
+#: An allow-list, so that an unknown form is held back and counted, never published by default.
+DEFAULT_REPORT_FORMS: tuple[str, ...] = (
+    "10-K", "10-K/A", "10-Q", "10-Q/A", "10-KT", "10-KT/A", "10-QT", "10-QT/A",
+    "20-F", "20-F/A", "40-F", "40-F/A", "6-K", "6-K/A", "8-K", "8-K/A",
 )
 
 #: Balance sheet totals whose currency must agree with a filing's vote over its monetary facts
@@ -126,6 +135,7 @@ class Config:
     store_duration_bands: tuple[tuple[str, int, int], ...] = DEFAULT_DURATION_BANDS
     #: Tags cross-checking each filing's reporting currency. Frozen after a first publish.
     store_currency_anchor_tags: tuple[str, ...] = DEFAULT_CURRENCY_ANCHOR_TAGS
+    store_report_forms: tuple[str, ...] = DEFAULT_REPORT_FORMS
     #: A filing with no EDGAR acceptance time gets known_at = its filing date at this
     #: wall-clock time in this zone (end of the filing day, so never before the real
     #: acceptance), capped at the run's own time.
@@ -138,6 +148,13 @@ class Config:
     #: A filing absent from the archive whose ``filed`` date is more than this many days after
     #: the run day is implausible (a typo in the feed): it never triggers a refresh.
     store_stale_filed_max_days_ahead: int = 7
+    #: Statement positions (chantier 9, ``statements``). Bulk files appear some weeks after their
+    #: quarter: before ``statements_publish_grace_days`` a 404 is normal, after it the run fails.
+    statements_publish_grace_days: int = 45
+    #: False deletes the 5.7 GB of zips once extracted. ``refresh_statements`` then returns at
+    #: once: new quarters never arrive and ``inferred`` values do not upgrade. Only a deliberate
+    #: ``statements --write`` downloads the archives again.
+    statements_keep_archives: bool = True
     edgar_country_codes: dict[str, str] = field(
         default_factory=lambda: dict(DEFAULT_EDGAR_COUNTRY_CODES))
 
@@ -149,12 +166,15 @@ class Config:
                 f"requests_per_second={self.requests_per_second} exceeds the SEC "
                 f"limit of {SEC_MAX_REQUESTS_PER_SECOND}/s"
             )
+        self.store_report_forms = tuple(str(f).strip().upper() for f in self.store_report_forms)
         _check_duration_bands(self.store_duration_bands)
         tags = self.store_currency_anchor_tags
         if not (isinstance(tags, tuple) and tags
                 and all(isinstance(t, str) and t for t in tags)):
             raise ValueError(
                 "store_currency_anchor_tags must be a non-empty tuple of non-empty strings")
+        if self.statements_publish_grace_days < 0:
+            raise ValueError("statements_publish_grace_days must be >= 0")
         if self.store_stale_filed_max_days_ahead < 0:
             raise ValueError("store_stale_filed_max_days_ahead must be >= 0")
         try:

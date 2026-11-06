@@ -35,11 +35,12 @@ def test_one_identity_and_one_fundamentals_batch_per_issuer(config, tmp_path):
     _issuer(config, A), _issuer(config, B)
     rep = _run(config, tmp_path / "landing")
     assert [o.status for o in rep.issuers] == ["ok", "ok"]
-    assert rep.issuers[0].rows == {"entity_observations_v1": 2, "fundamentals_v2": 2}
+    assert rep.issuers[0].rows == {
+        "entity_observations_v1": 2, "fundamentals_v3": 2, "filing_statements_v1": 0}
     batches = sorted(p.parent.parent.name for p in (tmp_path / "landing").glob("*/*/batch.json"))
-    assert batches == ["entity_observations_v1"] * 2 + ["fundamentals_v2"] * 2
-    batch_id = rep.issuers[1].batches["fundamentals_v2"]
-    m = json.loads((tmp_path / "landing" / "fundamentals_v2" / batch_id / "batch.json")
+    assert batches == ["entity_observations_v1"] * 2 + ["fundamentals_v3"] * 2
+    batch_id = rep.issuers[1].batches["fundamentals_v3"]
+    m = json.loads((tmp_path / "landing" / "fundamentals_v3" / batch_id / "batch.json")
                    .read_text())
     assert m["producer"] == "company-corpus"
     assert all(s.startswith(f"raw/{B}/") for s in m["source_inputs"])
@@ -120,7 +121,7 @@ def test_refresh_refetches_and_changes_only_identity(config, tmp_path):
     again = store_batches([A], config=config, landing=tmp_path / "l2", write=True, refresh=True,
                           run_id="r", now=later, fetcher=fetcher)
     b1, b2 = first.issuers[0].batches, again.issuers[0].batches
-    assert b1["fundamentals_v2"] == b2["fundamentals_v2"]
+    assert b1["fundamentals_v3"] == b2["fundamentals_v3"]
     assert b1["entity_observations_v1"] != b2["entity_observations_v1"]
 
 
@@ -149,7 +150,8 @@ def test_report_totals_and_details(config, tmp_path):
     rep = _run(config, tmp_path / "landing")
     t = rep.totals()
     assert t["issuers"] == 2 and t["ok"] == 1 and t["failed"] == 1
-    assert t["rows"] == {"entity_observations_v1": 2, "fundamentals_v2": 2}
+    assert t["rows"] == {
+        "entity_observations_v1": 2, "fundamentals_v3": 2, "filing_statements_v1": 0}
     d = rep.to_details()["store_batches"]
     assert d["write"] is True and d["issuers"][B]["error"] == "companyfacts_missing"
 
@@ -184,7 +186,7 @@ def _run_a(config, landing, fetcher, *, write=True, offline=False, now=AFTER_FET
 
 def _known_ats(landing, table, column="known_at"):
     rows = pq.read_table(next((landing / table).rglob("*.parquet"))).to_pylist()
-    return {r["id_value"] if "id_value" in r else r["concept"]: r[column] for r in rows}
+    return {r["id_value"] if "id_value" in r else r["original_tag"]: r[column] for r in rows}
 
 
 def test_a_filing_newer_than_the_archive_refreshes_it_once(config, tmp_path):
@@ -194,7 +196,7 @@ def test_a_filing_newer_than_the_archive_refreshes_it_once(config, tmp_path):
     assert out.status == "ok" and len(fetcher.calls) == 1
     assert out.counters["submissions_refreshed:stale"] == 1
     assert out.counters["known_at_fallback"] == 0
-    assert _known_ats(tmp_path / "l", "fundamentals_v2")["revenue"] == datetime(
+    assert _known_ats(tmp_path / "l", "fundamentals_v3")["us-gaap:Revenues"] == datetime(
         2026, 11, 2, 21, 30, tzinfo=timezone.utc)
     # The refresh is a new identity observation.
     assert _known_ats(tmp_path / "l", "entity_observations_v1")[A] == AFTER_FETCH

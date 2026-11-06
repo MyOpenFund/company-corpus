@@ -69,7 +69,7 @@ def test_publish_replay_and_restatement(config, tmp_path):
     assert replay.exit_code == 0 and not replay.published and len(replay.skipped_duplicates) == 2
     with Store.open(store) as s:
         def revenue(at):
-            t = s.read_asof("fundamentals", at, filters={"concept": "revenue"})
+            t = s.read_asof("fundamentals", at, filters={"original_tag": "us-gaap:Revenues"})
             return [r["value"] for r in t.to_pylist()]
 
         assert revenue(datetime(2024, 9, 1, tzinfo=timezone.utc)) == [Decimal(100)]
@@ -115,8 +115,8 @@ def test_a_stale_refresh_publishes_only_the_new_row(config, tmp_path):
 
     assert second.exit_code == 0 and not second.quarantined, second.to_json()
     by_table = {p["contract"]: p for p in second.published}
-    assert by_table["fundamentals_v2"]["rows"] == 1
-    assert by_table["fundamentals_v2"]["rows_skipped"] == 1
+    assert by_table["fundamentals_v3"]["rows"] == 1
+    assert by_table["fundamentals_v3"]["rows_skipped"] == 1
     with Store.open(store) as s:
         rows = s.read_asof("fundamentals").to_pylist()
     assert sorted(r["value"] for r in rows) == [Decimal(30), Decimal(100)]
