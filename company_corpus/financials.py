@@ -385,7 +385,7 @@ def _total_debt_from_concepts(values: dict[str, dict]) -> float | int | None:
     noncurrent = _largest(_num(values, "long_term_debt"), _num(values, "long_term_debt_lines"))
     with_current = None if noncurrent is None and current is None else (noncurrent or 0) + (current or 0)
     incl_current = _num(values, "long_term_debt_incl_current")
-    if noncurrent is None:
+    if not noncurrent:
         incl_current = _largest(incl_current, _num(values, "debt_components"))
     with_short_term = None if incl_current is None else incl_current + beyond
     return _largest(with_current, with_short_term, _num(values, "debt_total"))

@@ -275,7 +275,7 @@ def test_net_income_prefers_the_parent_line_then_the_common_line():
             _fact("NetIncomeLossAvailableToCommonStockholdersBasic", 90, "A", k)]
     pos = [_pos(t, "A", k, "IS") for t in ("NetIncomeLoss", "NetIncomeLossAvailableToCommonStockholdersBasic")]
     (r,) = _run(both, pos)
-    assert r["original_tag"] == "us-gaap:NetIncomeLoss"
+    assert r["original_tag"] == "us-gaap:NetIncomeLoss" and r["conflict"]
     (r,) = _run(both[1:], pos[1:])
     assert r["original_tag"] == "us-gaap:NetIncomeLossAvailableToCommonStockholdersBasic"
 

@@ -31,6 +31,7 @@ def _v(**kw):
     (dict(debt_components=70, lt_debt_current=10), 70),         # the lines include current maturities
     (dict(debt_components=70, short_term_debt=5), 75),
     (dict(debt_components=70, long_term_debt=50), 50),
+    (dict(debt_components=70, long_term_debt=0), 70),           # a stray zero is no noncurrent figure
     (dict(debt_total=500, debt_components=70), 500),
     (dict(short_term_debt=5), 5),
     (dict(lt_debt_current=10, short_term_debt=5), 15),
