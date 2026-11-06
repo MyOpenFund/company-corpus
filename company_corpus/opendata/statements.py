@@ -13,6 +13,7 @@ import io
 import json
 import os
 import zipfile
+import zlib
 from collections import Counter, defaultdict
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
@@ -86,9 +87,11 @@ def _check_zip(path: Path) -> None:
             missing = {"sub.txt", "pre.txt"} - set(zf.namelist())
             if missing:
                 raise StatementsSourceError(f"{path.name}: {sorted(missing)} missing")
-            if zf.testzip() is not None:
-                raise StatementsSourceError(f"{path.name}: corrupt member")
-    except (zipfile.BadZipFile, OSError, EOFError) as exc:
+            for member in ("sub.txt", "pre.txt"):   # num.txt is the bulk and is never read
+                with zf.open(member) as fh:
+                    while fh.read(_CHUNK):
+                        pass   # reading to the end verifies the CRC
+    except (zipfile.BadZipFile, OSError, EOFError, zlib.error) as exc:
         raise StatementsSourceError(f"{path.name}: unreadable zip: {exc}") from exc
 
 
@@ -109,15 +112,17 @@ def _fetch_quarter(config: Config, fetcher, quarter: str, now: datetime) -> bool
             return False
         raise
     digest = hashlib.sha256()
-    with part.open("wb") as fh:
-        for chunk in resp.iter_content(_CHUNK):
-            digest.update(chunk)
-            fh.write(chunk)
     try:
+        with part.open("wb") as fh:
+            for chunk in resp.iter_content(_CHUNK):
+                digest.update(chunk)
+                fh.write(chunk)
         _check_zip(part)
-    except StatementsSourceError:
+    except BaseException:
         part.unlink(missing_ok=True)
         raise
+    finally:
+        resp.close()
     os.replace(part, root / f"{quarter}.zip")
     manifest = _load_manifest(config)
     manifest[quarter] = {"sha256": digest.hexdigest(), "fetched_at": now.isoformat(), "url": url}
@@ -163,22 +168,37 @@ def _read_quarter(path: Path, wanted: Mapping[str, str]) -> dict[str, list[dict]
 
 def _extract(config: Config, ciks: Collection[str], quarters: Iterable[str],
              report: StatementsReport) -> None:
+    """One pass over the quarters appends each issuer's rows to a staging file; only when every
+    quarter has read are the issuers deduplicated and written, one at a time."""
     wanted = {str(int(c)): normalize_cik(c) for c in ciks}
-    per_issuer: dict[str, dict[tuple, dict]] = {c: {} for c in wanted.values()}
-    for quarter in sorted(quarters):
-        for cik, rows in _read_quarter(archive_root(config) / f"{quarter}.zip", wanted).items():
-            kept = per_issuer[cik]
-            for r in rows:
-                key = (r["accn"], r["statement"], r["tag"])
-                if key not in kept or (r["report"], r["line"]) < (kept[key]["report"], kept[key]["line"]):
-                    kept[key] = r
-    for cik, kept in per_issuer.items():
-        lines = [json.dumps(kept[k], sort_keys=True) for k in sorted(kept)]
-        path = statements_path(config, cik)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_write_text(path, "".join(f"{line}\n" for line in lines))
-        report.issuers += 1
-        report.rows += len(lines)
+    root = archive_root(config)
+    root.mkdir(parents=True, exist_ok=True)
+    staging = {c: root / f"{c}.jsonl.tmp" for c in wanted.values()}
+    for path in staging.values():
+        path.write_text("", encoding="utf-8")
+    try:
+        for quarter in sorted(quarters):
+            for cik, rows in _read_quarter(root / f"{quarter}.zip", wanted).items():
+                with staging[cik].open("a", encoding="utf-8") as fh:
+                    fh.writelines(json.dumps(r) + "\n" for r in rows)
+        for cik, stage in staging.items():
+            kept: dict[tuple, dict] = {}
+            with stage.open(encoding="utf-8") as fh:
+                for line in fh:
+                    r = json.loads(line)
+                    key = (r["accn"], r["statement"], r["tag"])
+                    if key not in kept or (r["report"], r["line"]) < (kept[key]["report"], kept[key]["line"]):
+                        kept[key] = r
+            lines = [json.dumps(kept[k], sort_keys=True) for k in sorted(kept)]
+            path = statements_path(config, cik)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _atomic_write_text(path, "".join(f"{line}\n" for line in lines))
+            stage.unlink()
+            report.issuers += 1
+            report.rows += len(lines)
+    finally:
+        for stage in staging.values():
+            stage.unlink(missing_ok=True)
 
 
 def _fetch_missing(config: Config, write: bool, fetcher, now: datetime,
@@ -230,11 +250,13 @@ def refresh_statements(ciks: Collection[str], *, config: Config, fetcher,
                        now: datetime | None = None) -> StatementsReport:
     """Look for newly published quarters, and rebuild the files of the issuers older than the newest
     archive, so that a filing marked ``inferred`` gets its real positions at the next run. Does
-    nothing until ``statements --write`` has set up the archive: the first 5.7 GB stay a deliberate
+    nothing until ``statements --write`` has set up the archive (manifest and at least one zip): the first 5.7 GB stay a deliberate
     step. With ``statements_keep_archives`` off there is nothing to compare, so nothing happens."""
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     report = StatementsReport(write=True)
-    if not (archive_root(config) / MANIFEST).is_file() or not config.statements_keep_archives:
+    root = archive_root(config)
+    if (not (root / MANIFEST).is_file() or not config.statements_keep_archives
+            or not any(root.glob("*.zip"))):
         return report
     usable = _fetch_missing(config, True, fetcher, now, report)
     if report.errors or not usable:

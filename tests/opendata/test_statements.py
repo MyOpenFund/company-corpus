@@ -42,7 +42,10 @@ def _zip(sub=SUB, pre=PRE) -> bytes:
 
 class _Resp:
     def __init__(self, body):
-        self.body = body
+        self.body, self.closed = body, False
+
+    def close(self):
+        self.closed = True
 
     def iter_content(self, size):
         yield from (self.body[i:i + size] for i in range(0, len(self.body), size))
@@ -52,14 +55,16 @@ class _Fetcher:
     """routes: quarter -> bytes; anything else is a 404."""
 
     def __init__(self, routes):
-        self.routes, self.calls = routes, []
+        self.routes, self.calls, self.responses = routes, [], []
 
     def get(self, url, stream=False, **_):
         assert stream
         self.calls.append(url)
         for quarter, body in self.routes.items():
             if f"/{quarter}.zip" in url:
-                return _Resp(body)
+                resp = _Resp(body)
+                self.responses.append(resp)
+                return resp
         response = requests.Response()
         response.status_code = 404
         raise requests.HTTPError("404", response=response)
@@ -183,3 +188,71 @@ def test_a_bad_period_is_counted_not_fatal(config):
              "tag": "Assets", "version": "v", "plabel": "p"}]
     res = statement_rows(A, rows, acceptance={}, manifest_doc_ids=set(), config=config, now=NOW)
     assert res.rows == [] and res.counters["statements_dropped:bad_period"] == 1
+
+
+B, ACCN_B = "0000000099", "0000000099-09-000001"
+
+
+def _pre_for(accn, report, line, label):
+    return f"{accn}\t{report}\t{line}\tBS\t0\tH\tAssets\tus-gaap/2008\t{label}\t0\n"
+
+
+def test_two_issuers_two_quarters_route_dedupe_and_leave_no_staging(config):
+    header = PRE.splitlines()[0] + "\n"
+    q1 = _zip(pre=header + _pre_for(ACCN, 5, 1, "q1 A") + _pre_for(ACCN_B, 3, 1, "q1 B"))
+    q2 = _zip(pre=header + _pre_for(ACCN, 2, 7, "q2 A") + _pre_for(ACCN_B, 4, 1, "q2 B")
+              + f"{ACCN}\t6\t1\tIS\t0\tH\tRevenues\tus-gaap/2008\tRev\t0\n")
+    def run():
+        return fetch_statements([A, B], config=config, write=True,
+                                fetcher=_Fetcher({"2009q1": q1, "2009q2": q2}), now=NOW)
+    rep = run()
+    assert rep.errors == [] and rep.issuers == 2 and rep.rows == 3
+    a, b = load_statements(config, A), load_statements(config, B)
+    assert [(r["tag"], r["plabel"]) for r in a] == [("Assets", "q2 A"), ("Revenues", "Rev")]
+    assert [(r["tag"], r["plabel"]) for r in b] == [("Assets", "q1 B")]
+    assert list(archive_root(config).glob("*.tmp")) == []
+    first = statements_path(config, A).read_bytes()
+    run()
+    assert statements_path(config, A).read_bytes() == first
+
+
+def test_an_unreadable_quarter_keeps_final_files_and_leaves_no_staging(config):
+    _run(config, {"2009q1": _zip()})
+    final = statements_path(config, A).read_bytes()
+    root = archive_root(config)
+    (root / "2009q2.zip").write_bytes(b"not a zip")
+    rep = fetch_statements([A], config=config, write=True, fetcher=_Fetcher({}), now=NOW)
+    assert rep.errors and "2009q2" in rep.errors[0]
+    assert statements_path(config, A).read_bytes() == final
+    assert list(root.glob("*.tmp")) == []
+
+
+def test_a_transport_failure_mid_stream_cleans_up_and_a_retry_succeeds(config):
+    class _Broken(_Resp):
+        def iter_content(self, size):
+            yield b"x" * 10
+            raise requests.ConnectionError("reset")
+
+    class _BrokenFetcher(_Fetcher):
+        def get(self, url, stream=False, **_):
+            resp = _Broken(b"")
+            self.responses.append(resp)
+            return resp
+
+    broken = _BrokenFetcher({})
+    rep = fetch_statements([A], config=config, write=True, fetcher=broken, now=NOW)
+    assert any("2009q1" in e and "ConnectionError" in e for e in rep.errors)
+    assert list(archive_root(config).glob("*.part")) == []
+    assert broken.responses and all(r.closed for r in broken.responses)
+    good = _Fetcher({"2009q1": _zip()})
+    rep = fetch_statements([A], config=config, write=True, fetcher=good, now=NOW)
+    assert rep.errors == [] and rep.fetched == 1 and good.responses[0].closed
+
+
+def test_refresh_with_a_manifest_but_no_zip_does_nothing(config):
+    root = archive_root(config)
+    root.mkdir(parents=True)
+    (root / "manifest.json").write_text("{}")
+    fetcher = _Fetcher({"2009q1": _zip()})
+    rep = refresh_statements([A], config=config, fetcher=fetcher, now=NOW)
+    assert rep.errors == [] and fetcher.calls == [] and rep.fetched == 0
