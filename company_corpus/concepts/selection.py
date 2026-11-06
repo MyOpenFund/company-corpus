@@ -21,8 +21,8 @@ _PERIOD = "entity_scheme, entity_value, valid_date, frequency, basis, source_cod
 _OUT = ("concept, entity_scheme, entity_value, valid_date, frequency, basis, source_code, "
         "period_start, value, unit, original_tag, filing_ref, source_doc_id, known_at, location, "
         "conflict, review_status")
-_ON_POSITION = ("JOIN pos p ON p.filing_ref = f.filing_ref "
-                "AND p.tag = split_part(f.original_tag, ':', 2)")
+_ON_POSITION = ("JOIN pos p ON p.entity_scheme = f.entity_scheme AND p.entity_value = f.entity_value "
+                "AND p.filing_ref = f.filing_ref AND p.tag = split_part(f.original_tag, ':', 2)")
 
 
 def _lit(v) -> str:
@@ -102,14 +102,16 @@ facts_in AS (
   SELECT * FROM vintages
   QUALIFY row_number() OVER (PARTITION BY {key} ORDER BY known_at DESC, filing_ref DESC, value DESC) = 1
 ),
-pos AS (SELECT filing_ref, tag, list(statement) AS statements FROM {positions} GROUP BY 1, 2),
+pos AS (SELECT entity_scheme, entity_value, filing_ref, tag, list(statement) AS statements
+        FROM {positions} GROUP BY 1, 2, 3, 4),
 located_filings AS (SELECT DISTINCT entity_scheme, entity_value, filing_ref, known_at FROM {positions}),
 blind_filings AS (
   SELECT DISTINCT f.entity_scheme, f.entity_value, f.filing_ref, f.known_at FROM facts_in f
-  ANTI JOIN located_filings k ON k.filing_ref = f.filing_ref
+  ANTI JOIN located_filings k ON k.entity_scheme = f.entity_scheme
+       AND k.entity_value = f.entity_value AND k.filing_ref = f.filing_ref
 ),
 borrowed AS (
-  SELECT b.filing_ref, k.filing_ref AS from_filing FROM blind_filings b
+  SELECT b.entity_scheme, b.entity_value, b.filing_ref, k.filing_ref AS from_filing FROM blind_filings b
   ASOF JOIN located_filings k ON b.entity_scheme = k.entity_scheme
        AND b.entity_value = k.entity_value AND b.known_at >= k.known_at
 ),
@@ -125,9 +127,13 @@ placed AS (
   FROM facts_in f
   JOIN dict_tags t USING (original_tag)
   JOIN dict_concepts c USING (concept)
-  LEFT JOIN (SELECT DISTINCT filing_ref FROM located_filings) k ON k.filing_ref = f.filing_ref
-  LEFT JOIN borrowed b ON b.filing_ref = f.filing_ref
-  LEFT JOIN pos p ON p.filing_ref = coalesce(b.from_filing, f.filing_ref)
+  LEFT JOIN (SELECT DISTINCT entity_scheme, entity_value, filing_ref FROM located_filings) k
+       ON k.entity_scheme = f.entity_scheme AND k.entity_value = f.entity_value
+       AND k.filing_ref = f.filing_ref
+  LEFT JOIN borrowed b ON b.entity_scheme = f.entity_scheme AND b.entity_value = f.entity_value
+       AND b.filing_ref = f.filing_ref
+  LEFT JOIN pos p ON p.entity_scheme = f.entity_scheme AND p.entity_value = f.entity_value
+       AND p.filing_ref = coalesce(b.from_filing, f.filing_ref)
        AND p.tag = split_part(f.original_tag, ':', 2)
 ),
 cands AS (SELECT * FROM placed WHERE NOT statement_only OR tier = 0),
@@ -139,13 +145,15 @@ ranked AS (
 ),
 flagged AS (
   SELECT *, bool_or(CASE WHEN best = 0 THEN value <> 0
-                         ELSE abs(value - best) > {tol} * abs(best) END)
+                         ELSE abs(value::DOUBLE - best::DOUBLE)
+                              > {tol}::DOUBLE * abs(best::DOUBLE) END)
               OVER (PARTITION BY concept, {_PERIOD}) AS conflict
   FROM ranked
 ),
 picked AS (
   SELECT * REPLACE (conflict OR coalesce(CASE WHEN replaced = 0 THEN value <> 0
-                    ELSE abs(value - replaced) > {restated} * abs(replaced) END, FALSE) AS conflict)
+                    ELSE abs(value::DOUBLE - replaced::DOUBLE)
+                              > {restated}::DOUBLE * abs(replaced::DOUBLE) END, FALSE) AS conflict)
   FROM flagged WHERE rn = 1
 ),
 summed AS (

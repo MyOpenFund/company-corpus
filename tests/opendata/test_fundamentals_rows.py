@@ -305,3 +305,11 @@ def test_custom_currency_anchor_tags_are_honoured_through_fundamentals_rows():
     assert {(r["original_tag"], r["unit"]) for r in rows} == {
         ("us-gaap:Revenues", "USD"), ("us-gaap:NetIncomeLoss", "USD")}
     assert c["dropped:currency_ambiguous"] == 0
+
+
+def test_a_lower_case_report_form_allow_list_is_honoured():
+    cfg = Config(store_report_forms=("10-q",))
+    rows, c = _rows({"Revenues": {"USD": [
+        point(100, "2024-06-30", start="2023-07-01", accn=K24),
+        point(30, "2026-09-30", start="2026-07-01", accn=K26, form="10-Q")]}}, config=cfg)
+    assert [r["filing_ref"] for r in rows] == [K26] and c["dropped:not_a_report"] == 1

@@ -44,6 +44,8 @@ def format_coverage(counts: Counter, dictionary: Dictionary | None = None) -> It
     d = dictionary or load_dictionary()
     if counts.get("coverage:no_annual_period"):
         yield f"coverage: {counts['coverage:no_annual_period']} issuer(s) with no annual period"
+    if counts.get("statements_missing"):
+        yield f"statements_missing: {counts['statements_missing']} issuer(s) without statement positions"
     for key in d.concepts:
         parts = [f"{s}={counts[f'coverage:{key}:{s}']}" for s in STATES
                  if counts.get(f"coverage:{key}:{s}")]

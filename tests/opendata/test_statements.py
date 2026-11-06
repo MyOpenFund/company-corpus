@@ -256,3 +256,20 @@ def test_refresh_with_a_manifest_but_no_zip_does_nothing(config):
     fetcher = _Fetcher({"2009q1": _zip()})
     rep = refresh_statements([A], config=config, fetcher=fetcher, now=NOW)
     assert rep.errors == [] and fetcher.calls == [] and rep.fetched == 0
+
+
+def test_a_disk_error_during_extraction_is_reported_and_leaves_no_staging(config, monkeypatch):
+    from company_corpus.opendata import statements as mod
+
+    def full_disk(*_a, **_k):
+        raise OSError(28, "No space left on device")
+
+    _run(config, {"2009q1": _zip()})
+    monkeypatch.setattr(mod, "_atomic_write_text", full_disk)
+    rep = fetch_statements([A], config=config, write=True, fetcher=_Fetcher({}), now=NOW)
+    assert rep.errors and rep.errors[0].startswith("OSError:")
+    assert list(archive_root(config).glob("*.tmp")) == []
+    os.utime(statements_path(config, A), (1, 1))
+    rep = refresh_statements([A], config=config, fetcher=_Fetcher({}), now=NOW)
+    assert rep.errors and rep.errors[0].startswith("OSError:")
+    assert list(archive_root(config).glob("*.tmp")) == []

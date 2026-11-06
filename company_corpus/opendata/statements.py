@@ -237,8 +237,9 @@ def fetch_statements(ciks: Collection[str], *, config: Config, write: bool, fetc
         return report
     try:
         _extract(config, ciks, usable, report)
-    except StatementsSourceError as exc:
-        report.errors.append(str(exc))
+    except (StatementsSourceError, OSError) as exc:
+        report.errors.append(str(exc) if isinstance(exc, StatementsSourceError)
+                             else f"{type(exc).__name__}: {exc}")
         return report
     if not config.statements_keep_archives:
         for quarter in usable:
@@ -267,8 +268,9 @@ def refresh_statements(ciks: Collection[str], *, config: Config, fetcher,
     if stale:
         try:
             _extract(config, stale, usable, report)
-        except StatementsSourceError as exc:
-            report.errors.append(str(exc))
+        except (StatementsSourceError, OSError) as exc:
+            report.errors.append(str(exc) if isinstance(exc, StatementsSourceError)
+                                 else f"{type(exc).__name__}: {exc}")
     return report
 
 

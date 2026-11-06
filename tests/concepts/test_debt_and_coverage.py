@@ -93,3 +93,10 @@ def test_no_annual_period_is_counted_not_a_crash():
 def test_format_prints_one_line_per_concept_in_dictionary_order():
     lines = list(format_coverage(coverage(selected("marriott"), _on_statement("marriott"))))
     assert lines[0].startswith("coverage revenue: ") and any(" derived=1" in x for x in lines)
+
+
+def test_format_prints_statements_missing_when_present():
+    from collections import Counter
+
+    lines = list(format_coverage(Counter({"statements_missing": 3})))
+    assert any("statements_missing" in x and "3" in x for x in lines)

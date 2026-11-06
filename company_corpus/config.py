@@ -148,10 +148,12 @@ class Config:
     #: A filing absent from the archive whose ``filed`` date is more than this many days after
     #: the run day is implausible (a typo in the feed): it never triggers a refresh.
     store_stale_filed_max_days_ahead: int = 7
-    # Statement positions (chantier 9, ``statements``). Bulk files appear some weeks after their
-    # quarter: before ``statements_publish_grace_days`` a 404 is normal, after it the run fails.
+    #: Statement positions (chantier 9, ``statements``). Bulk files appear some weeks after their
+    #: quarter: before ``statements_publish_grace_days`` a 404 is normal, after it the run fails.
     statements_publish_grace_days: int = 45
-    # False deletes the 5.7 GB of zips once extracted; the next run downloads them all again.
+    #: False deletes the 5.7 GB of zips once extracted. ``refresh_statements`` then returns at
+    #: once: new quarters never arrive and ``inferred`` values do not upgrade. Only a deliberate
+    #: ``statements --write`` downloads the archives again.
     statements_keep_archives: bool = True
     edgar_country_codes: dict[str, str] = field(
         default_factory=lambda: dict(DEFAULT_EDGAR_COUNTRY_CODES))
@@ -164,6 +166,7 @@ class Config:
                 f"requests_per_second={self.requests_per_second} exceeds the SEC "
                 f"limit of {SEC_MAX_REQUESTS_PER_SECOND}/s"
             )
+        self.store_report_forms = tuple(str(f).strip().upper() for f in self.store_report_forms)
         _check_duration_bands(self.store_duration_bands)
         tags = self.store_currency_anchor_tags
         if not (isinstance(tags, tuple) and tags

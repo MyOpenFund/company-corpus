@@ -182,3 +182,65 @@ def test_the_sql_is_one_statement_and_the_recipe_names_its_inputs():
     import duckdb
 
     assert len(duckdb.connect().extract_statements(selection_sql())) == 1
+
+
+def _for(entity, rows):
+    return [{**r, "entity_value": entity} for r in rows]
+
+
+def _two_entities(parent_pos, sub_pos):
+    k = (2025, 2, 1)
+    tags = [("SeniorNotes", 100), ("SecuredDebt", 50)]
+    facts = [*_for("1", [_fact(t, v, "A", k) for t, v in tags]),
+             *_for("2", [_fact(t, v * 2, "A", k) for t, v in tags])]
+    pos = [*_for("1", [_pos(t, "A", k) for t, _ in tags] if parent_pos else []),
+           *_for("2", [_pos(t, "A", k) for t, _ in tags] if sub_pos else [])]
+    return {r["entity_value"]: r for r in _run(facts, pos) if r["concept"] == "debt_components"}
+
+
+def test_two_entities_sharing_an_accession_are_not_doubled_when_both_borrow():
+    old, new = (2025, 2, 1), (2025, 8, 1)
+    tags = [("SeniorNotes", 100), ("SecuredDebt", 50)]
+    facts = [*_for("1", [_fact(t, v, "B", new) for t, v in tags]),
+             *_for("2", [_fact(t, v * 2, "B", new) for t, v in tags])]
+    pos = [*_for("1", [_pos(t, "A", old) for t, _ in tags]),
+           *_for("2", [_pos(t, "A", old) for t, _ in tags])]
+    rows = {r["entity_value"]: r for r in _run(facts, pos) if r["concept"] == "debt_components"}
+    assert rows["1"]["value"] == 150 and rows["2"]["value"] == 300
+    assert rows["1"]["original_tag"] == "us-gaap:SeniorNotes+us-gaap:SecuredDebt"
+    assert _two_entities(False, False) == {}
+
+
+def test_two_entities_sharing_an_accession_with_positions_for_both():
+    rows = _two_entities(True, True)
+    assert rows["1"]["value"] == 150 and rows["2"]["value"] == 300
+    assert rows["1"]["original_tag"].count("us-gaap:SeniorNotes") == 1
+
+
+def test_positions_under_one_entity_only_are_decided_per_entity():
+    rows = _two_entities(True, False)
+    assert rows["1"]["value"] == 150 and rows["1"]["location"] == "derived"
+    # the subsidiary has no statement lines of its own: no tier-0 candidate, so no sum
+    assert "2" not in rows
+
+
+def test_a_borrowed_filing_never_crosses_entities():
+    old, new = (2025, 2, 1), (2025, 8, 1)
+    facts = [*_for("1", [_fact("SeniorLongTermNotes", 1000, "B", new)]),
+             *_for("2", [_fact("SeniorLongTermNotes", 7, "B", new)])]
+    rows = {r["entity_value"]: r for r in _run(facts, _for("1", [_pos("SeniorLongTermNotes", "A", old)]))}
+    assert rows["1"]["location"] == "inferred" and rows["2"]["location"] == "unknown"
+
+
+def test_huge_values_cannot_overflow_the_tolerance_checks():
+    k = (2025, 2, 1)
+    rows = _run([_fact("LongTermDebtNoncurrent", 10**31, "A", k),
+                 _fact("LongTermNotesPayable", 5, "A", k)], [])
+    assert rows[0]["conflict"]
+    opposite = _run([_fact("LongTermDebtNoncurrent", 9 * 10**31, "A", k),
+                     _fact("LongTermNotesPayable", -9 * 10**31, "A", k)], [])
+    assert opposite[0]["conflict"]
+    old, new = (2025, 2, 1), (2025, 8, 1)
+    restated = _run([_fact("LongTermDebtNoncurrent", 9 * 10**31, "A", old),
+                     _fact("LongTermDebtNoncurrent", -9 * 10**31, "B", new)], [])
+    assert restated[0]["conflict"]
