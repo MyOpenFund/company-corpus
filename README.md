@@ -174,14 +174,14 @@ on. Counters:
 | `dropped:implausible_filed` | a point with no acceptance time whose `filed` date is more than `Config.store_stale_filed_max_days_ahead` days after the run day (Eastern): dropped, or it would be a new vintage on every run |
 | `ambiguous_observation` | competing points the selection could not separate |
 | `submissions_refreshed:stale`, `submissions_stale` | the archive was older than a filing in companyfacts: re-fetched / not re-fetched (dry run, `--offline`) |
-| `known_at_capped`, `known_at_naive` | `known_at` derived without an acceptance time (capped at run time / naive timestamp) |
+| `known_at_fallback`, `known_at_capped`, `known_at_naive` | `known_at` derived without an acceptance time (capped at run time / naive timestamp) |
 | `source_doc_id_null` | any report form outside the taxonomy (10-KT, 10-QT): the row has a null `source_doc_id` |
 | `filing_not_in_manifest` | informational: the `source_doc_id` is set but no manifest row holds it; most issuers' manifests hold only F1 summaries |
 | `value_rounded` | value rounded to fit the contract |
 | `country_unknown[:code]` | unmapped EDGAR country code |
 | `former_name_shadowed`, `former_name_undated` | former-name handling in identity rows |
 
-`dropped:no_known_at`, `known_at_fallback`, `source_doc_id_null` and `filing_not_in_manifest` also count `filing_statements` rows, not only facts.
+`dropped:no_known_at`, `source_doc_id_null` and `filing_not_in_manifest` also count `filing_statements` rows, not only facts.
 
 An unexpected exception in one issuer is recorded as `failed` with
 `unexpected: <Type>: <msg>` and the run continues with the next issuer.
