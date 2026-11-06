@@ -59,6 +59,13 @@ def _lines(on_statement, **kw):
     # PepsiCo: a whole with no known current part adds nothing to a total with current maturities
     ({"long_term_debt", "debt_current_total", "short_term_debt"},
      dict(long_term_debt=42321, debt_current_total=6861, short_term_debt=6861, long_term_debt_incl_current=46351), 49182),
+    # Johnson & Johnson: the one balance sheet line holds the maturities a note gives
+    ({"long_term_debt", "short_term_debt"},
+     dict(long_term_debt=39438, short_term_debt=8495, lt_debt_current=2000, debt_current_total=8500,
+          long_term_debt_incl_current=41438), 47933),
+    # AMD: one line under a tag that changed between filings
+    ({"long_term_debt", "lt_debt_current", "short_term_debt"},
+     dict(long_term_debt=2348, lt_debt_current=874, short_term_debt=874), 3222),
     # A bank: both lines on the statement
     ({"long_term_debt_incl_current", "short_term_debt"},
      dict(long_term_debt_incl_current=435206, short_term_debt=64776), 499982),

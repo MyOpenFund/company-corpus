@@ -354,19 +354,25 @@ def _current_debt(values: dict[str, dict]) -> tuple[float | int | None, float | 
     """Current debt, and the part of it beyond the current maturities of long-term debt.
 
     When the balance sheet shows current debt lines, only those count: a note's figure usually
-    repeats them. ``debt_current_total`` holds the separate lines, unless it is smaller than one
-    of them and so cannot be their whole."""
+    repeats them. Two lines of one value are one line under two tags, as filers change tags between
+    filings. ``debt_current_total`` holds the separate lines, unless it is smaller than one of them
+    and so cannot be their whole."""
     keys = ("lt_debt_current", "short_term_debt", "debt_current_total")
+    maturities = _num(values, "lt_debt_current")
     on_statement = any(values.get(k, {}).get("on_statement") for k in keys)
     cur, st, whole = (_num(values, k) if not on_statement or values.get(k, {}).get("on_statement")
                       else None for k in keys)
+    if cur is not None and cur == st:
+        st = None
     if whole is not None and whole >= _largest(cur, st, 0):
-        return whole, 0 if cur is None else max(whole - cur, 0)
-    if whole is not None:
-        return _largest(cur, st), st or 0
-    if cur is None and st is None:
+        current, unknown_beyond = whole, 0
+    elif whole is not None:
+        current, unknown_beyond = _largest(cur, st), st or 0
+    elif cur is None and st is None:
         return None, 0
-    return (cur or 0) + (st or 0), st or 0
+    else:
+        current, unknown_beyond = (cur or 0) + (st or 0), st or 0
+    return current, unknown_beyond if maturities is None else max(current - maturities, 0)
 
 
 def _total_debt_from_concepts(values: dict[str, dict]) -> float | int | None:
