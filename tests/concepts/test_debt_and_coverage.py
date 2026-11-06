@@ -41,6 +41,32 @@ def test_total_debt_order(values, expected):
     assert compute_derived(_v(**values), debt_rule="concepts")["total_debt"]["value"] == expected
 
 
+def _lines(on_statement, **kw):
+    return {k: {"value": v, "unit": "USD", "label": k, "on_statement": k in on_statement}
+            for k, v in kw.items()}
+
+
+@pytest.mark.parametrize("on_statement, values, expected", [
+    # NXP: the balance sheet's total, the note's short-term figure left out
+    ({"long_term_debt", "debt_current_total"},
+     dict(long_term_debt=10972, debt_current_total=1250, short_term_debt=2000, lt_debt_current=1250), 12222),
+    # Parker-Hannifin: one current line on the balance sheet, a note's parts repeat it
+    ({"long_term_debt", "lt_debt_current"},
+     dict(long_term_debt=6766, lt_debt_current=1754, short_term_debt=1000, debt_current_total=706), 8520),
+    # Walmart: two current lines on the balance sheet add up, a narrower total does not win
+    ({"long_term_debt", "lt_debt_current", "short_term_debt"},
+     dict(long_term_debt=34624, lt_debt_current=3542, short_term_debt=6596, debt_total=38166), 44762),
+    # PepsiCo: a whole with no known current part adds nothing to a total with current maturities
+    ({"long_term_debt", "debt_current_total", "short_term_debt"},
+     dict(long_term_debt=42321, debt_current_total=6861, short_term_debt=6861, long_term_debt_incl_current=46351), 49182),
+    # A bank: both lines on the statement
+    ({"long_term_debt_incl_current", "short_term_debt"},
+     dict(long_term_debt_incl_current=435206, short_term_debt=64776), 499982),
+])
+def test_only_the_balance_sheets_current_lines_count(on_statement, values, expected):
+    assert compute_derived(_lines(on_statement, **values), debt_rule="concepts")["total_debt"]["value"] == expected
+
+
 def test_a_debt_free_filer_has_no_total_debt():
     assert "total_debt" not in compute_derived(_v(assets=10), debt_rule="concepts")
 

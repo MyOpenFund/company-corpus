@@ -106,7 +106,7 @@ def _value(row: dict, d: Dictionary, namespaces: Sequence[str]) -> dict:
         tag = tag.replace(f"{ns}:", "")
     return {"value": _plain(row["value"]), "unit": row["unit"],
             "label": d.concepts[row["concept"]].label, "tag": tag, "location": row["location"],
-            "conflict": row["conflict"]}
+            "conflict": row["conflict"], "on_statement": row["on_statement"]}
 
 
 def build_summaries(facts: dict, *, company: str, company_current: str, name_for_date=None,

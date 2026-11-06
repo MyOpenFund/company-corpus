@@ -251,6 +251,17 @@ def test_huge_values_cannot_overflow_the_tolerance_checks():
     assert restated[0]["conflict"]
 
 
+def test_on_statement_follows_the_real_or_borrowed_positions():
+    old, new = (2025, 2, 1), (2026, 2, 1)
+    facts = [_fact("LongTermDebtNoncurrent", 100, "B", new)]
+    (borrowed,) = _run(facts, [_pos("LongTermDebtNoncurrent", "A", old)])
+    assert borrowed["location"] == "inferred" and borrowed["on_statement"]
+    (in_note,) = _run(facts, [_pos("Assets", "B", new)])
+    assert in_note["location"] == "note" and not in_note["on_statement"]
+    (no_position,) = _run(facts, [])
+    assert no_position["location"] == "unknown" and not no_position["on_statement"]
+
+
 def test_cash_only_counts_on_the_balance_sheet():
     k = (2025, 2, 1)
     assert _run([_fact("Cash", 250, "A", k)], [_pos("Assets", "A", k)]) == []

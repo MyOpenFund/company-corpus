@@ -350,24 +350,32 @@ def _largest(*amounts: float | int | None) -> float | int | None:
     return max((a for a in amounts if a is not None), default=None)
 
 
+def _current_debt(values: dict[str, dict]) -> tuple[float | int | None, float | int]:
+    """Current debt, and the part of it beyond the current maturities of long-term debt.
+
+    When the balance sheet shows current debt lines, only those count: a note's figure usually
+    repeats them. ``debt_current_total`` holds the separate lines, unless it is smaller than one
+    of them and so cannot be their whole."""
+    keys = ("lt_debt_current", "short_term_debt", "debt_current_total")
+    on_statement = any(values.get(k, {}).get("on_statement") for k in keys)
+    cur, st, whole = (_num(values, k) if not on_statement or values.get(k, {}).get("on_statement")
+                      else None for k in keys)
+    if whole is not None and whole >= _largest(cur, st, 0):
+        return whole, 0 if cur is None else max(whole - cur, 0)
+    if whole is not None:
+        return _largest(cur, st), st or 0
+    if cur is None and st is None:
+        return None, 0
+    return (cur or 0) + (st or 0), st or 0
+
+
 def _total_debt_from_concepts(values: dict[str, dict]) -> float | int | None:
     """Total debt where each concept has one meaning (the SEC dictionary): nothing to infer from a
     tag. The largest of the available builds, since a partial chain can only come out low: a
     noncurrent figure plus current debt; a total with current maturities plus the short-term debt
-    beyond them; an all-in total. None for a debt-free filer.
-
-    ``debt_current_total`` holds the separate current lines, unless it is smaller than one of them
-    and so cannot be their whole. ``debt_components`` lines include current maturities."""
-    cur, st = _num(values, "lt_debt_current"), _num(values, "short_term_debt")
-    whole = _num(values, "debt_current_total")
-    whole_is_valid = whole is not None and whole >= _largest(cur, st, 0)
-    if whole_is_valid:
-        current = whole
-    elif cur is None and st is None:
-        current = whole
-    else:
-        current = (cur or 0) + (st or 0)
-    beyond = max(whole - cur, 0) if whole_is_valid and cur is not None else (st or 0)
+    beyond them; an all-in total. ``debt_components`` lines include current maturities. None for a
+    debt-free filer."""
+    current, beyond = _current_debt(values)
     noncurrent = _largest(_num(values, "long_term_debt"), _num(values, "long_term_debt_lines"))
     with_current = None if noncurrent is None and current is None else (noncurrent or 0) + (current or 0)
     incl_current = _num(values, "long_term_debt_incl_current")

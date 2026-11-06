@@ -89,6 +89,7 @@ filing, then dictionary order. Each result carries:
 | Field | Meaning |
 |---|---|
 | `location` | `statement`, `note`, `inferred`, `unknown`, `derived` |
+| `on_statement` | the line is on the concept's statement, in the filing's own or borrowed positions |
 | `conflict` | Another candidate differs by more than `conflict_tolerance` (1%), or the value replaced an earlier one of the same tag by more than `restatement_tolerance` (50%). Both are in the dictionary file. |
 | `review_status` | `reviewed` or `not_reviewed` |
 | `dictionary_version` | The dictionary used |
@@ -130,7 +131,7 @@ ratios are `%` or `x`.
 
 | Metric | Definition |
 |---|---|
-| `total_debt` | SEC: the largest of three builds, since a partial chain can only come out low. Noncurrent + current; a total with current maturities + the short-term debt beyond them; `debt_total`. Noncurrent is the larger of `long_term_debt` and `long_term_debt_lines`. Current is `debt_current_total`, or `lt_debt_current` + `short_term_debt` when it is absent or smaller than one of them. The total with current maturities is `long_term_debt_incl_current`, or with no noncurrent figure the larger of it and `debt_components`. EU and registers: `long_term_debt` + `lt_debt_current` + `short_term_debt`, with roll-up tags not double-counted |
+| `total_debt` | SEC: the largest of three builds, since a partial chain can only come out low. Noncurrent + current; a total with current maturities + the short-term debt beyond them; `debt_total`. Noncurrent is the larger of `long_term_debt` and `long_term_debt_lines`. Current counts only the current debt lines on the balance sheet when there are some; it is `debt_current_total`, or `lt_debt_current` + `short_term_debt` when it is absent, or the larger of the two when it is smaller than one of them. The total with current maturities is `long_term_debt_incl_current`, or with no noncurrent figure the larger of it and `debt_components`. EU and registers: `long_term_debt` + `lt_debt_current` + `short_term_debt`, with roll-up tags not double-counted |
 | `total_debt_incl_leases` | total debt + finance & operating lease liabilities |
 | `net_debt` | total debt − cash − short-term investments − **long-term investments** |
 | `net_cash` | −`net_debt` (positive = net cash; offsets ST **and** LT investments) |

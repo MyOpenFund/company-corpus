@@ -9,7 +9,8 @@ For one concept and period, candidates rank by: on the concept's statement, on a
 elsewhere; then latest filing; then dictionary order. A filing without position rows borrows the
 positions of the issuer's latest earlier filing that has some (``location = inferred``). Positions
 are read at each run: once the real ones arrive, the value is ``statement`` or ``note``, with no
-change to any stored fact.
+change to any stored fact. ``on_statement`` says the value's line is on the concept's statement, in
+the filing's own positions or the borrowed ones.
 """
 from __future__ import annotations
 
@@ -20,7 +21,7 @@ RECIPE_NAME = "fundamentals_concepts"
 _PERIOD = "entity_scheme, entity_value, valid_date, frequency, basis, source_code"
 _OUT = ("concept, entity_scheme, entity_value, valid_date, frequency, basis, source_code, "
         "period_start, value, unit, original_tag, filing_ref, source_doc_id, known_at, location, "
-        "conflict, review_status")
+        "conflict, review_status, on_statement")
 _ON_POSITION = ("JOIN pos p ON p.entity_scheme = f.entity_scheme AND p.entity_value = f.entity_value "
                 "AND p.filing_ref = f.filing_ref AND p.tag = split_part(f.original_tag, ':', 2)")
 
@@ -63,7 +64,8 @@ computed_{i} AS (
   SELECT {_lit(c.key)} AS concept, t.entity_scheme, t.entity_value, t.valid_date, t.frequency,
          t.basis, t.source_code, t.period_start, t.value - b.value - coalesce(m.value, 0) AS value,
          t.unit, 'computed:' || t.original_tag AS original_tag, t.filing_ref, t.source_doc_id,
-         t.known_at, 'derived' AS location, FALSE AS conflict, {_lit(c.status)} AS review_status
+         t.known_at, 'derived' AS location, FALSE AS conflict, {_lit(c.status)} AS review_status,
+         TRUE AS on_statement
   FROM total_{i} t
   JOIN base_{i} b USING ({_PERIOD}, filing_ref)
   LEFT JOIN minus_{i} m USING ({_PERIOD}, filing_ref)
@@ -153,14 +155,15 @@ flagged AS (
 picked AS (
   SELECT * REPLACE (conflict OR coalesce(CASE WHEN replaced = 0 THEN value <> 0
                     ELSE abs(value::DOUBLE - replaced::DOUBLE)
-                              > {restated}::DOUBLE * abs(replaced::DOUBLE) END, FALSE) AS conflict)
+                              > {restated}::DOUBLE * abs(replaced::DOUBLE) END, FALSE) AS conflict),
+         tier = 0 AS on_statement
   FROM flagged WHERE rn = 1
 ),
 summed AS (
   SELECT concept, {_PERIOD}, any_value(period_start) AS period_start, sum(value) AS value,
          any_value(unit) AS unit, string_agg(original_tag, '+' ORDER BY tag_rank) AS original_tag,
          filing_ref, any_value(source_doc_id) AS source_doc_id, known_at, 'derived' AS location,
-         FALSE AS conflict, any_value(review_status) AS review_status
+         FALSE AS conflict, any_value(review_status) AS review_status, TRUE AS on_statement
   FROM (SELECT *, dense_rank() OVER (PARTITION BY concept, {_PERIOD}
                                      ORDER BY known_at DESC, filing_ref DESC) AS filing_rank
         FROM cands WHERE on_several = 'sum' AND tier = 0)
