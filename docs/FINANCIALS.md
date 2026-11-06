@@ -20,14 +20,16 @@ Restatements resolve to the latest `filed`; `publication_date` is the earliest
 `filed` for the period. Each value also records its source XBRL **tag** as
 provenance.
 
-**Per-period tag resolution.** A concept's value for a period comes from the
-**highest-priority fallback tag that actually has a value for that period**, then
-the latest-filed point within it. Filers switch tags across taxonomy vintages
+**Per-period tag resolution.** On the SEC path the value of a concept for a period follows the
+selection described in "How a concept gets its value" below: the candidates are the latest known
+value of each tag, ranked by position on the statements, then latest filing, then dictionary order.
+The tag order alone no longer decides. On the EU and register paths a concept's value still comes
+from the **highest-priority fallback tag that actually has a value for that period**, then the
+latest-filed point within it. Filers switch tags across taxonomy vintages
 (e.g. Microsoft's cost of revenue moved `CostOfRevenue` → `CostOfGoodsAndServicesSold`;
 Alphabet's revenue `RevenueFromContractWithCustomerExcludingAssessedTax` → `Revenues`);
 a first-tag-wins lookup would return the stale tag and silently drop the recent
-period. Per-period resolution only adds coverage — it never changes an
-already-resolved value.
+period, so every path resolves per period.
 
 Monetary facts are filtered to the issuer's dominant reporting currency, so a
 convenience translation (e.g. a USD value alongside a primary EUR one) never gets
@@ -58,9 +60,12 @@ Tag choices that still matter to a reader:
   (`pretax_domestic`, `pretax_foreign`); their sum stands in for pretax income.
 - `long_term_investments` are noncurrent marketable securities, which net debt must offset for
   cash-rich issuers. Financial issuers tag them differently, and net debt is flagged by sector.
-- `long_term_debt` is the noncurrent tag, so it does not overlap the current portion. Tags that end
-  in `...AndCapitalLeaseObligations` come last: they include finance leases, which is acceptable when
-  the filer reports debt only in that combined form.
+- `long_term_debt` is the noncurrent tag, so it does not overlap the current portion.
+  `LongTermDebtAndCapitalLeaseObligations` comes second, after `LongTermDebtNoncurrent` and ahead of
+  the narrower lines (`LongTermNotesAndLoans`, `SeniorLongTermNotes`, ...): it is a full noncurrent
+  total, whereas those can be one part of the debt. It includes finance leases, which is acceptable
+  when the filer reports debt only in that combined form. The including-current-maturities variant
+  is not in this chain: it is in `debt_total`.
 - `preferred_stock` prefers the carrying value (`PreferredStockIncludingAdditionalPaidInCapital`) over
   the par-only `PreferredStockValue`, which is zero or par at most filers and absent at some banks.
 
@@ -101,8 +106,13 @@ Known limits:
 - F1 orders filings by filing date and the store by acceptance time: two filings of the same day can
   differ.
 - `cash` of a bank is `CashAndDueFromBanks`, without interest-bearing deposits at other banks.
+- A filing with two durations ending on one date can raise a spurious `conflict` in F1 (the store
+  drops such a pair as `ambiguous_observation`).
+- A custom tag reusing a `us-gaap` local name counts as that tag on the statement (about 17 of
+  597,248 rows in one quarter).
 - `liabilities` is computed when no total is filed: total liabilities and equity, minus total equity
   (else parent equity), minus the first mezzanine line, all from the balance sheet, marked `derived`.
+  A filing newer than the bulk files gets no computed total until its real positions arrive.
   Parent `equity` and `net_income` are never computed, and metrics built on them stay empty.
 
 ## Derived metrics (single period)
@@ -154,16 +164,18 @@ preferred), matching the per-share book values banks report (verified vs BofA / 
 
 ### Overlap-aware aggregation (no double counting)
 
-Three FASB-confirmed concept overlaps are handled by branching on the resolved
-source tag:
+The first two overlaps apply only to the EU and register path (`debt_rule="tags"`), whose chains
+mix roll-ups and components, so the resolved source tag decides. On the SEC path each concept has one
+meaning: `LongTermDebt` is in `debt_total` and `DebtCurrent` in `debt_current_total`, and
+`total_debt` is built from the concepts (see the table above). Three FASB-confirmed overlaps:
 
 - **`LongTermDebt`** is the roll-up (`= LongTermDebtCurrent + LongTermDebtNoncurrent`).
-  When it is the resolved tag, the current portion is *not* added again.
+  When it is the resolved tag, the current portion is *not* added again (EU and registers).
 - **`DebtCurrent`** already includes current maturities of long-term debt; when it
-  backs `short_term_debt`, the separate current portion is *not* added again.
+  backs `short_term_debt`, the separate current portion is *not* added again (EU and registers).
 - **`CashCashEquivalentsAndShortTermInvestments`** already includes short-term
-  investments; when it backs `cash`, STI is *not* subtracted/added again in
-  `net_debt` / `cash_ratio`.
+  investments; when it backs `cash` (on the SEC path, when `cash_and_st_investments` stands in for
+  `cash`), STI is *not* subtracted/added again in `net_debt` / `cash_ratio`.
 
 ### Guards
 
@@ -229,12 +241,13 @@ four decimal places: **32.5629** at 2025-12-27 and **34.9060** at 2026-03-28
   is never used alone — it would make the tax rate = total tax ÷ US-only pretax).
 - `gross_margin` falls back to `(revenue − cost_of_revenue) / revenue` when the
   filer reports cost but no explicit `GrossProfit` line (e.g. Walmart).
-- `long_term_debt` captures `LongTermDebtAndCapitalLeaseObligations` (e.g. Comcast)
-  as a last-resort fallback; it bundles capitalised (finance) leases into the debt
+- `long_term_debt` captures `LongTermDebtAndCapitalLeaseObligations` (e.g. Comcast) as its
+  second tag, after `LongTermDebtNoncurrent`; it bundles capitalised (finance) leases into the debt
   figure, which is debt-like and acceptable when the filer reports debt only in that
   combined form.
-- Full IFRS (`ifrs-full`) concept mapping is deferred to the international pillar;
-  an IFRS-only filer currently maps just `net_income` (via `ProfitLoss`).
+- Full IFRS (`ifrs-full`) concept mapping is deferred to the international pillar. On the SEC path
+  only the `us-gaap` and `dei` namespaces are read, so an IFRS-only filer gets no mapped concept
+  there (`ProfitLoss` is the `net_income_consolidated` concept, a us-gaap tag).
 
 **Cross-checked live** against real filings for a 10-issuer basket (Apple, Microsoft,
 Alphabet, Berkshire, Comcast, McDonald's, Walmart, Costco, JPMorgan, BofA): net

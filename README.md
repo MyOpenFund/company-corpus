@@ -181,6 +181,8 @@ on. Counters:
 | `country_unknown[:code]` | unmapped EDGAR country code |
 | `former_name_shadowed`, `former_name_undated` | former-name handling in identity rows |
 
+`dropped:no_known_at`, `known_at_fallback`, `source_doc_id_null` and `filing_not_in_manifest` also count `filing_statements` rows, not only facts.
+
 An unexpected exception in one issuer is recorded as `failed` with
 `unexpected: <Type>: <msg>` and the run continues with the next issuer.
 The command prints at most 10 failed issuers; the run report has them all.
