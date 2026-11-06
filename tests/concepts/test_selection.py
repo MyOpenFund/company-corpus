@@ -267,7 +267,6 @@ def test_net_income_prefers_the_parent_line_then_the_common_line():
     assert r["original_tag"] == "us-gaap:NetIncomeLoss"
     (r,) = _run(both[1:], pos[1:])
     assert r["original_tag"] == "us-gaap:NetIncomeLossAvailableToCommonStockholdersBasic"
-    assert _run(both[1:], []) == []    # in a note it is no candidate
 
 
 def test_debt_lines_are_summed_when_on_the_statement_only():
