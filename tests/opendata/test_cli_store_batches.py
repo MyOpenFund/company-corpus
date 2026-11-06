@@ -73,6 +73,20 @@ def test_missing_myopendata_is_fatal(config, tmp_path, monkeypatch):
     assert _main(config, monkeypatch, "--ciks", A, "--landing", str(tmp_path / "l")) == 1
 
 
+def test_a_failed_statements_refresh_exits_three_and_the_issuers_still_publish(
+        config, tmp_path, monkeypatch):
+    import company_corpus.opendata.batches as batches
+    from company_corpus.opendata.statements import StatementsReport
+
+    def refused(*a, **kw):
+        return StatementsReport(write=True, errors=["2026q3: expected and missing (404)"])
+
+    monkeypatch.setattr(batches, "refresh_statements", refused)
+    _issuer(config, A)
+    rc = _main(config, monkeypatch, "--ciks", A, "--landing", str(tmp_path / "l"), "--write")
+    assert rc == 3 and list((tmp_path / "l" / "fundamentals_v3").iterdir())
+
+
 def test_statements_dry_run_reports_and_a_failed_write_exits_three(config, monkeypatch, capsys):
     import company_corpus.opendata.statements as st
 

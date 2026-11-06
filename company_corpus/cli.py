@@ -947,6 +947,8 @@ def _cmd_store_batches(args: argparse.Namespace) -> int:
     print("  rows: " + ", ".join(f"{k}={v}" for k, v in t["rows"].items()))
     if t["counters"]:
         print("  counters: " + ", ".join(f"{k}={v}" for k, v in t["counters"].items()))
+    for line in format_coverage(Counter(t["coverage"])):
+        print(f"  {line}")
     for o in rep.failed[:10]:
         print(f"  failed {o.cik}: {o.error}")
     if rep.pending:
@@ -955,9 +957,11 @@ def _cmd_store_batches(args: argparse.Namespace) -> int:
     report = getattr(args, "report", None)
     if report is not None:
         report.details = rep.to_details()
+    for err in rep.statement_errors:
+        print(f"  statements error: {err}")
     _feed_report(report, "sec", seen=t["issuers"], new=t["ok"], failed=t["failed"],
-                 errors=[f"{o.cik}: {o.error}" for o in rep.failed],
-                 truncated=bool(rep.failed))
+                 errors=[*(f"{o.cik}: {o.error}" for o in rep.failed), *rep.statement_errors],
+                 truncated=bool(rep.failed or rep.statement_errors))
     return 0
 
 

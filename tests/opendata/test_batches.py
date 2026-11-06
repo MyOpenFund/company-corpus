@@ -35,7 +35,8 @@ def test_one_identity_and_one_fundamentals_batch_per_issuer(config, tmp_path):
     _issuer(config, A), _issuer(config, B)
     rep = _run(config, tmp_path / "landing")
     assert [o.status for o in rep.issuers] == ["ok", "ok"]
-    assert rep.issuers[0].rows == {"entity_observations_v1": 2, "fundamentals_v3": 2}
+    assert rep.issuers[0].rows == {
+        "entity_observations_v1": 2, "fundamentals_v3": 2, "filing_statements_v1": 0}
     batches = sorted(p.parent.parent.name for p in (tmp_path / "landing").glob("*/*/batch.json"))
     assert batches == ["entity_observations_v1"] * 2 + ["fundamentals_v3"] * 2
     batch_id = rep.issuers[1].batches["fundamentals_v3"]
@@ -149,7 +150,8 @@ def test_report_totals_and_details(config, tmp_path):
     rep = _run(config, tmp_path / "landing")
     t = rep.totals()
     assert t["issuers"] == 2 and t["ok"] == 1 and t["failed"] == 1
-    assert t["rows"] == {"entity_observations_v1": 2, "fundamentals_v3": 2}
+    assert t["rows"] == {
+        "entity_observations_v1": 2, "fundamentals_v3": 2, "filing_statements_v1": 0}
     d = rep.to_details()["store_batches"]
     assert d["write"] is True and d["issuers"][B]["error"] == "companyfacts_missing"
 

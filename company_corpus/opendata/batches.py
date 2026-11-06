@@ -1,7 +1,7 @@
 """``store-batches``: layer 0 -> my-open-data batches, one issuer at a time (spec §3, §6).
 
-Per issuer: one ``entity_observations`` batch, then one ``fundamentals`` batch, written
-through the my-open-data writer into a landing zone. Stateless: full history every run; the
+Per issuer: one ``entity_observations`` batch, then one ``fundamentals`` and one
+``filing_statements`` batch, written through the my-open-data writer into a landing zone. Stateless: full history every run; the
 store's publisher skips what it already holds. An issuer's failure never stops the others.
 Dry-run (``write=False``) computes and validates everything from disk and writes nothing.
 
@@ -21,11 +21,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
+from ..concepts.coverage import coverage
+from ..concepts.selection import run_selection
 from ..config import Config, normalize_cik
 from ..http import Fetcher
 from ..storage import Storage
 from .fundamentals import as_filed_points, flatten_with_namespace, fundamentals_rows
 from .identity import identity_rows
+from .statements import load_statements, refresh_statements, statement_rows, statements_path
 from .submissions import (
     ArchiveCorrupt,
     acceptance_times,
@@ -52,7 +55,11 @@ def _myopendata() -> SimpleNamespace:
     try:
         import pyarrow as pa
         from myopendata.contracts.rules import BatchInvalid, conform
-        from myopendata.contracts.standard import ENTITY_OBSERVATIONS, FUNDAMENTALS
+        from myopendata.contracts.standard import (
+            ENTITY_OBSERVATIONS,
+            FILING_STATEMENTS,
+            FUNDAMENTALS,
+        )
         from myopendata.writer import write_batch
         from myopendata.writer.batch import batch_id_for, content_hash
     except ImportError as exc:
@@ -62,6 +69,7 @@ def _myopendata() -> SimpleNamespace:
         raise StoreUnavailable(f"store-batches needs fundamentals 3.x, found {FUNDAMENTALS.version}")
     return SimpleNamespace(pa=pa, BatchInvalid=BatchInvalid, conform=conform,
                            ENTITY_OBSERVATIONS=ENTITY_OBSERVATIONS, FUNDAMENTALS=FUNDAMENTALS,
+                           FILING_STATEMENTS=FILING_STATEMENTS,
                            write_batch=write_batch, batch_id_for=batch_id_for,
                            content_hash=content_hash)
 
@@ -74,6 +82,7 @@ class IssuerOutcome:
     rows: dict[str, int] = field(default_factory=dict)
     batches: dict[str, str] = field(default_factory=dict)
     counters: Counter = field(default_factory=Counter)
+    coverage: Counter = field(default_factory=Counter)
 
     def to_dict(self) -> dict:
         d = {"status": self.status, "rows": dict(self.rows), "batches": dict(self.batches),
@@ -88,6 +97,7 @@ class StoreBatchesReport:
     landing: str
     write: bool
     issuers: list[IssuerOutcome] = field(default_factory=list)
+    statement_errors: list[str] = field(default_factory=list)
 
     @property
     def failed(self) -> list[IssuerOutcome]:
@@ -104,12 +114,15 @@ class StoreBatchesReport:
     def totals(self) -> dict:
         rows: Counter = Counter()
         counters: Counter = Counter()
+        cover: Counter = Counter()
         for o in self.issuers:
             rows.update(o.rows)
             counters.update(o.counters)
+            cover.update(o.coverage)
         return {"issuers": len(self.issuers), "ok": len(self.emitted),
                 "failed": len(self.failed), "pending_fetch": len(self.pending),
-                "rows": dict(sorted(rows.items())), "counters": dict(sorted(counters.items()))}
+                "rows": dict(sorted(rows.items())), "counters": dict(sorted(counters.items())),
+                "coverage": dict(sorted(cover.items()))}
 
     def to_details(self) -> dict:
         return {"store_batches": {"landing": self.landing, "write": self.write,
@@ -125,6 +138,8 @@ def store_batches(ciks, *, config: Config, landing: Path, write: bool, offline: 
     if fetcher is None and write and not offline:
         fetcher = Fetcher(config)
     rep = StoreBatchesReport(landing=str(landing), write=write)
+    if write and not offline:
+        rep.statement_errors = refresh_statements(ciks, config=config, fetcher=fetcher, now=now).errors
     storage = Storage(config)
     for cik in ciks:
         out = IssuerOutcome(normalize_cik(cik))
@@ -200,6 +215,14 @@ def _archive(out: IssuerOutcome, config: Config, *, facts, write, offline, refre
     return archive
 
 
+def _coverage(out: IssuerOutcome, mod, fund_rows: list[dict], position_rows: list[dict]) -> None:
+    """The reader's selection on this issuer's rows, for the run report only."""
+    facts = mod.pa.Table.from_pylist(fund_rows, schema=mod.FUNDAMENTALS.schema)
+    positions = mod.pa.Table.from_pylist(position_rows, schema=mod.FILING_STATEMENTS.schema)
+    out.coverage.update(coverage(run_selection(facts, positions),
+                                 {(r["filing_ref"], r["tag"]) for r in position_rows}))
+
+
 def _issuer(out: IssuerOutcome, mod, *, config, storage, landing, write, offline, refresh,
             fetcher, run_id, now) -> None:
     facts_path = config.raw_dir / out.cik / "F1" / "companyfacts.json"
@@ -215,15 +238,27 @@ def _issuer(out: IssuerOutcome, mod, *, config, storage, landing, write, offline
     if archive is None:
         return
     ident = identity_rows(archive, country_codes=config.edgar_country_codes)
+    manifest_doc_ids = set(storage.load_manifest(out.cik))
     fund = fundamentals_rows(out.cik, facts, acceptance=acceptance_times(archive),
-                             manifest_doc_ids=set(storage.load_manifest(out.cik)),
-                             config=config, now=now)
+                             manifest_doc_ids=manifest_doc_ids, config=config, now=now)
+    statements = load_statements(config, out.cik)
+    if statements is None:
+        out.counters["statements_missing"] += 1
+    placed = statement_rows(out.cik, statements or [], acceptance=acceptance_times(archive),
+                            manifest_doc_ids=manifest_doc_ids, config=config, now=now)
     out.counters.update(ident.counters)
     out.counters.update(fund.counters)
+    out.counters.update(placed.counters)
+    _coverage(out, mod, fund.rows, placed.rows)
     facts_rel = str(facts_path.relative_to(config.data_dir))
     inputs = [f"{facts_rel}@sha256:{hashlib.sha256(facts_bytes).hexdigest()}",
               *(f"{f.rel_path}@sha256:{f.sha256}" for f in archive.files)]
-    for contract, rows in ((mod.ENTITY_OBSERVATIONS, ident.rows), (mod.FUNDAMENTALS, fund.rows)):
+    if statements is not None:
+        path = statements_path(config, out.cik)
+        inputs.append(f"{path.relative_to(config.data_dir)}"
+                      f"@sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}")
+    for contract, rows in ((mod.ENTITY_OBSERVATIONS, ident.rows), (mod.FUNDAMENTALS, fund.rows),
+                           (mod.FILING_STATEMENTS, placed.rows)):
         out.rows[contract.table_name] = len(rows)
         if not rows:
             continue
