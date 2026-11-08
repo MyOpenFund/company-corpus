@@ -90,7 +90,7 @@ which concept is decided when reading: see [`docs/FINANCIALS.md`](docs/FINANCIAL
 `myopendata publish` afterwards. It is a dry run unless `--write`.
 
 ```bash
-pip install ".[store]"          # my-open-data with its publisher (optional extra)
+pip install ".[store]"          # my-open-data writer (optional extra); publishing needs my-open-data[publisher]
 company-corpus --contact "$SEC_CONTACT" store-batches --universe sp_curated \
     --landing "$MYOPENDATA_DATA_ROOT/landing" --write
 myopendata publish
@@ -240,7 +240,7 @@ never exit `0`.
 
 Every work command — `build-universe`, `discover`, `discover-index`, `download`,
 `render-pdf`, `xbrl`, `ownership`, `enrich-openfigi`, `eu-financials`,
-`eu-acquire`, `register-financials` — appends one JSON line (atomic `O_APPEND`
+`eu-acquire`, `register-financials`, `store-batches`, `statements` — appends one JSON line (atomic `O_APPEND`
 write) before returning:
 
 ```json
@@ -287,6 +287,8 @@ a green "nothing to do":
 | `eu-financials` | xbrlorg | period summaries |
 | `eu-acquire` | one row per backend dispatched to | documents kept from that backend |
 | `register-financials` | one row per register | period summaries |
+| `store-batches` | sec | issuers emitted (dry run: computed) |
+| `statements` | sec | issuers written (dry run: 0) |
 
 Full detail (every column, plus the three deliberate policy choices behind
 this table) is documented in the `cli.py` module docstring.
@@ -328,7 +330,7 @@ takes **no corpus lock**, so it is safe to run beside a nightly crawl.
 | kind | what it means |
 |---|---|
 | `missing-artefact` | a manifest row points at bytes that are not on disk (or outside the data dir) |
-| `orphan-artefact` | a file under `raw/` that no manifest row points at (`raw/<cik>/submissions/` is layer 0, like `F1/companyfacts.json`, and never an orphan; OS metadata such as `.DS_Store`, `._*` or anything under a dot-directory is skipped; `Config.verify_ignore_hidden=False` reports it too) |
+| `orphan-artefact` | a file under `raw/` that no manifest row points at (`raw/<cik>/submissions/`, `raw/<cik>/statements/` and `raw/_sec_statements/` (SEC bulk statement files) are layer 0, like `F1/companyfacts.json`, and never orphans; OS metadata such as `.DS_Store`, `._*` or anything under a dot-directory is skipped; `Config.verify_ignore_hidden=False` reports it too) |
 | `duplicate-doc-id` | one `doc_id` on two rows (or under two LEI manifests) |
 | `stale-doc-id` | a stored id the current identity rule does not reproduce (a pre-period-keyed F1 id, an EU manifest with no `native_id`) |
 | `foreign-row` | a row filed under an entity other than the one naming its file |

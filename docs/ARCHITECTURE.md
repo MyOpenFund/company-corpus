@@ -130,7 +130,9 @@ Module responsibilities, one line each:
 | `taxonomy.py` | `FormType` families A–F; raw-form ↔ code mapping; scope parsing. |
 | `universe.py` | Resolve tickers / CIKs / CUSIPs / index → `Issuer`s; the `Universe` JSONL store. |
 | `naming.py` / `entity.py` | Point-in-time issuer names; cross-CIK economic-entity joins. |
-| `financials.py` / `ownership.py` | Shared financials engine (reported/derived/TTM rows, ~60 curated concepts) — reused by SEC XBRL (`edgar_xbrl`), EU ESEF (`eu/financials.py`), and the register pillar (`registers/`). Structure insider/13F filings. |
+| `financials.py` / `ownership.py` | Shared financials engine (reported/derived/TTM rows, the 71 concepts of `concepts/us_gaap.json`) — reused by SEC XBRL (`edgar_xbrl`), EU ESEF (`eu/financials.py`), and the register pillar (`registers/`). Structure insider/13F filings. |
+| `concepts/` | The concept dictionary (`us_gaap.json`) and the one SQL selection that picks, per concept and period, which filed tag answers it; used by the store's Recipe and by F1 summaries (`summaries.py`). |
+| `opendata/` | Layer 0 → my-open-data batches: archives the EDGAR submissions API and the SEC bulk statement files, maps them to `identity`, `fundamentals` and `filing_statements` rows, writes them through the my-open-data writer (`store-batches`, `statements`). |
 | `indices.py` | S&P 500 composition + dated membership (Wikipedia). |
 | `rag.py` / `completeness.py` | Read manifests back into `SourceItem`s; audit coverage vs. expected cadence. |
 | `config.py` / `http.py` | Runtime config + identifier parsers (`normalize_cik`, `cusip6`, …); the polite Fetcher. |
