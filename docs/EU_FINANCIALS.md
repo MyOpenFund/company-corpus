@@ -29,7 +29,7 @@ restatements transparently.
 
 The EU output uses the **same row model** as [`FINANCIALS.md`](FINANCIALS.md):
 `kind="reported"`, `kind="derived"`, and `kind="derived_ttm"` rows (see that
-document for full definitions of the ~60 curated concepts and all derived metrics).
+document for full definitions of the 71 curated concepts; the IFRS pack maps a subset of them and all derived metrics).
 Both pillars use the same 15-key unified identity/provenance base. For EU rows the
 columns take these values:
 

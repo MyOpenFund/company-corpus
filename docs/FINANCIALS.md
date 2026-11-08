@@ -2,7 +2,7 @@
 
 `company_corpus/financials.py` distils the SEC `companyfacts` XBRL feed into one
 **summary per actual reporting period** (annual / quarterly / semi-annual), each
-carrying ~60 curated line items, a block of **derived metrics** (single-period),
+carrying up to 71 curated line items (the concept dictionary), a block of **derived metrics** (single-period),
 and a block of **trailing-twelve-month (TTM)** ratios aligned with Bloomberg's
 methodology. The full raw JSON is kept separately for exhaustivity.
 
@@ -99,7 +99,7 @@ filing, then dictionary order. Each result carries:
 Positions come from the SEC Financial Statement Data Sets (`company-corpus statements`). Those files
 come out after the quarter ends, so the newest filings have no positions yet: such a filing borrows
 those of the issuer's latest earlier filing, marked `inferred`. The value itself always comes from
-the new filing. Each `xbrl --write` and `store-batches --write` looks for a newly published file, so
+the new filing. Each `xbrl --write` and `store-batches --write` (not with `--offline`) looks for a newly published file, so
 the real positions replace the borrowed ones at the next run, without changing any stored fact.
 Absent values stay empty: a line tagged only with a dimension or a share class is not in
 `companyfacts`, and the run report counts it as `on_statement_no_value`.
@@ -214,7 +214,9 @@ of the current and year-ago period-end.
 
 ```
 T12(X)  = sum of the 4 trailing standalone quarters ending at t
-          (the unreported fiscal-year-end quarter is derived as Annual − 9M YTD)
+          (the unreported fiscal-year-end quarter is derived as Annual − the 9M YTD
+          ending 80–100 days earlier; if two qualify, after a merger or a
+          changed calendar, the latest)
 AVG(B)  = (B at t + B one year earlier) / 2          # same frequency
 PIT(B)  = B at t
 
@@ -228,10 +230,11 @@ interest_coverage_ttm  = T12(ebitda)        / T12(interest_expense) (x)
 
 Annual periods use the fiscal-year value as the flow window. A TTM metric is
 omitted when its 4-quarter window is incomplete (early periods) or, for the
-averaged metrics, when the year-ago balance is missing — never zero-filled. The
-TTM flow series unions a concept's points across all its fallback tags, so a tag
+averaged metrics, when the year-ago balance is missing — never zero-filled. On the SEC
+path the TTM flow series comes from the same selection as the summaries, so a tag
 change across taxonomy vintages (e.g. `SalesRevenueNet` → `Revenues`) does not
-suppress TTM.
+suppress TTM; the EU and register paths union a concept's points across all its
+fallback tags for the same reason.
 
 **Validation.** This reproduces Apple's published quarterly Return on Assets to
 four decimal places: **32.5629** at 2025-12-27 and **34.9060** at 2026-03-28

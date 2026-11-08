@@ -30,7 +30,9 @@ data/
 ├── ownership/<cik>.jsonl       # normalized insider/13F rows (committed)
 ├── discovery_errors.jsonl      # append-only audit trail
 ├── reports/                    # completeness matrices, CSV exports
-└── raw/<cik>/<code>/<year>/    # the actual documents (git-ignored, regenerable)
+├── raw/<cik>/<code>/<year>/    # the actual documents (git-ignored, regenerable)
+├── raw/<cik>/statements/statements.jsonl  # which tag is on which statement, per issuer (`statements`)
+└── raw/_sec_statements/        # SEC Financial Statement Data Sets, one zip per quarter (layer 0)
 ```
 
 The layout is *machine-first* (stable ids, short codes), so **use the manifest as
@@ -235,6 +237,13 @@ python -m company_corpus report --universe sp_curated --years 2015-2025 --csv da
 
 # structured XBRL financials (F1) — see docs/FINANCIALS.md
 python -m company_corpus xbrl --universe sp_curated --years 2015-2025 --write
+
+# statement positions from the SEC Financial Statement Data Sets (used by xbrl and the store)
+python -m company_corpus statements --universe sp_curated --write
+
+# my-open-data batches (identity, fundamentals, filing_statements) into a landing zone;
+# never publishes — run `myopendata publish` afterwards (README, "Feeding my-open-data")
+python -m company_corpus store-batches --universe sp_curated --landing "$MYOPENDATA_DATA_ROOT/landing" --write
 
 # ownership (E) — structured insider transactions + 13F holdings
 python -m company_corpus discover  --universe sp_curated --forms E --write
