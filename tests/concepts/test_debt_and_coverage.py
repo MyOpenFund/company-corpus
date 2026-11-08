@@ -1,7 +1,10 @@
+from datetime import date
+
 import pytest
 
 from company_corpus.concepts.coverage import coverage, format_coverage
-from company_corpus.financials import attach_ttm_metrics, build_period_summaries, compute_derived
+from company_corpus.financials import (FlowSeries, _standalone_quarter, attach_ttm_metrics, build_period_summaries,
+                                       compute_derived)
 from tests.concepts.support import fixture, selected
 
 
@@ -81,6 +84,16 @@ def _lines(on_statement, **kw):
 ])
 def test_only_the_balance_sheets_current_lines_count(on_statement, values, expected):
     assert compute_derived(_lines(on_statement, **values), debt_rule="concepts")["total_debt"]["value"] == expected
+
+
+@pytest.mark.parametrize("ytd", [
+    {date(2016, 6, 24): 7156, date(2016, 6, 30): 14583},
+    {date(2016, 6, 30): 14583, date(2016, 6, 24): 7156},
+])
+def test_the_fourth_quarter_takes_the_latest_nine_months_in_any_row_order(ytd):
+    # Johnson Controls FY2016: Tyco's nine months to June 24 and the merged company's to June 30.
+    series = FlowSeries(quarterly={}, annual={"revenue": {date(2016, 9, 30): 20837}}, ytd9={"revenue": ytd})
+    assert _standalone_quarter(series, "revenue", date(2016, 9, 30)) == 20837 - 14583
 
 
 def test_a_debt_free_filer_has_no_total_debt():

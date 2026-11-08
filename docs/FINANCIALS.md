@@ -17,7 +17,9 @@ A period is keyed by its **own period-end + frequency** (derived from each fact'
 own period rather than the report's fiscal year. Duration facts (income, cash flow)
 define the periods; instant facts (balance sheet) attach by matching end date.
 Restatements resolve to the latest `filed`; `publication_date` is the earliest
-`filed` for the period. Each value also records its source XBRL **tag** as
+`filed` for the period, on the SEC path among filings made once the period had ended: a filing
+can already hold a fact about a later period, such as a declared dividend. A period only seen
+before it ended has no SEC summary. Each value also records its source XBRL **tag** as
 provenance.
 
 **Per-period tag resolution.** On the SEC path the value of a concept for a period follows the
