@@ -20,10 +20,10 @@ from __future__ import annotations
 
 import html
 import re
-from typing import Literal
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
+from typing import Literal
 
 from .concepts.dictionary import load_dictionary
 

@@ -224,5 +224,5 @@ def test_sum_of_quarters_gap_between_quarters_is_none():
 
 
 def test_sum_of_quarters_last_quarter_not_adjacent_is_none():
-    s = _fy_series([date(2024, 1, 31), date(2024, 4, 30), date(2024, 7, 31)])
+    s = _fy_series([date(2024, 3, 15), date(2024, 6, 15), date(2024, 9, 15)])
     assert _standalone_quarter(s, "revenue", date(2024, 12, 31), q4_rule="sum_of_quarters") is None
