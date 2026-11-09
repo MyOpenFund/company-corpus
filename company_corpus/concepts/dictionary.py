@@ -21,7 +21,7 @@ KINDS = ("money", "money/shares", "shares")
 #: (shares_outstanding falls back to dei:EntityCommonStockSharesOutstanding).
 HELPER_NAMESPACES: tuple[str, ...] = ("dei",)
 #: Tag tables loaded when none are named, in order; a table is ``tags/<name>.json``.
-DEFAULT_TABLES: tuple[str, ...] = ("us_gaap",)
+DEFAULT_TABLES: tuple[str, ...] = ("us_gaap", "ifrs_full")
 _SEMVER = re.compile(r"\d+\.\d+\.\d+")
 
 

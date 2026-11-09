@@ -71,6 +71,15 @@ def test_default_tables_are_loaded_by_default():
         load_dictionary(DEFAULT_TABLES).namespaces)
 
 
+def test_the_ifrs_table_is_loaded_by_default_and_follows_the_rules():
+    d = load_dictionary()
+    assert d.namespaces == ("us-gaap", "ifrs-full")
+    ifrs = d.table("ifrs-full")
+    assert ifrs.position_version_prefix == "ifrs/" and ifrs.entries
+    assert all(e.computed is None for e in ifrs.entries.values())
+    assert all(t.startswith("ifrs-full:") for e in ifrs.entries.values() for t in e.all_tags)
+
+
 @pytest.mark.parametrize("change, message", [
     (lambda c, t: c["concepts"]["cash"].update(statement="XX"), "unknown statement"),
     (lambda c, t: c["concepts"]["cash"].update(kind="USD"), "kind"),

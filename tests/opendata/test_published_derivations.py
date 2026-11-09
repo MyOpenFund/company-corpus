@@ -72,6 +72,12 @@ def test_changing_the_dictionary_changes_no_published_row():
     assert base.items() <= _rows(_changed(add)).items()
 
 
+def test_the_ifrs_table_changes_no_us_row():
+    from company_corpus.concepts.dictionary import load_dictionary
+
+    assert _rows(load_dictionary(("us_gaap", "ifrs_full"))) == _rows(load_dictionary(("us_gaap",)))
+
+
 def test_form_taxonomy_matches_what_was_published():
     # The whole index, by equality: an added or a removed form changes published rows too.
     got = {form: ft.value[0] for form, ft in taxonomy._EDGAR_FORM_INDEX.items()}
