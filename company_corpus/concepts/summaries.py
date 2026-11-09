@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
@@ -10,7 +10,14 @@ from decimal import Decimal
 import pyarrow as pa
 
 from ..config import DEFAULT_CURRENCY_ANCHOR_TAGS
-from ..financials import FlowSeries, PeriodSummary, _attach_ttm, _TTM_FLOW_KEYS, reporting_currency
+from ..financials import (
+    FlowSeries,
+    PeriodSummary,
+    Q4Rule,
+    _attach_ttm,
+    _TTM_FLOW_KEYS,
+    reporting_currency,
+)
 from ..opendata.fundamentals import Point, _quantized, as_filed_points, flatten_with_namespace
 from .coverage import coverage
 from .dictionary import Dictionary, load_dictionary
@@ -109,6 +116,35 @@ def _value(row: dict, d: Dictionary, namespaces: Sequence[str]) -> dict:
             "conflict": row["conflict"], "on_statement": row["on_statement"]}
 
 
+def group_periods(rows: Iterable[dict]) -> tuple[dict[tuple[date, str], dict[str, dict]],
+                                                 dict[date, dict[str, dict]], set[str]]:
+    """Selection rows grouped by period: duration rows by ``(valid_date, frequency)`` (ytd9
+    excluded), instant rows by date, and the duration frequencies that get a summary (annual,
+    plus quarterly, or semiannual when the issuer has no quarters). Shared by
+    :func:`build_summaries` and the store readers'
+    :func:`~company_corpus.concepts.store_summaries.summaries_from_rows`."""
+    duration: dict[tuple[date, str], dict[str, dict]] = {}
+    instant: dict[date, dict[str, dict]] = {}
+    for r in rows:
+        if r["frequency"] == "instant":
+            instant.setdefault(r["valid_date"], {})[r["concept"]] = r
+        elif r["frequency"] != "ytd9":
+            duration.setdefault((r["valid_date"], r["frequency"]), {})[r["concept"]] = r
+    seen = {freq for _, freq in duration}
+    allowed = {"annual"} | ({"quarterly"} if "quarterly" in seen else
+                            {"semiannual"} if "semiannual" in seen else set())
+    return duration, instant, allowed
+
+
+def _flow_series(rows: Iterable[dict]) -> FlowSeries:
+    """The TTM flow concepts of selection rows, by band (quarterly, annual, ytd9) and period end."""
+    buckets: dict[str, dict[str, dict[date, float]]] = {"quarterly": {}, "annual": {}, "ytd9": {}}
+    for r in rows:
+        if r["concept"] in _TTM_FLOW_KEYS and r["frequency"] in buckets:
+            buckets[r["frequency"]].setdefault(r["concept"], {})[r["valid_date"]] = _plain(r["value"])
+    return FlowSeries(**buckets)
+
+
 def build_summaries(facts: dict, *, company: str, company_current: str, name_for_date=None,
                     since_year: int | None = None, until_year: int | None = None,
                     sic: str | None = None, statements: Sequence[dict] = (),
@@ -123,20 +159,11 @@ def build_summaries(facts: dict, *, company: str, company_current: str, name_for
     specs = d.tag_specs()
     namespaces = sorted({s.ns for s in specs.values()})
     chain_tags = {t.split(":", 1)[1] for c in d.concepts.values() for t in (*c.tags, *c.statement_only_tags)}
-    duration: dict[tuple[date, str], dict[str, dict]] = {}
-    instant: dict[date, dict[str, dict]] = {}
-    for r in selected.rows:
-        if r["frequency"] == "instant":
-            instant.setdefault(r["valid_date"], {})[r["concept"]] = r
-        elif r["frequency"] != "ytd9":
-            duration.setdefault((r["valid_date"], r["frequency"]), {})[r["concept"]] = r
+    duration, instant, allowed = group_periods(selected.rows)
     points_at: dict[tuple[date, str], list[Point]] = {}
     for p in selected.points:
         if p.tag in chain_tags:
             points_at.setdefault((p.end, p.frequency), []).append(p)
-    seen = {freq for _, freq in duration}
-    allowed = {"annual"} | ({"quarterly"} if "quarterly" in seen else
-                            {"semiannual"} if "semiannual" in seen else set())
     summaries: list[PeriodSummary] = []
     for (end, freq), per_concept in duration.items():
         if freq not in allowed:
@@ -167,13 +194,9 @@ def _currency(facts: dict) -> str:
 
 
 def attach_ttm(facts: dict, summaries: list[PeriodSummary], *, statements: Sequence[dict] = (),
-               dictionary: Dictionary | None = None) -> None:
+               dictionary: Dictionary | None = None, q4_rule: Q4Rule = "ytd9") -> None:
     rows = select_for_f1(facts, statements, dictionary).rows
-    buckets: dict[str, dict[str, dict[date, float]]] = {"quarterly": {}, "annual": {}, "ytd9": {}}
-    for r in rows:
-        if r["concept"] in _TTM_FLOW_KEYS and r["frequency"] in buckets:
-            buckets[r["frequency"]].setdefault(r["concept"], {})[r["valid_date"]] = _plain(r["value"])
-    _attach_ttm(FlowSeries(**buckets), summaries, ttm_keys=_TTM_FLOW_KEYS)
+    _attach_ttm(_flow_series(rows), summaries, ttm_keys=_TTM_FLOW_KEYS, q4_rule=q4_rule)
 
 
 def f1_coverage(facts: dict, statements: Sequence[dict] = (),
