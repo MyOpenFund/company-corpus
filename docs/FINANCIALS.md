@@ -39,9 +39,16 @@ summed or divided as if it were the functional currency.
 
 ## Curated concepts
 
-The curated line items are data: `company_corpus/concepts/us_gaap.json`, with its own version. Each
-concept has one meaning, a preference-ordered list of tags, and the statement it belongs on. 48
-concepts are `reviewed`; the other 23 keep their earlier chains and are marked `not_reviewed`. Beyond
+The curated line items are data, in two levels (dictionary version 2.0.0):
+`company_corpus/concepts/concepts.json` holds the meaning of each concept (label, statement,
+instant, `kind` = `money`, `money/shares` or `shares`, and the global tolerances), and one table per
+taxonomy, `concepts/tags/<table>.json`, holds that taxonomy's tags (its `namespace`, its
+`position_version_prefix`, and per concept a `status`, `on_several`, preference-ordered `tags`,
+`statement_only_tags` and `computed`). The loaded tables are `us_gaap` and `ifrs_full`
+(`DEFAULT_TABLES`). A full tag `ns:Tag` belongs to one table; the same bare name in two namespaces is
+two tags; a table may borrow `dei:` cover-page tags. Each concept has one meaning, a
+preference-ordered list of tags per taxonomy, and the statement it belongs on. In `tags/us_gaap.json`
+48 concepts are `reviewed`; the other 23 keep their earlier chains and are marked `not_reviewed`. Beyond
 the core lines the set includes `long_term_investments`, `preferred_stock`,
 `noncontrolling_interest`, `equity_total`, `net_income_nci`, `acquisitions_net`,
 `debt_proceeds`/`debt_repayments`, `restricted_cash`, `retained_earnings`, `treasury_stock`, `aoci`
@@ -53,6 +60,21 @@ Figures of different meanings are different concepts: `payables` and `payables_a
 `long_term_debt_incl_current` and `debt_total`. `equity` is **parent-only**; the
 NCI-inclusive figure lives in `equity_total`, so ROE and book value never divide parent income by
 parent+NCI equity.
+
+The `ifrs_full` table maps 41 of those 48 reviewed concepts, as reviewed on NatWest, AstraZeneca and
+JBS (10 more entries are `not_reviewed`). Some concepts are deliberately empty or absent for IFRS
+filers (the total debt family, `shares_outstanding`, `revenue` and `interest_net` off the statement):
+see `tags/ifrs_full.json` for the exact list. Values are stored as filed, in the filing's reporting
+currency (GBP, CAD, ...), so the unit is on each value, not on the concept: `concept_catalog()`
+entries carry `kind`, not a unit.
+
+Which taxonomy answers (`selection.py`): a position places a fact only through its own taxonomy's
+`position_version_prefix` (an extension element never places a dictionary tag). For one concept and
+period, one taxonomy answers: that of the latest filing with a candidate (on the same filing, the one
+on the statement, then table order), so a filer that moved from IFRS to US GAAP gets one row. A sum
+concept's candidates are its statement lines, and a computed total reads its own taxonomy. Note the
+asymmetry: within one taxonomy an older statement value beats a newer note; across taxonomies the
+newer filing's taxonomy answers.
 
 Tag choices that still matter to a reader:
 

@@ -145,9 +145,12 @@ acceptance time, a fallback is used (`Config.store_known_at_fallback_tz` /
 fallback is capped at run time, so a later run records another version with a later
 `known_at` (a new vintage, not a conflict) -- visible as `known_at_capped`.
 
-**Reporting currency.** It is decided per filing, from that filing's own `us-gaap` facts
+**Namespaces.** Ingestion reads every taxonomy namespace the dictionary loads (`us-gaap`, `ifrs-full`) plus `dei`.
+
+**Reporting currency.** It is decided per filing, from that filing's own facts in the loaded taxonomies (`us-gaap` and `ifrs-full`, not `dei`)
 by a vote over its monetary facts, cross-checked against its balance sheet totals
-(`Config.store_currency_anchor_tags`). A tied vote is settled by the totals; a contradiction,
+(`Config.store_currency_anchor_tags`, full `ns:Tag` names: the us-gaap and ifrs-full balance sheet
+totals). Values are stored as filed, in that reporting currency (GBP, CAD, ...). A tied vote is settled by the totals; a contradiction,
 or nothing to settle a tie, publishes no money (`dropped:currency_ambiguous`). A filing
 without balance sheet totals (a partial 10-K/A) rests on the vote alone. An issuer that switches
 currency therefore has one natural key with different units across vintages, as filed.
@@ -233,7 +236,7 @@ ratios from published rows without recomputing anything: run
 `concepts.selection.run_selection(facts, positions)` on one issuer's `fundamentals` vintages
 and `filing_statements`, then `concepts.store_summaries.summaries_from_rows(rows, company=...,
 vintages=<the same fundamentals rows>)`. It returns the same `PeriodSummary` objects as F1
-(`values`, point-in-time `derived` ratios, `ttm` ratios); `concept_catalog()` and
+(`values`, point-in-time `derived` ratios, `ttm` ratios); `concept_catalog()` (entries carry `kind`, not a unit) and
 `metric_catalog()` list what exists. The store has no 9-month YTD band, so the fiscal-year-end
 quarter is rebuilt as annual minus Q1 to Q3 (`q4_rule="sum_of_quarters"`; F1 keeps `"ytd9"`).
 Publication dates are read in New York time (`publication_tz`); the module docstring lists

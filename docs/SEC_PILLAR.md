@@ -81,6 +81,12 @@ Special cases: **F1** (financials) has no submission — instead
 `.primary.html`/`.txt` summary per period. **E1/E2** (ownership) download the
 submission, then replace the primary/text with a structured summary.
 
+F1 reads the facts of every taxonomy namespace loaded by the concept dictionary (`us-gaap` and
+`ifrs-full`) plus `dei`; a foreign filer's IFRS facts are kept as filed, in its reporting currency.
+The dictionary is two-level (`concepts/concepts.json` for meanings, `concepts/tags/<table>.json` for
+each taxonomy's tags, version 2.0.0) and a concept and period is answered by one taxonomy only: see
+[`FINANCIALS.md`](FINANCIALS.md#curated-concepts).
+
 ### The manifest is the map
 
 `data/manifest/<cik>.jsonl` — one JSON object per filing, carrying the metadata
