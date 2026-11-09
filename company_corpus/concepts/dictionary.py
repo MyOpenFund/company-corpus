@@ -229,6 +229,8 @@ _LOADED: dict[tuple[str, ...], Dictionary] = {}
 
 def load_dictionary(tables: Sequence[str] = DEFAULT_TABLES) -> Dictionary:
     """The packaged concepts and the named tag tables, parsed once per table list."""
+    if isinstance(tables, str):
+        raise TypeError("tables is a sequence of table names, not a string")
     key = tuple(tables)
     if key not in _LOADED:
         root = resources.files(__package__)

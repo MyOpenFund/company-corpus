@@ -646,3 +646,15 @@ def test_stamp_leverage_basis_accepts_total_liabilities():
     stamp_leverage_basis(rows, "total_liabilities")
     d2e = next(r for r in rows if r["concept"] == "debt_to_equity")
     assert d2e["leverage_basis"] == "total_liabilities"
+
+
+def test_html_footer_does_not_claim_us_gaap_only():
+    fy = next(x for x in _summaries() if x.frequency == "annual")
+    html = render_summary_html(fy)
+    assert "Data: SEC XBRL company facts</p>" in html and "(us-gaap)" not in html
+
+
+def test_attribution_ifrs_ordinary_equity_holders_is_parent():
+    from company_corpus.financials import _attribution
+    assert (_attribution("ProfitLossAttributableToOrdinaryEquityHoldersOfParentEntity")
+            == _attribution("ProfitLossAttributableToOwnersOfParent") == "parent")

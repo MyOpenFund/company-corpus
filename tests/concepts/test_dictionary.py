@@ -123,3 +123,8 @@ def test_an_error_names_the_table():
     tables[0][1]["concepts"]["cash"]["status"] = "maybe"
     with pytest.raises(DictionaryError, match=r"us_gaap: cash"):
         parse_dictionary(concepts, tables)
+
+
+def test_load_dictionary_rejects_a_bare_string():
+    with pytest.raises(TypeError, match="not a string"):
+        load_dictionary("us_gaap")

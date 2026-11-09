@@ -193,3 +193,61 @@ def test_an_extension_line_is_not_a_dictionary_line():
     # Same bare name, but the version is an accession number: an extension element.
     counts = f1_coverage(*_gbp_filer(liabilities_version="0000000001-25-000001"), D)
     assert counts["coverage:liabilities:on_statement_no_value"] == 0
+
+
+def test_pin_note_value_from_another_taxonomy_answers_when_statement_only_tag_is_off_statement():
+    """Pins today's behaviour (forbidding it would need a spec change). ifrs-full:Revenue is
+    statement-only for revenue; in the one filing it is located but off the statement, and a stray
+    us-gaap:Revenues sits in a note: the us-gaap note value answers."""
+    import copy
+
+    from company_corpus.concepts.dictionary import parse_dictionary
+    from tests.concepts.tables import TEST_IFRS_TABLE, _read
+    table = copy.deepcopy(TEST_IFRS_TABLE)
+    table["concepts"]["revenue"].update(tags=[], statement_only_tags=["Revenue"])
+    d = parse_dictionary(_read("concepts.json"),
+                         [("us_gaap", _read("tags/us_gaap.json")), ("ifrs_full", table)])
+    facts = [_fact("ifrs-full:Revenue", 90, "A", OLD, start="2022-01-01"),
+             _fact("us-gaap:Revenues", 77, "A", OLD, start="2022-01-01", unit="USD")]
+    positions = [_pos("Revenue", "A", OLD, "ifrs/2022", "CF")]  # off the statement (cash-flow page)
+    rows = run_selection(pa.Table.from_pylist(facts, schema=FACT_SCHEMA),
+                         pa.Table.from_pylist(positions, schema=POSITION_SCHEMA), d)
+    r = _concept(rows, "revenue")
+    assert r["original_tag"] == "us-gaap:Revenues" and r["value"] == 77 and r["location"] == "note"
+
+
+def test_a_currency_switcher_today_keeps_only_the_issuer_wide_currency_period():
+    """IFRS 20-F (EUR) FY2022, then US GAAP 10-K (USD) FY2023. F1 has ONE issuer-wide currency
+    (reporting_currency of all flattened facts) and drops monetary points in any other currency, so
+    a currency switcher does NOT get one summary per period today: this pins that limitation, it is
+    not the desired behaviour."""
+    a2, a3 = "0000000001-23-000001", "0000000001-24-000001"
+    facts = companyfacts({
+        "ifrs-full:Assets": [{"unit": "EUR", "val": 50, "end": "2022-12-31", "accn": a2,
+                              "form": "20-F", "filed": "2023-03-01"}],
+        "ifrs-full:Revenue": [{"unit": "EUR", "val": 9, "start": "2022-01-01", "end": "2022-12-31",
+                               "accn": a2, "form": "20-F", "filed": "2023-03-01"}],
+        "us-gaap:Revenues": [{"unit": "USD", "val": 11, "start": "2023-01-01", "end": "2023-12-31",
+                              "accn": a3, "form": "10-K", "filed": "2024-03-01"}],
+        "us-gaap:Assets": [{"unit": "USD", "val": 60, "end": "2023-12-31", "accn": a3,
+                            "form": "10-K", "filed": "2024-03-01"}]})
+    statements = [
+        {"accn": a2, "form": "20-F", "period": "20221231", "filed": "20230301",
+         "accepted": "2023-03-01 10:00:00.0", "statement": "BS", "tag": "Assets",
+         "version": "ifrs/2023", "plabel": "Assets", "report": 2, "line": 0},
+        {"accn": a3, "form": "10-K", "period": "20231231", "filed": "20240301",
+         "accepted": "2024-03-01 10:00:00.0", "statement": "BS", "tag": "Assets",
+         "version": "us-gaap/2024", "plabel": "Assets", "report": 2, "line": 0},
+        {"accn": a2, "form": "20-F", "period": "20221231", "filed": "20230301",
+         "accepted": "2023-03-01 10:00:00.0", "statement": "IS", "tag": "Revenue",
+         "version": "ifrs/2023", "plabel": "Revenue", "report": 3, "line": 0},
+        {"accn": a3, "form": "10-K", "period": "20231231", "filed": "20240301",
+         "accepted": "2024-03-01 10:00:00.0", "statement": "IS", "tag": "Revenues",
+         "version": "us-gaap/2024", "plabel": "Revenues", "report": 3, "line": 0}]
+    out = build_summaries(facts, company="T", company_current="T", statements=statements,
+                          dictionary=D)
+    annual = [s for s in out if s.frequency == "annual"]
+    # Today: one issuer-wide currency (the most frequent unit; ties go to USD). Here EUR and USD tie
+    # at 2 points each, so USD is the issuer currency and the EUR-only FY2022 period gets NO summary.
+    assert [(s.period_end.year, s.currency) for s in annual] == [(2023, "USD")]
+    assert annual[0].values["assets"]["unit"] == "USD"

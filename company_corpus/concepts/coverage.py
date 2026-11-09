@@ -10,7 +10,8 @@ STATES = ("statement", "note", "inferred", "unknown", "derived", "absent", "conf
           "on_statement_no_value")
 
 
-def positioned_tags(positions: Iterable[tuple[str, str, str | None]], d: Dictionary) -> set[tuple[str, str]]:
+def positioned_tags(positions: Iterable[tuple[str, str, str | None]],
+                    d: Dictionary) -> set[tuple[str, str]]:
     """``(filing_ref, "ns:Tag")`` for each ``(filing_ref, tag, tag_version)`` position whose version
     names a loaded taxonomy; extension elements (version = an accession) are left out."""
     prefixes = [(t.position_version_prefix, t.namespace) for t in d.tables]
@@ -38,8 +39,8 @@ def coverage(rows: list[dict], on_statement: Collection[tuple[str, str]],
              dictionary: Dictionary | None = None) -> Counter:
     """``coverage:<concept>:<state>`` counts. ``rows`` is one issuer's selection output
     and ``on_statement`` its ``(filing_ref, "ns:Tag")`` pairs (see ``positioned_tags``).
-    ``on_statement_no_value`` is a chain tag on the reference filing's statements with no plain value: dimension-only lines, which
-    companyfacts does not carry."""
+    ``on_statement_no_value`` is a chain tag on the reference filing's statements with no plain
+    value: dimension-only lines, which companyfacts does not carry."""
     d = dictionary or load_dictionary()
     annual = [r for r in rows if r["frequency"] == "annual"]
     if not annual:

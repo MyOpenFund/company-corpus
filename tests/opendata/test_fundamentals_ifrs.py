@@ -1,13 +1,11 @@
 """IFRS filers through as-filed ingestion (chantier 10 spec §4)."""
-from collections import Counter
 from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
 
-from company_corpus.config import DEFAULT_CURRENCY_ANCHOR_TAGS, DEFAULT_DURATION_BANDS, Config
+from company_corpus.config import DEFAULT_CURRENCY_ANCHOR_TAGS, Config
 from company_corpus.opendata.fundamentals import (
-    as_filed_points,
     flatten_with_namespace,
     fundamentals_rows,
     ingest_namespaces,

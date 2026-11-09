@@ -61,8 +61,9 @@ Figures of different meanings are different concepts: `payables` and `payables_a
 NCI-inclusive figure lives in `equity_total`, so ROE and book value never divide parent income by
 parent+NCI equity.
 
-The `ifrs_full` table maps 41 of those 48 reviewed concepts, as reviewed on NatWest, AstraZeneca and
-JBS (10 more entries are `not_reviewed`). Some concepts are deliberately empty or absent for IFRS
+Of the 48 concepts reviewed for US GAAP, 41 are reviewed in the `ifrs_full` table (as reviewed on
+NatWest, AstraZeneca and JBS) and 7 are absent from it or `not_reviewed` there (`short_term_debt` is
+`not_reviewed`); the table has 10 `not_reviewed` entries in total. Some concepts are deliberately empty or absent for IFRS
 filers (the total debt family, `shares_outstanding`, `revenue` and `interest_net` off the statement):
 see `tags/ifrs_full.json` for the exact list. Values are stored as filed, in the filing's reporting
 currency (GBP, CAD, ...), so the unit is on each value, not on the concept: `concept_catalog()`
@@ -74,7 +75,9 @@ period, one taxonomy answers: that of the latest filing with a candidate (on the
 on the statement, then table order), so a filer that moved from IFRS to US GAAP gets one row. A sum
 concept's candidates are its statement lines, and a computed total reads its own taxonomy. Note the
 asymmetry: within one taxonomy an older statement value beats a newer note; across taxonomies the
-newer filing's taxonomy answers.
+newer filing's taxonomy answers. A restatement across taxonomies does not raise `conflict` (the
+replaced value is tracked per tag), and a note value from another taxonomy can answer when the
+answering taxonomy's tag is statement-only and off the statement.
 
 Tag choices that still matter to a reader:
 
@@ -277,7 +280,7 @@ four decimal places: **32.5629** at 2025-12-27 and **34.9060** at 2026-03-28
   second tag, after `LongTermDebtNoncurrent`; it bundles capitalised (finance) leases into the debt
   figure, which is debt-like and acceptable when the filer reports debt only in that
   combined form.
-- IFRS concepts absent from the IFRS table stay unmapped on the SEC path. Ingestion reads `us-gaap`,
+- Concepts absent from the IFRS table stay unmapped on the SEC path. Ingestion reads `us-gaap`,
   `ifrs-full` and `dei`, and `tags/ifrs_full.json` is a default table, so an IFRS-only filer is mapped
   for the concepts that table lists; the remaining limit is the set of concepts it does not (see
   `tags/ifrs_full.json`).
