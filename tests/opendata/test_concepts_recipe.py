@@ -21,6 +21,7 @@ from myopendata.config import StoreConfig  # noqa: E402
 from myopendata.contracts.standard import (  # noqa: E402
     ENTITY_OBSERVATIONS,
     FILING_STATEMENTS,
+    FILINGS,
     FUNDAMENTALS,
 )
 from myopendata.publisher import approve_contract, publish_pending  # noqa: E402
@@ -62,7 +63,7 @@ def _load(config, name):
 @pytest.fixture
 def published(config, tmp_path):
     store = StoreConfig(data_root=tmp_path / "store", catalog=str(tmp_path / "meta.ducklake"))
-    for contract in (ENTITY_OBSERVATIONS, FUNDAMENTALS, FILING_STATEMENTS):
+    for contract in (ENTITY_OBSERVATIONS, FUNDAMENTALS, FILING_STATEMENTS, FILINGS):
         approve_contract(store, contract, "test")
     loaded = {name: _load(config, name) for name in CASES}
     rep = store_batches([c for c, _ in loaded.values()], config=config, landing=store.landing,
@@ -107,7 +108,7 @@ def test_recipe_reads_as_of(published):
 
 def test_real_positions_upgrade_inferred_values_without_touching_a_fact(config, tmp_path):
     store = StoreConfig(data_root=tmp_path / "store", catalog=str(tmp_path / "meta.ducklake"))
-    for contract in (ENTITY_OBSERVATIONS, FUNDAMENTALS, FILING_STATEMENTS):
+    for contract in (ENTITY_OBSERVATIONS, FUNDAMENTALS, FILING_STATEMENTS, FILINGS):
         approve_contract(store, contract, "test")
     cik, fx = _load(config, "marriott")
     newest = max(s["accn"] for s in fx["statements"])

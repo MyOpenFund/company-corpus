@@ -36,9 +36,9 @@ def test_one_identity_and_one_fundamentals_batch_per_issuer(config, tmp_path):
     rep = _run(config, tmp_path / "landing")
     assert [o.status for o in rep.issuers] == ["ok", "ok"]
     assert rep.issuers[0].rows == {
-        "entity_observations_v1": 2, "fundamentals_v3": 2, "filing_statements_v1": 0}
+        "entity_observations_v1": 2, "filings_v1": 1, "fundamentals_v3": 2, "filing_statements_v1": 0}
     batches = sorted(p.parent.parent.name for p in (tmp_path / "landing").glob("*/*/batch.json"))
-    assert batches == ["entity_observations_v1"] * 2 + ["fundamentals_v3"] * 2
+    assert batches == ["entity_observations_v1"] * 2 + ["filings_v1"] * 2 + ["fundamentals_v3"] * 2
     batch_id = rep.issuers[1].batches["fundamentals_v3"]
     m = json.loads((tmp_path / "landing" / "fundamentals_v3" / batch_id / "batch.json")
                    .read_text())
@@ -151,7 +151,7 @@ def test_report_totals_and_details(config, tmp_path):
     t = rep.totals()
     assert t["issuers"] == 2 and t["ok"] == 1 and t["failed"] == 1
     assert t["rows"] == {
-        "entity_observations_v1": 2, "fundamentals_v3": 2, "filing_statements_v1": 0}
+        "entity_observations_v1": 2, "filings_v1": 1, "fundamentals_v3": 2, "filing_statements_v1": 0}
     d = rep.to_details()["store_batches"]
     assert d["write"] is True and d["issuers"][B]["error"] == "companyfacts_missing"
 
@@ -338,3 +338,16 @@ def test_an_old_archive_with_a_filing_from_yesterday_still_refreshes(config, tmp
     fetcher = FakeFetcher({MAIN: _main_with_new_filing()}, config=config)
     out = _run_a(config, tmp_path / "l", fetcher)
     assert len(fetcher.calls) == 1 and out.counters["submissions_refreshed:stale"] == 1
+
+
+def test_filings_counters_are_prefixed(config, tmp_path):
+    write_companyfacts(config, A, companyfacts({
+        "Revenues": {"USD": [point(100, "2024-06-30", start="2023-07-01", accn=K)]}}))
+    write_archive(config, A, submissions_main(cik=A, filings=[
+        (K, "2024-07-30T20:06:22.000Z", "10-K"),
+        ("0000000042-24-000009", "2024-08-01T12:00:00.000Z", "4")]))
+    rep = store_batches([A], config=config, landing=tmp_path / "l", write=False, run_id="r1",
+                        now=NOW)
+    c = rep.issuers[0].counters
+    assert c["filings:dropped:not_a_report"] == 1 and c["filings:report_date_missing"] == 1
+    assert "report_date_missing" not in c

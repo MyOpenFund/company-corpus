@@ -241,7 +241,7 @@ python -m company_corpus xbrl --universe sp_curated --years 2015-2025 --write
 # statement positions from the SEC Financial Statement Data Sets (used by xbrl and the store)
 python -m company_corpus statements --universe sp_curated --write
 
-# my-open-data batches (identity, fundamentals, filing_statements) into a landing zone;
+# my-open-data batches (identity, fundamentals, filing_statements, filings) into a landing zone;
 # never publishes — run `myopendata publish` afterwards (README, "Feeding my-open-data")
 python -m company_corpus store-batches --universe sp_curated --landing "$MYOPENDATA_DATA_ROOT/landing" --write
 
