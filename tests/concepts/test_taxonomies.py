@@ -120,7 +120,18 @@ def test_a_computed_total_reads_one_taxonomy():
              _fact("us-gaap:LiabilitiesAndStockholdersEquity", 100, "A", OLD, unit="USD")]
     positions = [_pos("EquityAttributableToOwnersOfParent", "A", OLD, "ifrs/2024"),
                  _pos("LiabilitiesAndStockholdersEquity", "A", OLD, "us-gaap/2024")]
-    assert _concept(_run(facts, positions), "liabilities") is None
+    rows = _run(facts, positions)
+    assert _concept(rows, "liabilities") is None
+    assert _concept(rows, "equity")["original_tag"] == "ifrs-full:EquityAttributableToOwnersOfParent"
+
+
+def test_a_position_under_another_taxonomy_does_not_lend_its_statement():
+    # Same filing: Assets sits on CF under the IFRS version and on BS under another version.
+    facts = [_fact("ifrs-full:Assets", 50, "A", OLD)]
+    for other in ("us-gaap/2022", "0000000001-23-000001"):
+        positions = [_pos("Assets", "A", OLD, "ifrs/2022", "CF"), _pos("Assets", "A", OLD, other, "BS")]
+        r = _concept(_run(facts, positions), "assets")
+        assert r["location"] == "statement" and not r["on_statement"], other
 
 
 def test_a_sum_concepts_candidates_are_its_statement_lines():

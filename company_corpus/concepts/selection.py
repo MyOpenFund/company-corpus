@@ -46,7 +46,7 @@ def _values(rows) -> str:
 def _on_position(prefix: str) -> str:
     return ("JOIN pos p ON p.entity_scheme = f.entity_scheme AND p.entity_value = f.entity_value "
             "AND p.filing_ref = f.filing_ref AND p.tag = split_part(f.original_tag, ':', 2) "
-            f"AND len(list_filter(p.versions, lambda v: starts_with(v, {_lit(prefix)}))) > 0")
+            f"AND p.version_prefix = {_lit(prefix)}")
 
 
 def _computed_ctes(i: int, c, e, prefix: str, namespace: str) -> tuple[str, str]:
@@ -121,9 +121,12 @@ facts_in AS (
   SELECT * FROM vintages
   QUALIFY row_number() OVER (PARTITION BY {key} ORDER BY known_at DESC, filing_ref DESC, value DESC) = 1
 ),
-pos AS (SELECT entity_scheme, entity_value, filing_ref, tag,
-               list(DISTINCT coalesce(tag_version, '')) AS versions, list(DISTINCT statement) AS statements
-        FROM {positions} GROUP BY 1, 2, 3, 4),
+pos AS (SELECT s.entity_scheme, s.entity_value, s.filing_ref, s.tag, d.version_prefix,
+               list(DISTINCT s.statement) AS statements
+        FROM {positions} s
+        JOIN (SELECT DISTINCT version_prefix FROM dict_tags) d
+          ON starts_with(coalesce(s.tag_version, ''), d.version_prefix)
+        GROUP BY 1, 2, 3, 4, 5),
 located_filings AS (SELECT DISTINCT entity_scheme, entity_value, filing_ref, known_at FROM {positions}),
 blind_filings AS (
   SELECT DISTINCT f.entity_scheme, f.entity_value, f.filing_ref, f.known_at FROM facts_in f
@@ -156,7 +159,7 @@ placed AS (
   LEFT JOIN pos p ON p.entity_scheme = f.entity_scheme AND p.entity_value = f.entity_value
        AND p.filing_ref = coalesce(b.from_filing, f.filing_ref)
        AND p.tag = split_part(f.original_tag, ':', 2)
-       AND len(list_filter(p.versions, lambda v: starts_with(v, t.version_prefix))) > 0
+       AND p.version_prefix = t.version_prefix
 ),
 eligible AS (SELECT * FROM placed WHERE CASE WHEN on_several = 'sum' THEN tier = 0
                   ELSE NOT statement_only OR tier = 0 END),
