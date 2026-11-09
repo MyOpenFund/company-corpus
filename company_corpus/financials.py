@@ -866,8 +866,9 @@ def _build_flow_series(flat, currency, *, concepts_by_key=CONCEPTS_BY_KEY, ttm_k
 #: ``sum_of_quarters``: FY - the three standalone quarters before it, for data without a 9-month
 #: YTD band (the my-open-data store keeps quarterly, semiannual, annual, instant only). Chantier
 #: MCP-2 Q6: an off-spec rule, so a parameter. When both bands exist, it differs from ``ytd9``
-#: only when a quarter was restated without its YTD; it also gives a value where ``ytd9`` has none
-#: (no 9-month band) and none where a standalone quarter is missing.
+#: only when a quarter was restated without its YTD, or by the rounding of the three quarters
+#: (each rounded on its own, their sum can miss the reported YTD by a unit); it also gives a
+#: value where ``ytd9`` has none (no 9-month band) and none where a standalone quarter is missing.
 Q4_RULES = ("ytd9", "sum_of_quarters")
 Q4Rule = Literal["ytd9", "sum_of_quarters"]
 

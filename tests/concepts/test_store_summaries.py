@@ -13,15 +13,12 @@ from company_corpus.concepts.summaries import (
 from company_corpus.config import Config
 from company_corpus.opendata.fundamentals import fundamentals_rows
 
-from .support import fixture
+from .support import FIXTURES, fixture
 
 NOW = datetime(2026, 11, 6, tzinfo=timezone.utc)
-# Real issuers trimmed in tests/fixtures/concepts: a calendar-year industrial, a January
-# year-end retailer, a May year-end, a bank.
-ISSUERS = ["caterpillar", "target", "oracle", "jpmorgan"]
-#: Common periods each issuer must have at least. The trimmed target and jpmorgan fixtures hold
-#: three fiscal years and no quarter, on both sides: three is all there is (and all are common).
-MIN_COMMON = {"caterpillar": 4, "target": 3, "oracle": 4, "jpmorgan": 3}
+#: Every trimmed real issuer in tests/fixtures/concepts (calendar and off-calendar year-ends,
+#: quarters and annual-only, banks, insurers, REITs).
+FIXTURE_NAMES = sorted(p.stem for p in FIXTURES.glob("*.json"))
 
 
 def vintages(name: str) -> list[dict]:
@@ -50,45 +47,34 @@ def by_period(summaries):
     return {(s.period_end, s.frequency): s for s in summaries}
 
 
-@pytest.mark.parametrize("name", ISSUERS)
-def test_values_and_point_in_time_ratios_match_f1(name):
-    fx = fixture(name)
-    f1 = by_period(build_summaries(fx["facts"], company="x", company_current="x",
-                                   statements=fx["statements"]))
-    store = by_period(store_summaries(name))
-    common = set(f1) & set(store)
-    assert len(common) >= MIN_COMMON[name], (name, len(common))
-    if MIN_COMMON[name] == len(f1):  # the floor is the whole fixture: no period may be missing
-        assert store.keys() == f1.keys(), name
-    for k in common:
-        assert store[k].values.keys() == f1[k].values.keys(), (name, k)
-        assert {c: v["value"] for c, v in store[k].values.items()} == \
-               {c: v["value"] for c, v in f1[k].values.items()}, (name, k)
-        assert store[k].currency == f1[k].currency, (name, k)
-        assert (store[k].publication_date, store[k].accession) == \
-               (f1[k].publication_date, f1[k].accession), (name, k)
-        for m, v in store[k].derived.items():
-            if m in f1[k].derived:
-                assert v["value"] == pytest.approx(f1[k].derived[m]["value"], rel=1e-9), (name, k, m)
+def _same(a, b, rel) -> bool:
+    return a is None and b is None or (a is not None and b is not None
+                                       and a == pytest.approx(b, rel=rel))
 
 
-@pytest.mark.parametrize("name", ISSUERS)
-def test_annual_ttm_ratios_match_f1(name):
+@pytest.mark.parametrize("name", FIXTURE_NAMES)
+def test_store_summaries_equal_f1(name):
+    """Spec MCP-2 Q5: same periods, values, ratios (point-in-time and TTM), publication date,
+    accession and currency as F1 under the same Q4 rule. (F1's default ytd9 rule differs on
+    quarterly TTM only by rounding: see the oracle test below; annual TTM does not use it.)"""
     fx = fixture(name)
     f1_list = build_summaries(fx["facts"], company="x", company_current="x",
                               statements=fx["statements"])
-    attach_ttm(fx["facts"], f1_list, statements=fx["statements"])
-    f1 = by_period(f1_list)
-    store = by_period(store_summaries(name))
-    compared = 0
-    for k in set(f1) & set(store):
-        if k[1] != "annual":
-            continue
-        for m, v in store[k].ttm.items():
-            if m in f1[k].ttm and v["value"] is not None:
-                assert v["value"] == pytest.approx(f1[k].ttm[m]["value"], rel=1e-6), (name, k, m)
-                compared += 1
-    assert compared, name
+    attach_ttm(fx["facts"], f1_list, statements=fx["statements"], q4_rule="sum_of_quarters")
+    f1, store = by_period(f1_list), by_period(store_summaries(name))
+    assert store.keys() == f1.keys() and f1, name
+    for k, s in store.items():
+        f = f1[k]
+        assert (s.publication_date, s.accession, s.currency) == \
+               (f.publication_date, f.accession, f.currency), (name, k)
+        assert {c: v["value"] for c, v in s.values.items()} == \
+               {c: v["value"] for c, v in f.values.items()}, (name, k)
+        assert s.derived.keys() == f.derived.keys(), (name, k)
+        for m, v in s.derived.items():
+            assert _same(v["value"], f.derived[m]["value"], 1e-9), (name, k, m)
+        assert s.ttm.keys() == f.ttm.keys(), (name, k)
+        for m, v in s.ttm.items():
+            assert _same(v["value"], f.ttm[m]["value"], 1e-6), (name, k, m)
 
 
 def _quarterly_ttm(summaries) -> dict:
@@ -153,15 +139,9 @@ def test_publication_date_is_the_new_york_filing_day(known_at):
 def test_publication_date_is_the_first_filing_not_the_selected_vintage():
     """equinix: its 2026-10-28 10-Q re-reports Q1 2025 and Q1 2026, first filed on 2026-07-29.
     The selection keeps the latest vintage per tag and period, so the publication date and
-    accession come from the vintages, as F1 takes them from every as-filed point."""
-    fx = fixture("equinix")
-    f1 = by_period(build_summaries(fx["facts"], company="x", company_current="x",
-                                   statements=fx["statements"]))
+    accession come from the vintages, as F1 takes them from every as-filed point (F1 parity
+    itself is in test_store_summaries_equal_f1)."""
     store = by_period(store_summaries("equinix"))
-    assert store.keys() == f1.keys()
-    for k in f1:
-        assert (store[k].publication_date, store[k].accession) == \
-               (f1[k].publication_date, f1[k].accession), k
     q1 = store[(date(2025, 3, 31), "quarterly")]
     assert (q1.publication_date, q1.accession) == (date(2026, 7, 29), "0001101239-26-000147")
     without = by_period(summaries_from_rows(store_rows("equinix"), company="x"))
@@ -201,3 +181,12 @@ def test_a_period_only_seen_before_it_ended_has_no_summary():
     vintage = {"original_tag": "us-gaap:Revenues", "valid_date": date(2024, 12, 31),
                "frequency": "annual", "known_at": early, "filing_ref": "A"}
     assert summaries_from_rows(rows, company="x", vintages=[vintage]) == []
+
+
+def test_mixed_naive_and_aware_known_at_do_not_clash():
+    """A naive known_at is UTC: comparable with aware ones, earliest filing wins."""
+    end = date(2024, 12, 31)
+    rows = [_row("revenue", end, "annual", datetime(2025, 2, 14, 21, tzinfo=timezone.utc)),
+            {**_row("assets", end, "instant", datetime(2025, 2, 13, 21)), "filing_ref": "B"}]
+    (s,) = summaries_from_rows(rows, company="x")
+    assert (s.publication_date, s.accession) == (date(2025, 2, 13), "B")

@@ -136,6 +136,15 @@ def group_periods(rows: Iterable[dict]) -> tuple[dict[tuple[date, str], dict[str
     return duration, instant, allowed
 
 
+def _flow_series(rows: Iterable[dict]) -> FlowSeries:
+    """The TTM flow concepts of selection rows, by band (quarterly, annual, ytd9) and period end."""
+    buckets: dict[str, dict[str, dict[date, float]]] = {"quarterly": {}, "annual": {}, "ytd9": {}}
+    for r in rows:
+        if r["concept"] in _TTM_FLOW_KEYS and r["frequency"] in buckets:
+            buckets[r["frequency"]].setdefault(r["concept"], {})[r["valid_date"]] = _plain(r["value"])
+    return FlowSeries(**buckets)
+
+
 def build_summaries(facts: dict, *, company: str, company_current: str, name_for_date=None,
                     since_year: int | None = None, until_year: int | None = None,
                     sic: str | None = None, statements: Sequence[dict] = (),
@@ -187,11 +196,7 @@ def _currency(facts: dict) -> str:
 def attach_ttm(facts: dict, summaries: list[PeriodSummary], *, statements: Sequence[dict] = (),
                dictionary: Dictionary | None = None, q4_rule: Q4Rule = "ytd9") -> None:
     rows = select_for_f1(facts, statements, dictionary).rows
-    buckets: dict[str, dict[str, dict[date, float]]] = {"quarterly": {}, "annual": {}, "ytd9": {}}
-    for r in rows:
-        if r["concept"] in _TTM_FLOW_KEYS and r["frequency"] in buckets:
-            buckets[r["frequency"]].setdefault(r["concept"], {})[r["valid_date"]] = _plain(r["value"])
-    _attach_ttm(FlowSeries(**buckets), summaries, ttm_keys=_TTM_FLOW_KEYS, q4_rule=q4_rule)
+    _attach_ttm(_flow_series(rows), summaries, ttm_keys=_TTM_FLOW_KEYS, q4_rule=q4_rule)
 
 
 def f1_coverage(facts: dict, statements: Sequence[dict] = (),

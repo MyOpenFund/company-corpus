@@ -25,6 +25,11 @@ Currency: per period, the first ISO-4217 (3-letter) unit among the period's valu
 order, else ``"USD"``; a mixed-currency period takes the dictionary-first concept's ISO unit. It
 equals F1's issuer-wide ``reporting_currency`` on every concept fixture; the producer already
 keeps one currency per issuer filing (its currency anchor tags).
+
+Two known differences from F1 that no fixture exercises: the first filing is picked by
+``(known_at, filing_ref)`` where F1 takes point order, so two filings the same day (a 10-K and its
+10-K/A) can give another accession with the same date; and publication-date candidates are not
+filtered to the reporting currency, where F1 drops points in another currency.
 """
 from __future__ import annotations
 
@@ -33,16 +38,16 @@ from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
 from ..financials import (
+    _CURRENCY_RE,
     DERIVED,
     DERIVED_TTM,
-    FlowSeries,
     PeriodSummary,
     Q4Rule,
     _attach_ttm,
     _TTM_FLOW_KEYS,
 )
 from .dictionary import Dictionary, load_dictionary
-from .summaries import _F1_LABEL, _plain, _value, group_periods
+from .summaries import _F1_LABEL, _flow_series, _value, group_periods
 
 __all__ = ["DEFAULT_PUBLICATION_TZ", "concept_catalog", "group_periods", "metric_catalog",
            "summaries_from_rows"]
@@ -73,14 +78,19 @@ def summaries_from_rows(rows: Iterable[dict], *, company: str, company_current: 
     zone = ZoneInfo(publication_tz)
     rows = list(rows)
 
-    def day(at: datetime) -> date:  # a naive known_at is UTC, as the store writes it
-        return (at if at.tzinfo else at.replace(tzinfo=timezone.utc)).astimezone(zone).date()
+    def utc(at: datetime) -> datetime:  # a naive known_at is UTC, as the store writes it
+        return at if at.tzinfo else at.replace(tzinfo=timezone.utc)
+
+    def day(at: datetime) -> date:
+        return utc(at).astimezone(zone).date()
 
     namespaces = sorted({s.ns for s in d.tag_specs().values()})
     duration, instant, allowed = group_periods(rows)
     filed_at: dict[tuple[date, str], list[dict]] = {}
     if vintages is not None:
         chain_tags = {t for c in d.concepts.values() for t in (*c.tags, *c.statement_only_tags)}
+        # Selection rows always carry their entity keys (synthetic ones may not); vintages may be
+        # arbitrary dicts, so they are read with .get and kept only for the rows' issuer.
         issuers = {(r["entity_scheme"], r["entity_value"]) for r in rows if "entity_value" in r}
         for v in vintages:
             if v["original_tag"] in chain_tags and (
@@ -99,7 +109,7 @@ def summaries_from_rows(rows: Iterable[dict], *, company: str, company_current: 
         reported = [r for r in candidates if day(r["known_at"]) >= end]
         if not reported:
             continue
-        first = min(reported, key=lambda r: (r["known_at"], r["filing_ref"]))
+        first = min(reported, key=lambda r: (utc(r["known_at"]), r["filing_ref"]))
         values = {k: _value(merged[k], d, namespaces) for k in d.concepts if k in merged}
         out.append(PeriodSummary(
             period_end=end, frequency=_F1_LABEL.get(freq, freq),
@@ -107,14 +117,10 @@ def summaries_from_rows(rows: Iterable[dict], *, company: str, company_current: 
             accession=first["filing_ref"], company=company,
             company_current=company_current or company, values=values,
             currency=next((v["unit"] for v in values.values()
-                           if len(v["unit"]) == 3 and v["unit"].isalpha()), "USD"),
+                           if _CURRENCY_RE.match(v["unit"])), "USD"),
             sic=sic, sector_known=sector_known, debt_rule="concepts"))
     out.sort(key=lambda s: (s.period_end or date.min, s.frequency), reverse=True)
-    buckets: dict[str, dict[str, dict[date, float]]] = {"quarterly": {}, "annual": {}, "ytd9": {}}
-    for r in rows:
-        if r["concept"] in _TTM_FLOW_KEYS and r["frequency"] in buckets:
-            buckets[r["frequency"]].setdefault(r["concept"], {})[r["valid_date"]] = _plain(r["value"])
-    _attach_ttm(FlowSeries(**buckets), out, ttm_keys=_TTM_FLOW_KEYS, q4_rule=q4_rule)
+    _attach_ttm(_flow_series(rows), out, ttm_keys=_TTM_FLOW_KEYS, q4_rule=q4_rule)
     return out
 
 
