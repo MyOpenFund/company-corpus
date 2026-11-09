@@ -140,3 +140,56 @@ def test_a_sum_concepts_candidates_are_its_statement_lines():
     positions = [_pos("Borrowings", "A", OLD, "ifrs/2022"), _pos("Assets", "B", NEW, "us-gaap/2023")]
     r = _concept(_run(facts, positions), "debt_components")
     assert r["value"] == 30 and r["original_tag"] == "ifrs-full:Borrowings"
+
+
+from company_corpus.concepts.summaries import build_summaries, f1_coverage  # noqa: E402
+from tests.concepts.tables import companyfacts  # noqa: E402
+
+A1 = "0000000001-25-000001"
+
+
+def _cf_point(unit, val, end, *, start=None):
+    p = {"unit": unit, "val": val, "end": end, "accn": A1, "form": "20-F", "filed": "2025-03-01"}
+    if start:
+        p["start"] = start
+    return p
+
+
+def _gbp_filer(liabilities_version="ifrs/2024"):
+    facts = companyfacts({
+        "ifrs-full:Revenue": [_cf_point("GBP", 14000, "2024-12-31", start="2024-01-01")],
+        "ifrs-full:ProfitLossAttributableToOwnersOfParent": [
+            _cf_point("GBP", 4000, "2024-12-31", start="2024-01-01")],
+        "ifrs-full:Assets": [_cf_point("GBP", 700000, "2024-12-31")]})
+    lines = (("IS", "Revenue", "ifrs/2024"),
+             ("IS", "ProfitLossAttributableToOwnersOfParent", "ifrs/2024"),
+             ("BS", "Assets", "ifrs/2024"), ("BS", "Liabilities", liabilities_version))
+    statements = [{"accn": A1, "form": "20-F", "period": "20241231", "filed": "20250301",
+                   "accepted": "2025-03-01 10:00:00.0", "statement": st, "tag": tag,
+                   "version": version, "plabel": tag, "report": 2, "line": n}
+                  for n, (st, tag, version) in enumerate(lines)]
+    return facts, statements
+
+
+def test_an_ifrs_filer_gets_an_f1_summary_in_its_currency():
+    # Guard: Tasks 2 and 3 already make this pass.
+    facts, statements = _gbp_filer()
+    (s,) = build_summaries(facts, company="T", company_current="T", statements=statements,
+                           dictionary=D)
+    assert s.currency == "GBP" and s.frequency == "annual"
+    assert s.values["revenue"]["value"] == 14000 and s.values["revenue"]["unit"] == "GBP"
+    assert s.values["revenue"]["tag"] == "Revenue" and s.values["revenue"]["location"] == "statement"
+    assert s.values["net_income"]["value"] == 4000
+
+
+def test_a_dictionary_line_without_a_value_is_reported():
+    counts = f1_coverage(*_gbp_filer(), D)
+    assert counts["coverage:revenue:statement"] == 1
+    assert counts["coverage:liabilities:on_statement_no_value"] == 1
+    assert counts["coverage:gross_profit:on_statement_no_value"] == 0
+
+
+def test_an_extension_line_is_not_a_dictionary_line():
+    # Same bare name, but the version is an accession number: an extension element.
+    counts = f1_coverage(*_gbp_filer(liabilities_version="0000000001-25-000001"), D)
+    assert counts["coverage:liabilities:on_statement_no_value"] == 0

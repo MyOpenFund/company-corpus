@@ -22,7 +22,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
-from ..concepts.coverage import coverage
+from ..concepts.coverage import coverage, positioned_tags
 from ..concepts.dictionary import load_dictionary
 from ..concepts.selection import run_selection
 from ..config import Config, normalize_cik
@@ -230,8 +230,10 @@ def _coverage(out: IssuerOutcome, mod, fund_rows: list[dict], position_rows: lis
     """The reader's selection on this issuer's rows, for the run report only."""
     facts = mod.pa.Table.from_pylist(fund_rows, schema=mod.FUNDAMENTALS.schema)
     positions = mod.pa.Table.from_pylist(position_rows, schema=mod.FILING_STATEMENTS.schema)
-    out.coverage.update(coverage(run_selection(facts, positions),
-                                 {(r["filing_ref"], r["tag"]) for r in position_rows}))
+    d = load_dictionary()
+    on_statement = positioned_tags(((r["filing_ref"], r["tag"], r["tag_version"])
+                                    for r in position_rows), d)
+    out.coverage.update(coverage(run_selection(facts, positions, d), on_statement, d))
 
 
 def _issuer(out: IssuerOutcome, mod, *, config, storage, landing, write, offline, refresh,

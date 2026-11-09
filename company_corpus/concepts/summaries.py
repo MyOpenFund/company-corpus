@@ -25,7 +25,7 @@ from ..opendata.fundamentals import (
     flatten_with_namespace,
     ingest_namespaces,
 )
-from .coverage import coverage
+from .coverage import coverage, positioned_tags
 from .dictionary import Dictionary, load_dictionary
 from .selection import run_selection
 
@@ -209,5 +209,7 @@ def attach_ttm(facts: dict, summaries: list[PeriodSummary], *, statements: Seque
 
 def f1_coverage(facts: dict, statements: Sequence[dict] = (),
                 dictionary: Dictionary | None = None) -> Counter:
-    on_statement = {(s["accn"], s["tag"]) for s in statements}
-    return coverage(select_for_f1(facts, statements, dictionary).rows, on_statement, dictionary)
+    d = dictionary or load_dictionary()
+    on_statement = positioned_tags(((s["accn"], s["tag"], s.get("version") or "")
+                                    for s in statements), d)
+    return coverage(select_for_f1(facts, statements, d).rows, on_statement, d)
