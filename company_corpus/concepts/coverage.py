@@ -10,7 +10,7 @@ STATES = ("statement", "note", "inferred", "unknown", "derived", "absent", "conf
           "on_statement_no_value")
 
 
-def positioned_tags(positions: Iterable[tuple[str, str, str]], d: Dictionary) -> set[tuple[str, str]]:
+def positioned_tags(positions: Iterable[tuple[str, str, str | None]], d: Dictionary) -> set[tuple[str, str]]:
     """``(filing_ref, "ns:Tag")`` for each ``(filing_ref, tag, tag_version)`` position whose version
     names a loaded taxonomy; extension elements (version = an accession) are left out."""
     prefixes = [(t.position_version_prefix, t.namespace) for t in d.tables]
@@ -19,6 +19,7 @@ def positioned_tags(positions: Iterable[tuple[str, str, str]], d: Dictionary) ->
         for prefix, ns in prefixes:
             if (version or "").startswith(prefix):
                 out.add((filing_ref, f"{ns}:{tag}"))
+                break
     return out
 
 
@@ -35,9 +36,9 @@ def _own_tags(d: Dictionary, key: str) -> list[str]:
 
 def coverage(rows: list[dict], on_statement: Collection[tuple[str, str]],
              dictionary: Dictionary | None = None) -> Counter:
-    """``coverage:<concept>:<state>`` counts. ``rows`` is one issuer's selection output and
-    ``on_statement`` its ``(filing_ref, "ns:Tag")`` pairs (see ``positioned_tags``). ``on_statement_no_value`` is a chain tag on
-    the reference filing's statements with no plain value: dimension-only lines, which
+    """``coverage:<concept>:<state>`` counts. ``rows`` is one issuer's selection output
+    and ``on_statement`` its ``(filing_ref, "ns:Tag")`` pairs (see ``positioned_tags``).
+    ``on_statement_no_value`` is a chain tag on the reference filing's statements with no plain value: dimension-only lines, which
     companyfacts does not carry."""
     d = dictionary or load_dictionary()
     annual = [r for r in rows if r["frequency"] == "annual"]
@@ -52,9 +53,7 @@ def coverage(rows: list[dict], on_statement: Collection[tuple[str, str]],
         row = found.get(key)
         if row is None:
             out[f"coverage:{key}:absent"] += 1
-            # A bare-name pair (no taxonomy known to the caller) is still honoured.
-            if any((reference, t) in on_statement or (reference, t.split(":", 1)[1]) in on_statement
-                   for t in _own_tags(d, key)):
+            if any((reference, t) in on_statement for t in _own_tags(d, key)):
                 out[f"coverage:{key}:on_statement_no_value"] += 1
             continue
         out[f"coverage:{key}:{row['location']}"] += 1

@@ -2,7 +2,8 @@ from datetime import date
 
 import pytest
 
-from company_corpus.concepts.coverage import coverage, format_coverage
+from company_corpus.concepts.coverage import coverage, format_coverage, positioned_tags
+from company_corpus.concepts.dictionary import load_dictionary
 from company_corpus.financials import (FlowSeries, _standalone_quarter, attach_ttm_metrics, build_period_summaries,
                                        compute_derived)
 from tests.concepts.support import fixture, selected
@@ -177,7 +178,8 @@ def test_xbrl_reports_a_failed_statements_refresh_and_still_builds(config, xbrl_
 
 
 def _on_statement(name):
-    return {(s["accn"], s["tag"]) for s in fixture(name)["statements"]}
+    return positioned_tags(((s["accn"], s["tag"], s["version"]) for s in fixture(name)["statements"]),
+                           load_dictionary())
 
 
 def test_a_chain_tag_on_the_statement_without_a_value_is_counted():
