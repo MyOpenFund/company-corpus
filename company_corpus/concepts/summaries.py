@@ -51,7 +51,8 @@ FACT_SCHEMA = pa.schema([
     ("valid_date", pa.date32()), ("source_code", pa.string())])
 POSITION_SCHEMA = pa.schema([
     ("entity_scheme", pa.string()), ("entity_value", pa.string()), ("filing_ref", pa.string()),
-    ("statement", pa.string()), ("tag", pa.string()), ("known_at", pa.timestamp("us", tz="UTC"))])
+    ("statement", pa.string()), ("tag", pa.string()), ("tag_version", pa.string()),
+    ("known_at", pa.timestamp("us", tz="UTC"))])
 
 
 @dataclass
@@ -88,7 +89,8 @@ def positions_table(statements: Sequence[dict]) -> pa.Table:
         day = _filed(s.get("filed"))
         if day is not None:
             rows.append({"entity_scheme": "cik", "entity_value": "f1", "filing_ref": s["accn"],
-                         "statement": s["statement"], "tag": s["tag"], "known_at": _end_of_day(day)})
+                         "statement": s["statement"], "tag": s["tag"],
+                         "tag_version": s.get("version") or "", "known_at": _end_of_day(day)})
     return pa.Table.from_pylist(rows, schema=POSITION_SCHEMA)
 
 

@@ -11,6 +11,11 @@ positions of the issuer's latest earlier filing that has some (``location = infe
 are read at each run: once the real ones arrive, the value is ``statement`` or ``note``, with no
 change to any stored fact. ``on_statement`` says the value's line is on the concept's statement, in
 the filing's own positions or the borrowed ones.
+
+Several taxonomies (one tag table each) share the selection. A position places a fact only when its
+``tag_version`` starts with the fact's table prefix. For one concept and period, only the taxonomy of
+the latest filing with a candidate answers (on the same filing: the one on the statement, then table
+order), so a filer that changed taxonomy gets one row, never one per taxonomy.
 """
 from __future__ import annotations
 
@@ -22,8 +27,6 @@ _PERIOD = "entity_scheme, entity_value, valid_date, frequency, basis, source_cod
 _OUT = ("concept, entity_scheme, entity_value, valid_date, frequency, basis, source_code, "
         "period_start, value, unit, original_tag, filing_ref, source_doc_id, known_at, location, "
         "conflict, review_status, on_statement")
-_ON_POSITION = ("JOIN pos p ON p.entity_scheme = f.entity_scheme AND p.entity_value = f.entity_value "
-                "AND p.filing_ref = f.filing_ref AND p.tag = split_part(f.original_tag, ':', 2)")
 
 
 def _lit(v) -> str:
@@ -38,13 +41,19 @@ def _values(rows) -> str:
     return ", ".join("(" + ", ".join(_lit(x) for x in r) + ")" for r in rows)
 
 
-def _computed_ctes(i: int, c, e) -> tuple[str, str]:
-    m, statement = e.computed, c.statement
+def _on_position(prefix: str) -> str:
+    return ("JOIN pos p ON p.entity_scheme = f.entity_scheme AND p.entity_value = f.entity_value "
+            "AND p.filing_ref = f.filing_ref AND p.tag = split_part(f.original_tag, ':', 2) "
+            f"AND starts_with(p.tag_version, {_lit(prefix)})")
+
+
+def _computed_ctes(i: int, c, e, prefix: str) -> tuple[str, str]:
+    m, statement, on_position = e.computed, c.statement, _on_position(prefix)
     first = _values((k, n) for n, k in enumerate(m.minus_first_of))
     minus = _values((t, n) for n, t in enumerate(m.minus_first_tag_of))
     cte = f""",
 total_{i} AS (
-  SELECT f.* FROM facts_in f {_ON_POSITION}
+  SELECT f.* FROM facts_in f {on_position}
   WHERE f.original_tag = {_lit(m.total_tag)} AND list_contains(p.statements, {_lit(statement)})
 ),
 base_{i} AS (
@@ -55,7 +64,7 @@ base_{i} AS (
 minus_{i} AS (
   SELECT f.entity_scheme, f.entity_value, f.valid_date, f.frequency, f.basis, f.source_code,
          f.filing_ref, arg_min(f.value, r.n) AS value
-  FROM facts_in f JOIN (VALUES {minus}) r(original_tag, n) USING (original_tag) {_ON_POSITION}
+  FROM facts_in f JOIN (VALUES {minus}) r(original_tag, n) USING (original_tag) {on_position}
   WHERE list_contains(p.statements, {_lit(statement)})
   GROUP BY f.entity_scheme, f.entity_value, f.valid_date, f.frequency, f.basis, f.source_code,
            f.filing_ref
@@ -81,21 +90,23 @@ def selection_sql(dictionary: Dictionary | None = None, *, facts: str = "facts",
     """One DuckDB statement over the views ``facts`` and ``positions``."""
     d = dictionary or load_dictionary()
     tags = []
-    for t in d.tables:
+    for rank_t, t in enumerate(d.tables):
         for e in t.entries.values():
             chain = [(x, False) for x in e.tags] + [(x, True) for x in e.statement_only_tags]
-            tags.extend((e.concept, x, rank, only, e.on_several, e.status)
+            tags.extend((e.concept, x, rank, only, e.on_several, e.status, t.namespace, rank_t,
+                         t.position_version_prefix)
                         for rank, (x, only) in enumerate(chain))
     concepts = [(c.key, c.statement) for c in d.concepts.values()]
     extra, selects = [], [f"SELECT {_OUT} FROM picked", f"SELECT {_OUT} FROM summed"]
     computed = [(t, e) for t in d.tables for e in t.entries.values() if e.computed]
     for i, (t, e) in enumerate(computed):
-        cte, select = _computed_ctes(i, d.concepts[e.concept], e)
+        cte, select = _computed_ctes(i, d.concepts[e.concept], e, t.position_version_prefix)
         extra.append(cte)
         selects.append(select)
     tol, restated = repr(d.conflict_tolerance), repr(d.restatement_tolerance)
     key = "entity_scheme, entity_value, original_tag, valid_date, frequency, basis, source_code"
-    return f"""WITH dict_tags(concept, original_tag, tag_rank, statement_only, on_several, review_status) AS (VALUES {_values(tags)}),
+    return f"""WITH dict_tags(concept, original_tag, tag_rank, statement_only, on_several, review_status,
+               taxonomy, taxonomy_rank, version_prefix) AS (VALUES {_values(tags)}),
 dict_concepts(concept, statement) AS (VALUES {_values(concepts)}),
 vintages AS (
   SELECT entity_scheme, entity_value, original_tag, period_start, frequency, basis, value, unit,
@@ -107,8 +118,9 @@ facts_in AS (
   SELECT * FROM vintages
   QUALIFY row_number() OVER (PARTITION BY {key} ORDER BY known_at DESC, filing_ref DESC, value DESC) = 1
 ),
-pos AS (SELECT entity_scheme, entity_value, filing_ref, tag, list(statement) AS statements
-        FROM {positions} GROUP BY 1, 2, 3, 4),
+pos AS (SELECT entity_scheme, entity_value, filing_ref, tag, coalesce(tag_version, '') AS tag_version,
+               list(statement) AS statements
+        FROM {positions} GROUP BY 1, 2, 3, 4, 5),
 located_filings AS (SELECT DISTINCT entity_scheme, entity_value, filing_ref, known_at FROM {positions}),
 blind_filings AS (
   SELECT DISTINCT f.entity_scheme, f.entity_value, f.filing_ref, f.known_at FROM facts_in f
@@ -124,6 +136,7 @@ placed AS (
   SELECT f.entity_scheme, f.entity_value, f.valid_date, f.frequency, f.basis, f.source_code,
          f.period_start, f.value, f.unit, f.original_tag, f.filing_ref, f.source_doc_id, f.known_at,
          f.replaced, t.concept, t.tag_rank, t.statement_only, t.on_several, t.review_status,
+         t.taxonomy, t.taxonomy_rank,
          CASE WHEN k.filing_ref IS NOT NULL
               THEN (CASE WHEN p.statements IS NULL THEN 'note' ELSE 'statement' END)
               WHEN b.from_filing IS NOT NULL THEN 'inferred' ELSE 'unknown' END AS location,
@@ -140,8 +153,17 @@ placed AS (
   LEFT JOIN pos p ON p.entity_scheme = f.entity_scheme AND p.entity_value = f.entity_value
        AND p.filing_ref = coalesce(b.from_filing, f.filing_ref)
        AND p.tag = split_part(f.original_tag, ':', 2)
+       AND starts_with(p.tag_version, t.version_prefix)
 ),
-cands AS (SELECT * FROM placed WHERE NOT statement_only OR tier = 0),
+eligible AS (SELECT * FROM placed WHERE NOT statement_only OR tier = 0),
+cands AS (
+  SELECT * EXCLUDE (answering) FROM (
+    SELECT *, first_value(taxonomy) OVER (
+             PARTITION BY concept, {_PERIOD}
+             ORDER BY known_at DESC, filing_ref DESC, tier, taxonomy_rank) AS answering
+    FROM eligible)
+  WHERE taxonomy = answering
+),
 ranked AS (
   SELECT *, row_number() OVER w AS rn, first_value(value) OVER w AS best
   FROM cands WHERE on_several = 'first'
