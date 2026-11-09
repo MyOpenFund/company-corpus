@@ -10,12 +10,19 @@ The store has no 9-month YTD band, so the TTM Q4 rule defaults to ``q4_rule="sum
 (Q4 = annual - Q1 - Q2 - Q3) instead of F1's ``"ytd9"`` (spec MCP-2 Q6); it stays a parameter.
 
 Publication date: pass the issuer's ``fundamentals`` rows as ``vintages`` (see
-:func:`summaries_from_rows`); ``known_at`` is a UTC instant (and comes back in the reader's session zone),
-so it is read as a calendar date in ``publication_tz`` (default ``"America/New_York"``, EDGAR's
-zone and the store's own ``store_known_at_fallback_tz``): a filing without an acceptance time
-gets 23:59:59 New York, which is already the next day in UTC.
+:func:`summaries_from_rows`). ``known_at`` is a UTC instant (my-open-data declares it
+``timestamp("us", tz="UTC")``, so store rows arrive tz-aware; a reader may hand it back in its
+session zone), read as a calendar date in ``publication_tz`` (default ``"America/New_York"``,
+EDGAR's zone and the store's own ``store_known_at_fallback_tz``): a filing without an acceptance
+time gets 23:59:59 New York, which is already the next day in UTC. On real store rows, which
+carry EDGAR acceptance times (unlike the fixtures, built with no acceptance map), EDGAR gives a
+filing accepted after 17:30 ET the next business day's ``filingDate``: for such late-accepted
+filings ``publication_date`` can precede F1's (which uses ``filingDate``) by 1-3 days, and the
+``>= period end`` filter can differ at that boundary. When the producer caps ``known_at`` at its
+run time (``now``), the New York date can also fall before the filing date.
 
-Currency: the first ISO-4217 (3-letter) unit among the period's values, else ``"USD"``. It
+Currency: per period, the first ISO-4217 (3-letter) unit among the period's values in dictionary
+order, else ``"USD"``; a mixed-currency period takes the dictionary-first concept's ISO unit. It
 equals F1's issuer-wide ``reporting_currency`` on every concept fixture; the producer already
 keeps one currency per issuer filing (its currency anchor tags).
 """
@@ -74,9 +81,14 @@ def summaries_from_rows(rows: Iterable[dict], *, company: str, company_current: 
     filed_at: dict[tuple[date, str], list[dict]] = {}
     if vintages is not None:
         chain_tags = {t for c in d.concepts.values() for t in (*c.tags, *c.statement_only_tags)}
+        issuers = {(r["entity_scheme"], r["entity_value"]) for r in rows if "entity_value" in r}
         for v in vintages:
-            if v["original_tag"] in chain_tags:
+            if v["original_tag"] in chain_tags and (
+                    not issuers or (v.get("entity_scheme"), v.get("entity_value")) in issuers):
                 filed_at.setdefault((v["valid_date"], v["frequency"]), []).append(v)
+        if duration and not filed_at:
+            raise ValueError("vintages hold no row of this issuer's selected tags: pass the "
+                             "fundamentals rows the selection ran on")
     out: list[PeriodSummary] = []
     for (end, freq), per_concept in duration.items():
         if freq not in allowed:

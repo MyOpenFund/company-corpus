@@ -58,9 +58,12 @@ def test_values_and_point_in_time_ratios_match_f1(name):
     store = by_period(store_summaries(name))
     common = set(f1) & set(store)
     assert len(common) >= MIN_COMMON[name], (name, len(common))
+    if MIN_COMMON[name] == len(f1):  # the floor is the whole fixture: no period may be missing
+        assert store.keys() == f1.keys(), name
     for k in common:
+        assert store[k].values.keys() == f1[k].values.keys(), (name, k)
         assert {c: v["value"] for c, v in store[k].values.items()} == \
-               {c: v["value"] for c, v in f1[k].values.items() if c in store[k].values}, (name, k)
+               {c: v["value"] for c, v in f1[k].values.items()}, (name, k)
         assert store[k].currency == f1[k].currency, (name, k)
         assert (store[k].publication_date, store[k].accession) == \
                (f1[k].publication_date, f1[k].accession), (name, k)
@@ -77,12 +80,15 @@ def test_annual_ttm_ratios_match_f1(name):
     attach_ttm(fx["facts"], f1_list, statements=fx["statements"])
     f1 = by_period(f1_list)
     store = by_period(store_summaries(name))
+    compared = 0
     for k in set(f1) & set(store):
         if k[1] != "annual":
             continue
         for m, v in store[k].ttm.items():
             if m in f1[k].ttm and v["value"] is not None:
                 assert v["value"] == pytest.approx(f1[k].ttm[m]["value"], rel=1e-6), (name, k, m)
+                compared += 1
+    assert compared, name
 
 
 def _quarterly_ttm(summaries) -> dict:
@@ -160,6 +166,14 @@ def test_publication_date_is_the_first_filing_not_the_selected_vintage():
     assert (q1.publication_date, q1.accession) == (date(2026, 7, 29), "0001101239-26-000147")
     without = by_period(summaries_from_rows(store_rows("equinix"), company="x"))
     assert without[(date(2025, 3, 31), "quarterly")].publication_date == date(2026, 10, 28)
+
+
+@pytest.mark.parametrize("other", [[], "jpmorgan"])
+def test_vintages_of_no_selected_row_are_refused(other):
+    """An empty list, or another issuer's vintages, would silently drop every period."""
+    wrong = vintages(other) if other else []
+    with pytest.raises(ValueError, match="vintages hold no row"):
+        summaries_from_rows(store_rows("caterpillar"), company="x", vintages=wrong)
 
 
 def test_unknown_sector_leaves_relevance_null():
