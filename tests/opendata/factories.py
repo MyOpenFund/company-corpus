@@ -12,9 +12,22 @@ from tests.conftest import FakeFetcher
 FETCHED = datetime(2026, 11, 1, 9, 0, tzinfo=timezone.utc)
 
 
+def filings_block(filings) -> dict:
+    """filings: (accession, acceptanceDateTime, form[, filingDate[, reportDate]]) tuples.
+    filingDate defaults to the acceptance day, reportDate to empty."""
+    full = [(*f, *(None,) * (5 - len(f))) for f in filings]
+    return {
+        "accessionNumber": [a for a, *_ in full],
+        "acceptanceDateTime": [t for _, t, *_ in full],
+        "form": [f for _, _, f, *_ in full],
+        "filingDate": [d if d is not None else (t or "")[:10] for _, t, _, d, _ in full],
+        "reportDate": [r if r is not None else "" for *_, r in full],
+    }
+
+
 def submissions_main(cik="0000000042", *, name="ACME CORP", tickers=("ACME",), former=(),
                      filings=(), files=(), foreign_code=None) -> dict:
-    """filings: (accession, acceptanceDateTime, form) triples; former: (name, from, to)."""
+    """filings: see `filings_block`; former: (name, from, to)."""
     business = ({"isForeignLocation": 1, "countryCode": foreign_code, "stateOrCountry": foreign_code}
                 if foreign_code else {"isForeignLocation": 0, "stateOrCountry": "WA"})
     return {
@@ -22,11 +35,7 @@ def submissions_main(cik="0000000042", *, name="ACME CORP", tickers=("ACME",), f
         "formerNames": [{"name": n, "from": f, "to": t} for n, f, t in former],
         "addresses": {"business": business, "mailing": business},
         "filings": {
-            "recent": {
-                "accessionNumber": [a for a, _, _ in filings],
-                "acceptanceDateTime": [t for _, t, _ in filings],
-                "form": [f for _, _, f in filings],
-            },
+            "recent": filings_block(filings),
             "files": [{"name": n} for n in files],
         },
     }
