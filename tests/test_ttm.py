@@ -6,6 +6,7 @@ import pytest
 
 from company_corpus.financials import (
     Q4_RULES,
+    _attach_ttm,
     FlowSeries,
     _build_flow_series,
     _standalone_quarter,
@@ -203,3 +204,25 @@ def test_unknown_rule_is_refused():
     with pytest.raises(ValueError, match="q4_rule"):
         _standalone_quarter(_series(), "revenue", date(2024, 12, 31), q4_rule="guess")
     assert Q4_RULES == ("ytd9", "sum_of_quarters")
+
+
+def test_unknown_rule_refused_even_when_not_needed():
+    with pytest.raises(ValueError, match="q4_rule"):
+        _ttm_flow(_series(), "revenue", date(2024, 12, 31), "annual", q4_rule="guess")
+    with pytest.raises(ValueError, match="q4_rule"):
+        _attach_ttm(_series(), [], ttm_keys=("revenue",), q4_rule="typo")
+
+
+def _fy_series(ends):
+    return FlowSeries(quarterly={"revenue": {e: 10.0 for e in ends}},
+                      annual={"revenue": {date(2024, 12, 31): 46.0}}, ytd9={})
+
+
+def test_sum_of_quarters_gap_between_quarters_is_none():
+    s = _fy_series([date(2024, 3, 31), date(2024, 5, 31), date(2024, 9, 30)])
+    assert _standalone_quarter(s, "revenue", date(2024, 12, 31), q4_rule="sum_of_quarters") is None
+
+
+def test_sum_of_quarters_last_quarter_not_adjacent_is_none():
+    s = _fy_series([date(2024, 1, 31), date(2024, 4, 30), date(2024, 7, 31)])
+    assert _standalone_quarter(s, "revenue", date(2024, 12, 31), q4_rule="sum_of_quarters") is None

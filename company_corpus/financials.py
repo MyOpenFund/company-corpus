@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import html
 import re
+from typing import Literal
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
@@ -864,17 +865,23 @@ def _build_flow_series(flat, currency, *, concepts_by_key=CONCEPTS_BY_KEY, ttm_k
 #: How an unreported fiscal-year-end quarter is rebuilt. ``ytd9`` (F1): FY - 9-month YTD.
 #: ``sum_of_quarters``: FY - the three standalone quarters before it, for data without a 9-month
 #: YTD band (the my-open-data store keeps quarterly, semiannual, annual, instant only). Chantier
-#: MCP-2 Q6: an off-spec rule, so a parameter; it differs from ``ytd9`` only when a quarter was
-#: restated without its YTD.
+#: MCP-2 Q6: an off-spec rule, so a parameter. When both bands exist, it differs from ``ytd9``
+#: only when a quarter was restated without its YTD; it also gives a value where ``ytd9`` has none
+#: (no 9-month band) and none where a standalone quarter is missing.
 Q4_RULES = ("ytd9", "sum_of_quarters")
+Q4Rule = Literal["ytd9", "sum_of_quarters"]
+
+
+def _check_q4_rule(q4_rule: str) -> None:
+    if q4_rule not in Q4_RULES:
+        raise ValueError(f"q4_rule must be one of {Q4_RULES}, got {q4_rule!r}")
 
 
 def _standalone_quarter(
-    series: FlowSeries, key: str, end: date, q4_rule: str = "ytd9",
+    series: FlowSeries, key: str, end: date, q4_rule: Q4Rule = "ytd9",
 ) -> float | None:
     """The ~3-month flow ending at ``end``; derive an unreported FY-end quarter."""
-    if q4_rule not in Q4_RULES:
-        raise ValueError(f"q4_rule must be one of {Q4_RULES}, got {q4_rule!r}")
+    _check_q4_rule(q4_rule)
     direct = series.quarterly.get(key, {}).get(end)
     if direct is not None:
         return direct
@@ -906,7 +913,7 @@ def _quarter_ends(series: FlowSeries) -> list[date]:
 
 
 def _ttm_flow(
-    series: FlowSeries, key: str, end: date, frequency: str, q4_rule: str = "ytd9",
+    series: FlowSeries, key: str, end: date, frequency: str, q4_rule: Q4Rule = "ytd9",
 ) -> float | None:
     """Trailing-twelve-month sum of ``key`` ending at ``end``.
 
@@ -914,6 +921,7 @@ def _ttm_flow(
     four trailing standalone quarters (deriving the FY-end quarter when needed).
     Returns None if any of the four quarters cannot be resolved.
     """
+    _check_q4_rule(q4_rule)
     if frequency == "annual":
         return series.annual.get(key, {}).get(end)
     ends = _quarter_ends(series)
@@ -1029,7 +1037,8 @@ def _prior_year(by_end: dict[tuple[str, date], "PeriodSummary"], freq: str,
     return None
 
 
-def _attach_ttm(series: FlowSeries, summaries, *, ttm_keys, q4_rule: str = "ytd9") -> None:
+def _attach_ttm(series: FlowSeries, summaries, *, ttm_keys, q4_rule: Q4Rule = "ytd9") -> None:
+    _check_q4_rule(q4_rule)
     by_end = {(s.frequency, s.period_end): s for s in summaries if s.period_end}
     for s in summaries:
         if not s.period_end:
