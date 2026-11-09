@@ -18,7 +18,13 @@ from ..financials import (
     _TTM_FLOW_KEYS,
     reporting_currency,
 )
-from ..opendata.fundamentals import Point, _quantized, as_filed_points, flatten_with_namespace
+from ..opendata.fundamentals import (
+    Point,
+    _quantized,
+    as_filed_points,
+    flatten_with_namespace,
+    ingest_namespaces,
+)
 from .coverage import coverage
 from .dictionary import Dictionary, load_dictionary
 from .selection import run_selection
@@ -91,7 +97,7 @@ def select_for_f1(facts: dict, statements: Sequence[dict] = (),
     """Selection over one issuer's companyfacts and statement positions, in the F1 bands, with
     F1's issuer-wide reporting currency for monetary values."""
     d = dictionary or load_dictionary()
-    flat = flatten_with_namespace(facts)
+    flat = flatten_with_namespace(facts, ingest_namespaces(d))
     currency, counters = reporting_currency(flat), Counter()
     specs = d.tag_specs()
     points = [p for p in as_filed_points(flat, F1_DURATION_BANDS, counters,
@@ -183,14 +189,14 @@ def build_summaries(facts: dict, *, company: str, company_current: str, name_for
         summaries.append(PeriodSummary(
             period_end=end, frequency=_F1_LABEL.get(freq, freq), publication_date=first.filed,
             sec_form=first.form or "XBRL", accession=first.accn, company=pit or company,
-            company_current=company_current, values=values, currency=_currency(facts), sic=sic,
+            company_current=company_current, values=values, currency=_currency(facts, d), sic=sic,
             debt_rule="concepts"))
     summaries.sort(key=lambda s: (s.period_end or date.min, s.frequency), reverse=True)
     return summaries
 
 
-def _currency(facts: dict) -> str:
-    return reporting_currency(flatten_with_namespace(facts)) or "USD"
+def _currency(facts: dict, d: Dictionary) -> str:
+    return reporting_currency(flatten_with_namespace(facts, ingest_namespaces(d))) or "USD"
 
 
 def attach_ttm(facts: dict, summaries: list[PeriodSummary], *, statements: Sequence[dict] = (),

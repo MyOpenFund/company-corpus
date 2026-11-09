@@ -11,6 +11,9 @@ Changing one of these tables therefore alters rows already published at the same
 
 The concept dictionary is not one of them: rows are as filed, keyed by tag, so changing it changes
 no published row (tested below). A new tag brings new rows.
+Chantier 10 (2026-11-09) rewrote the anchor tags as full tags and added the ifrs-full ones. The
+us-gaap four keep their meaning (a US filing has no ifrs-full fact, so no vote moves); this was
+checked against every published issuer on the real corpus before merging.
 The expected values are in ``published_derivations.json`` next to this module.
 """
 import json

@@ -37,10 +37,14 @@
   "10-QT"
  ],
  "currency_anchor_tags": [
-  "Assets",
-  "Liabilities",
-  "StockholdersEquity",
-  "LiabilitiesAndStockholdersEquity"
+  "us-gaap:Assets",
+  "us-gaap:Liabilities",
+  "us-gaap:StockholdersEquity",
+  "us-gaap:LiabilitiesAndStockholdersEquity",
+  "ifrs-full:Assets",
+  "ifrs-full:Liabilities",
+  "ifrs-full:Equity",
+  "ifrs-full:EquityAndLiabilities"
  ],
  "currency_pattern": "^[A-Z]{3}$",
  "source_doc_id": {

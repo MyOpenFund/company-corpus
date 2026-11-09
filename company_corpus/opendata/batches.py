@@ -23,12 +23,18 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 from ..concepts.coverage import coverage
+from ..concepts.dictionary import load_dictionary
 from ..concepts.selection import run_selection
 from ..config import Config, normalize_cik
 from ..http import Fetcher
 from ..storage import Storage
 from .filings import filings_rows
-from .fundamentals import as_filed_points, flatten_with_namespace, fundamentals_rows
+from .fundamentals import (
+    as_filed_points,
+    flatten_with_namespace,
+    fundamentals_rows,
+    ingest_namespaces,
+)
 from .identity import identity_rows
 from .statements import load_statements, refresh_statements, statement_rows, statements_path
 from .submissions import (
@@ -178,8 +184,10 @@ def _is_stale(archive, facts: dict, config: Config, now: datetime) -> bool:
     fetched_day = archive.fetched_at.astimezone(tz).date()
     latest = now.astimezone(tz).date() + timedelta(days=config.store_stale_filed_max_days_ahead)
     listed = archived_accessions(archive)
-    points = as_filed_points(flatten_with_namespace(facts), config.store_duration_bands, Counter(),
-                             config.store_currency_anchor_tags,
+    d = load_dictionary()
+    points = as_filed_points(flatten_with_namespace(facts, ingest_namespaces(d)),
+                             config.store_duration_bands, Counter(),
+                             config.store_currency_anchor_tags, dictionary=d,
                              report_forms=config.store_report_forms)
     return any(pt.accn not in listed and pt.filed is not None
                and fetched_day <= pt.filed <= latest

@@ -301,7 +301,7 @@ def test_custom_currency_anchor_tags_are_honoured_through_fundamentals_rows():
     }
     rows, c = _rows(us_gaap)       # Assets (EUR) contradicts the USD vote: no money
     assert rows == [] and c["dropped:currency_ambiguous"] == 3
-    rows, c = _rows(us_gaap, config=Config(store_currency_anchor_tags=("Revenues",)))
+    rows, c = _rows(us_gaap, config=Config(store_currency_anchor_tags=("us-gaap:Revenues",)))
     assert {(r["original_tag"], r["unit"]) for r in rows} == {
         ("us-gaap:Revenues", "USD"), ("us-gaap:NetIncomeLoss", "USD")}
     assert c["dropped:currency_ambiguous"] == 0

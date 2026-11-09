@@ -7,21 +7,18 @@ when reading (``concepts.selection``), so changing the dictionary changes no pub
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from zoneinfo import ZoneInfo
 
 from ..config import DEFAULT_REPORT_FORMS, Config, normalize_cik
-from ..concepts.dictionary import Dictionary, TagSpec, load_dictionary
+from ..concepts.dictionary import HELPER_NAMESPACES, Dictionary, TagSpec, load_dictionary
 from ..financials import _CURRENCY_RE
 from ..models import FilingRecord
 from ..taxonomy import from_edgar_form
 
-#: Namespaces read from companyfacts. ``dei`` is needed because one dictionary chain falls
-#: back to a cover-page tag (shares_outstanding -> dei:EntityCommonStockSharesOutstanding).
-NAMESPACES: tuple[str, ...] = ("us-gaap", "dei")
 #: Duration labels that are my-open-data frequencies; any other band label is a drop reason.
 EMITTED_FREQUENCIES: tuple[str, ...] = ("quarterly", "semiannual", "annual")
 
@@ -40,19 +37,24 @@ class Point:
     filed: date | None
 
 
-def flatten_with_namespace(facts: dict) -> dict[str, list[dict]]:
-    """``{tag: [point + unit, tag, ns]}``; a tag present in two namespaces keeps us-gaap's."""
+def ingest_namespaces(d: Dictionary) -> tuple[str, ...]:
+    """The loaded tables' taxonomy namespaces, then the helper ones (cover page)."""
+    return (*d.namespaces, *(ns for ns in HELPER_NAMESPACES if ns not in d.namespaces))
+
+
+def flatten_with_namespace(facts: dict, namespaces: Sequence[str]) -> dict[str, list[dict]]:
+    """``{"ns:Tag": [point + unit, tag, ns]}`` over ``namespaces``; no namespace hides another."""
     out: dict[str, list[dict]] = {}
-    namespaces = facts.get("facts") or {}
-    for ns in NAMESPACES:
-        for tag, body in (namespaces.get(ns) or {}).items():
-            if tag in out or not isinstance(body, dict):
+    source = facts.get("facts") or {}
+    for ns in namespaces:
+        for tag, body in (source.get(ns) or {}).items():
+            if not isinstance(body, dict):
                 continue
             points = [{**p, "unit": unit, "tag": tag, "ns": ns}
                       for unit, arr in (body.get("units") or {}).items()
                       for p in arr or [] if isinstance(p, dict)]
             if points:
-                out[tag] = points
+                out[f"{ns}:{tag}"] = points
     return out
 
 
@@ -146,8 +148,9 @@ def _unique_top(counts: Counter) -> str | None:
 
 
 def _filing_currencies(flat: dict[str, list[dict]], anchor_tags: Collection[str],
-                       per_share_tags: Collection[str]) -> dict[str, str]:
-    """Reporting currency of each filing, from that filing's own us-gaap facts only: a dei value
+                       per_share_tags: Collection[str],
+                       voting_namespaces: Collection[str]) -> dict[str, str]:
+    """Reporting currency of each filing, from that filing's own facts in the taxonomy namespaces only (not ``dei``): a dei value
     such as the public float can be in another currency, and an issuer-wide count would change
     as filings accumulate, so that a published row could change, which the publisher quarantines.
 
@@ -163,17 +166,17 @@ def _filing_currencies(flat: dict[str, list[dict]], anchor_tags: Collection[str]
     votes: dict[str, Counter] = defaultdict(Counter)
     anchors: dict[str, Counter] = defaultdict(Counter)
     per_share: dict[str, set[str]] = defaultdict(set)
-    for tag, points in flat.items():
+    for full, points in flat.items():
         for p in points:
             unit = p.get("unit") or ""
-            if tag in per_share_tags and unit.endswith("/shares"):
+            if full in per_share_tags and unit.endswith("/shares"):
                 numerator = unit[:-len("/shares")]
                 if _CURRENCY_RE.match(numerator):
                     per_share[p.get("accn") or ""].add(numerator)
-            if p.get("ns") == "us-gaap" and _CURRENCY_RE.match(unit):
+            if p.get("ns") in voting_namespaces and _CURRENCY_RE.match(unit):
                 accn = p.get("accn") or ""
                 votes[accn][unit] += 1
-                if tag in anchor_tags:
+                if full in anchor_tags:
                     anchors[accn][unit] += 1
     out = {}
     for accn, numerators in per_share.items():
@@ -194,15 +197,13 @@ def as_filed_points(flat: dict[str, list[dict]], bands, counters: Counter,
                     report_forms: Collection[str] = DEFAULT_REPORT_FORMS) -> list[Point]:
     """Every usable point of every dictionary tag from a financial report, helpers included,
     whatever its priority."""
-    specs = (dictionary or load_dictionary()).tag_specs()
-    per_share = {spec.tag for spec in specs.values() if spec.kind == "money/shares"}
-    currencies = _filing_currencies(flat, anchor_tags, per_share)
+    d = dictionary or load_dictionary()
+    specs = d.tag_specs()
+    per_share = {full for full, spec in specs.items() if spec.kind == "money/shares"}
+    currencies = _filing_currencies(flat, anchor_tags, per_share, d.namespaces)
     out: list[Point] = []
-    for spec in specs.values():
-        for p in flat.get(spec.tag, []):
-            if p.get("ns") != spec.ns:
-                counters["dropped:other_namespace"] += 1
-                continue
+    for full, spec in specs.items():
+        for p in flat.get(full, []):
             if (p.get("form") or "").strip().upper() not in report_forms:
                 counters["dropped:not_a_report"] += 1
                 continue
@@ -278,8 +279,10 @@ def fundamentals_rows(cik: str, facts: dict, *, acceptance: Mapping[str, datetim
     """
     clock = KnownAtClock.of(config, now)
     cik, counters = normalize_cik(cik), Counter()
-    points = as_filed_points(flatten_with_namespace(facts), config.store_duration_bands, counters,
-                             config.store_currency_anchor_tags, dictionary=dictionary,
+    d = dictionary or load_dictionary()
+    points = as_filed_points(flatten_with_namespace(facts, ingest_namespaces(d)),
+                             config.store_duration_bands, counters,
+                             config.store_currency_anchor_tags, dictionary=d,
                              report_forms=config.store_report_forms)
     by_key: dict[tuple, list[tuple[Point, bool]]] = defaultdict(list)
     for pt in points:
