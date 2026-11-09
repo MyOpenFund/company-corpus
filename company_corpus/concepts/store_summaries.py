@@ -1,0 +1,120 @@
+"""Store rows -> period summaries with ratios: the store readers' entry point (the MCP calls it).
+
+Input: the rows :func:`~company_corpus.concepts.selection.run_selection` returns for ONE issuer
+(my-open-data ``fundamentals`` vintages and ``filing_statements`` as the Recipe reads them).
+Output: :class:`~company_corpus.financials.PeriodSummary` objects whose ``values`` are F1's and
+whose ``derived`` (point-in-time) and ``ttm`` ratios come from the same functions as F1, so a
+store reader never computes a concept or a ratio itself.
+
+The store has no 9-month YTD band, so the TTM Q4 rule defaults to ``q4_rule="sum_of_quarters"``
+(Q4 = annual - Q1 - Q2 - Q3) instead of F1's ``"ytd9"`` (spec MCP-2 Q6); it stays a parameter.
+
+Publication date: pass the issuer's ``fundamentals`` rows as ``vintages`` (see
+:func:`summaries_from_rows`); ``known_at`` is a UTC instant (and comes back in the reader's session zone),
+so it is read as a calendar date in ``publication_tz`` (default ``"America/New_York"``, EDGAR's
+zone and the store's own ``store_known_at_fallback_tz``): a filing without an acceptance time
+gets 23:59:59 New York, which is already the next day in UTC.
+
+Currency: the first ISO-4217 (3-letter) unit among the period's values, else ``"USD"``. It
+equals F1's issuer-wide ``reporting_currency`` on every concept fixture; the producer already
+keeps one currency per issuer filing (its currency anchor tags).
+"""
+from __future__ import annotations
+
+from collections.abc import Iterable
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
+
+from ..financials import (
+    DERIVED,
+    DERIVED_TTM,
+    FlowSeries,
+    PeriodSummary,
+    Q4Rule,
+    _attach_ttm,
+    _TTM_FLOW_KEYS,
+)
+from .dictionary import Dictionary, load_dictionary
+from .summaries import _F1_LABEL, _plain, _value, group_periods
+
+__all__ = ["DEFAULT_PUBLICATION_TZ", "concept_catalog", "group_periods", "metric_catalog",
+           "summaries_from_rows"]
+
+#: EDGAR's zone: a filing's date is its acceptance instant read there.
+DEFAULT_PUBLICATION_TZ = "America/New_York"
+
+
+def summaries_from_rows(rows: Iterable[dict], *, company: str, company_current: str | None = None,
+                        sic: str | None = None, sector_known: bool = True,
+                        q4_rule: Q4Rule = "sum_of_quarters",
+                        vintages: Iterable[dict] | None = None,
+                        publication_tz: str = DEFAULT_PUBLICATION_TZ,
+                        dictionary: Dictionary | None = None) -> list[PeriodSummary]:
+    """One summary per allowed duration period of one issuer's selection ``rows``, newest first.
+
+    ``vintages`` are the issuer's ``fundamentals`` rows the selection ran on. The publication
+    date is, as in F1, the earliest filing of any of the period's dictionary-tag vintages made
+    once the period had ended (its ``known_at`` read as a date in ``publication_tz``), the
+    accession that filing's. Without ``vintages`` only the selected rows are at hand: the
+    selection keeps the latest vintage per tag and period, so the date is then the first filing
+    of a selected row, later than the real first publication whenever a later filing re-reported
+    the period (next year's comparatives do). A period with no such filing (only seen before it
+    ended) has no summary, as in F1. ``sector_known=False`` (no SIC in the store) leaves every
+    ``sector_relevant`` None.
+    """
+    d = dictionary or load_dictionary()
+    zone = ZoneInfo(publication_tz)
+    rows = list(rows)
+
+    def day(at: datetime) -> date:  # a naive known_at is UTC, as the store writes it
+        return (at if at.tzinfo else at.replace(tzinfo=timezone.utc)).astimezone(zone).date()
+
+    namespaces = sorted({s.ns for s in d.tag_specs().values()})
+    duration, instant, allowed = group_periods(rows)
+    filed_at: dict[tuple[date, str], list[dict]] = {}
+    if vintages is not None:
+        chain_tags = {t for c in d.concepts.values() for t in (*c.tags, *c.statement_only_tags)}
+        for v in vintages:
+            if v["original_tag"] in chain_tags:
+                filed_at.setdefault((v["valid_date"], v["frequency"]), []).append(v)
+    out: list[PeriodSummary] = []
+    for (end, freq), per_concept in duration.items():
+        if freq not in allowed:
+            continue
+        merged = {**per_concept, **instant.get(end, {})}
+        candidates = ([*filed_at.get((end, freq), ()), *filed_at.get((end, "instant"), ())]
+                      if vintages is not None else merged.values())
+        reported = [r for r in candidates if day(r["known_at"]) >= end]
+        if not reported:
+            continue
+        first = min(reported, key=lambda r: (r["known_at"], r["filing_ref"]))
+        values = {k: _value(merged[k], d, namespaces) for k in d.concepts if k in merged}
+        out.append(PeriodSummary(
+            period_end=end, frequency=_F1_LABEL.get(freq, freq),
+            publication_date=day(first["known_at"]), sec_form="XBRL",
+            accession=first["filing_ref"], company=company,
+            company_current=company_current or company, values=values,
+            currency=next((v["unit"] for v in values.values()
+                           if len(v["unit"]) == 3 and v["unit"].isalpha()), "USD"),
+            sic=sic, sector_known=sector_known, debt_rule="concepts"))
+    out.sort(key=lambda s: (s.period_end or date.min, s.frequency), reverse=True)
+    buckets: dict[str, dict[str, dict[date, float]]] = {"quarterly": {}, "annual": {}, "ytd9": {}}
+    for r in rows:
+        if r["concept"] in _TTM_FLOW_KEYS and r["frequency"] in buckets:
+            buckets[r["frequency"]].setdefault(r["concept"], {})[r["valid_date"]] = _plain(r["value"])
+    _attach_ttm(FlowSeries(**buckets), out, ttm_keys=_TTM_FLOW_KEYS, q4_rule=q4_rule)
+    return out
+
+
+def concept_catalog(dictionary: Dictionary | None = None) -> list[dict]:
+    """The dictionary's concepts: ``key``, ``label``, ``unit``, ``statement``, ``instant``."""
+    d = dictionary or load_dictionary()
+    return [{"key": c.key, "label": c.label, "unit": c.unit, "statement": c.statement,
+             "instant": c.instant} for c in d.concepts.values()]
+
+
+def metric_catalog() -> list[dict]:
+    """The computed metrics: point-in-time (``DERIVED``) then trailing-twelve-month."""
+    return [{"key": m.key, "label": m.label, "unit": m.unit, "ttm": ttm,
+             "annual_only": m.annual_only}
+            for ttm, metrics in ((False, DERIVED), (True, DERIVED_TTM)) for m in metrics]
