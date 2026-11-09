@@ -167,8 +167,10 @@ def test_empty_rows_give_no_summary():
 
 
 def test_catalogs():
-    keys = {c["key"] for c in concept_catalog()}
-    assert {"revenue", "net_income", "assets"} <= keys
+    concepts = {c["key"]: c for c in concept_catalog()}
+    assert {"revenue", "net_income", "assets"} <= concepts.keys()
+    assert {c["kind"] for c in concepts.values()} <= {"money", "money/shares", "shares"}
+    assert concepts["revenue"]["kind"] == "money" and "unit" not in concepts["revenue"]
     metrics = {m["key"]: m for m in metric_catalog()}
     assert metrics["roe_ttm"]["ttm"] is True and metrics["net_margin"]["unit"] == "%"
 
