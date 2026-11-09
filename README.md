@@ -82,7 +82,8 @@ python -m company_corpus register-financials --ch-bulk accounts_monthly_2024_01.
 submissions archive) into [my-open-data](https://github.com/MyOpenFund/my-open-data)
 batches. For each issuer it emits one `entity_observations` batch, one `fundamentals` 3.0.0
 batch (facts as filed, by tag) and one `filing_statements` 1.0.0 batch (which tag is on which
-statement), always the full history; replaying the same inputs is a no-op in the store.
+statement) and one `filings` 1.0.0 batch (each report filing's form and `reportDate`, from the
+submissions archive), always the full history; replaying the same inputs is a no-op in the store.
 `company-corpus statements --universe <name> --write` first archives the SEC bulk files
 (5.7 GB under `raw/_sec_statements/`) and extracts the positions per issuer. Which tag answers
 which concept is decided when reading: see [`docs/FINANCIALS.md`](docs/FINANCIALS.md).
@@ -177,6 +178,7 @@ on. Counters:
 | `known_at_fallback`, `known_at_capped`, `known_at_naive` | `known_at` derived without an acceptance time (capped at run time / naive timestamp) |
 | `source_doc_id_null` | any report form outside the taxonomy (10-KT, 10-QT): the row has a null `source_doc_id` |
 | `filing_not_in_manifest` | informational: the `source_doc_id` is set but no manifest row holds it; most issuers' manifests hold only F1 summaries |
+| `filings:<counter>` | the `filings` batch's counters, prefixed: `filings:dropped:not_a_report` (non-report forms), `filings:dropped:bad_filing_date`, `filings:report_date_missing`, `filings:ambiguous_filing`, `filings:known_at_fallback` |
 | `value_rounded` | value rounded to fit the contract |
 | `country_unknown[:code]` | unmapped EDGAR country code |
 | `former_name_shadowed`, `former_name_undated` | former-name handling in identity rows |

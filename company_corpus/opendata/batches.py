@@ -1,7 +1,8 @@
 """``store-batches``: layer 0 -> my-open-data batches, one issuer at a time (spec §3, §6).
 
-Per issuer: one ``entity_observations`` batch, then one ``fundamentals`` and one
-``filing_statements`` batch, written through the my-open-data writer into a landing zone. Stateless: full history every run; the
+Per issuer: one ``entity_observations`` batch, then one ``fundamentals``, one
+``filing_statements`` and one ``filings`` batch, written through the my-open-data writer into a
+landing zone. Stateless: full history every run; the
 store's publisher skips what it already holds. An issuer's failure never stops the others.
 Dry-run (``write=False``) computes and validates everything from disk and writes nothing.
 
@@ -26,6 +27,7 @@ from ..concepts.selection import run_selection
 from ..config import Config, normalize_cik
 from ..http import Fetcher
 from ..storage import Storage
+from .filings import filings_rows
 from .fundamentals import as_filed_points, flatten_with_namespace, fundamentals_rows
 from .identity import identity_rows
 from .statements import load_statements, refresh_statements, statement_rows, statements_path
@@ -58,6 +60,7 @@ def _myopendata() -> SimpleNamespace:
         from myopendata.contracts.standard import (
             ENTITY_OBSERVATIONS,
             FILING_STATEMENTS,
+            FILINGS,
             FUNDAMENTALS,
         )
         from myopendata.writer import write_batch
@@ -69,7 +72,7 @@ def _myopendata() -> SimpleNamespace:
         raise StoreUnavailable(f"store-batches needs fundamentals 3.x, found {FUNDAMENTALS.version}")
     return SimpleNamespace(pa=pa, BatchInvalid=BatchInvalid, conform=conform,
                            ENTITY_OBSERVATIONS=ENTITY_OBSERVATIONS, FUNDAMENTALS=FUNDAMENTALS,
-                           FILING_STATEMENTS=FILING_STATEMENTS,
+                           FILING_STATEMENTS=FILING_STATEMENTS, FILINGS=FILINGS,
                            write_batch=write_batch, batch_id_for=batch_id_for,
                            content_hash=content_hash)
 
@@ -246,9 +249,12 @@ def _issuer(out: IssuerOutcome, mod, *, config, storage, landing, write, offline
         out.counters["statements_missing"] += 1
     placed = statement_rows(out.cik, statements or [], acceptance=acceptance_times(archive),
                             manifest_doc_ids=manifest_doc_ids, config=config, now=now)
+    filed = filings_rows(out.cik, archive, manifest_doc_ids=manifest_doc_ids, config=config,
+                         now=now)
     out.counters.update(ident.counters)
     out.counters.update(fund.counters)
     out.counters.update(placed.counters)
+    out.counters.update({f"filings:{k}": v for k, v in filed.counters.items()})
     _coverage(out, mod, fund.rows, placed.rows)
     facts_rel = str(facts_path.relative_to(config.data_dir))
     inputs = [f"{facts_rel}@sha256:{hashlib.sha256(facts_bytes).hexdigest()}",
@@ -258,6 +264,7 @@ def _issuer(out: IssuerOutcome, mod, *, config, storage, landing, write, offline
         inputs.append(f"{path.relative_to(config.data_dir)}"
                       f"@sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}")
     for contract, rows in ((mod.ENTITY_OBSERVATIONS, ident.rows), (mod.FUNDAMENTALS, fund.rows),
+                           (mod.FILINGS, filed.rows),
                            (mod.FILING_STATEMENTS, placed.rows)):
         out.rows[contract.table_name] = len(rows)
         if not rows:

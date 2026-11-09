@@ -32,7 +32,7 @@ except duckdb.Error as exc:
                 allow_module_level=True)
 
 from myopendata.config import StoreConfig  # noqa: E402
-from myopendata.contracts.standard import ENTITY_OBSERVATIONS, FUNDAMENTALS  # noqa: E402
+from myopendata.contracts.standard import ENTITY_OBSERVATIONS, FILINGS, FUNDAMENTALS  # noqa: E402
 from myopendata.publisher import approve_contract, publish_pending  # noqa: E402
 from myopendata.reader import Store  # noqa: E402
 
@@ -56,6 +56,7 @@ def test_publish_replay_and_restatement(config, tmp_path):
     store = StoreConfig(data_root=tmp_path / "store", catalog=str(tmp_path / "meta.ducklake"))
     approve_contract(store, ENTITY_OBSERVATIONS, "test")
     approve_contract(store, FUNDAMENTALS, "test")
+    approve_contract(store, FILINGS, "test")
 
     def run():
         rep = store_batches([CIK], config=config, landing=store.landing, write=True,
@@ -64,9 +65,9 @@ def test_publish_replay_and_restatement(config, tmp_path):
         return publish_pending(store, now=NOW)
 
     first = run()
-    assert first.exit_code == 0 and sum(p["rows"] for p in first.published) == 4, first.to_json()
+    assert first.exit_code == 0 and sum(p["rows"] for p in first.published) == 6, first.to_json()
     replay = run()
-    assert replay.exit_code == 0 and not replay.published and len(replay.skipped_duplicates) == 2
+    assert replay.exit_code == 0 and not replay.published and len(replay.skipped_duplicates) == 3
     with Store.open(store) as s:
         def revenue(at):
             t = s.read_asof("fundamentals", at, filters={"original_tag": "us-gaap:Revenues"})
@@ -75,12 +76,16 @@ def test_publish_replay_and_restatement(config, tmp_path):
         assert revenue(datetime(2024, 9, 1, tzinfo=timezone.utc)) == [Decimal(100)]
         assert revenue(datetime(2024, 12, 1, tzinfo=timezone.utc)) == [Decimal(110)]
         assert s.read_asof("fundamentals").num_rows == 1
+    with Store.open(store) as s:
+        forms = {r["filing_ref"]: r["form"] for r in s.read_asof("filings").to_pylist()}
+    assert forms == {K: "10-K", KA: "10-K/A"}
 
 
 def _store(tmp_path):
     store = StoreConfig(data_root=tmp_path / "store", catalog=str(tmp_path / "meta.ducklake"))
     approve_contract(store, ENTITY_OBSERVATIONS, "test")
     approve_contract(store, FUNDAMENTALS, "test")
+    approve_contract(store, FILINGS, "test")
     return store
 
 
