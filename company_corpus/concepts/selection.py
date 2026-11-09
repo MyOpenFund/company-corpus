@@ -15,7 +15,9 @@ the filing's own positions or the borrowed ones.
 Several taxonomies (one tag table each) share the selection. A position places a fact only when its
 ``tag_version`` starts with the fact's table prefix. For one concept and period, only the taxonomy of
 the latest filing with a candidate answers (on the same filing: the one on the statement, then table
-order), so a filer that changed taxonomy gets one row, never one per taxonomy.
+order), so a filer that changed taxonomy gets one row, never one per taxonomy. A sum concept's
+candidates are its statement lines (only those can be summed), so only they decide which taxonomy
+answers. A computed total reads the base concept in its own table's taxonomy only.
 """
 from __future__ import annotations
 
@@ -44,10 +46,10 @@ def _values(rows) -> str:
 def _on_position(prefix: str) -> str:
     return ("JOIN pos p ON p.entity_scheme = f.entity_scheme AND p.entity_value = f.entity_value "
             "AND p.filing_ref = f.filing_ref AND p.tag = split_part(f.original_tag, ':', 2) "
-            f"AND starts_with(p.tag_version, {_lit(prefix)})")
+            f"AND len(list_filter(p.versions, lambda v: starts_with(v, {_lit(prefix)}))) > 0")
 
 
-def _computed_ctes(i: int, c, e, prefix: str) -> tuple[str, str]:
+def _computed_ctes(i: int, c, e, prefix: str, namespace: str) -> tuple[str, str]:
     m, statement, on_position = e.computed, c.statement, _on_position(prefix)
     first = _values((k, n) for n, k in enumerate(m.minus_first_of))
     minus = _values((t, n) for n, t in enumerate(m.minus_first_tag_of))
@@ -59,7 +61,7 @@ total_{i} AS (
 base_{i} AS (
   SELECT {_PERIOD}, filing_ref, arg_min(value, r.n) AS value
   FROM picked JOIN (VALUES {first}) r(concept, n) USING (concept)
-  WHERE location = 'statement' GROUP BY {_PERIOD}, filing_ref
+  WHERE location = 'statement' AND taxonomy = {_lit(namespace)} GROUP BY {_PERIOD}, filing_ref
 ),
 minus_{i} AS (
   SELECT f.entity_scheme, f.entity_value, f.valid_date, f.frequency, f.basis, f.source_code,
@@ -100,7 +102,8 @@ def selection_sql(dictionary: Dictionary | None = None, *, facts: str = "facts",
     extra, selects = [], [f"SELECT {_OUT} FROM picked", f"SELECT {_OUT} FROM summed"]
     computed = [(t, e) for t in d.tables for e in t.entries.values() if e.computed]
     for i, (t, e) in enumerate(computed):
-        cte, select = _computed_ctes(i, d.concepts[e.concept], e, t.position_version_prefix)
+        cte, select = _computed_ctes(i, d.concepts[e.concept], e, t.position_version_prefix,
+                                   t.namespace)
         extra.append(cte)
         selects.append(select)
     tol, restated = repr(d.conflict_tolerance), repr(d.restatement_tolerance)
@@ -118,9 +121,9 @@ facts_in AS (
   SELECT * FROM vintages
   QUALIFY row_number() OVER (PARTITION BY {key} ORDER BY known_at DESC, filing_ref DESC, value DESC) = 1
 ),
-pos AS (SELECT entity_scheme, entity_value, filing_ref, tag, coalesce(tag_version, '') AS tag_version,
-               list(statement) AS statements
-        FROM {positions} GROUP BY 1, 2, 3, 4, 5),
+pos AS (SELECT entity_scheme, entity_value, filing_ref, tag,
+               list(DISTINCT coalesce(tag_version, '')) AS versions, list(DISTINCT statement) AS statements
+        FROM {positions} GROUP BY 1, 2, 3, 4),
 located_filings AS (SELECT DISTINCT entity_scheme, entity_value, filing_ref, known_at FROM {positions}),
 blind_filings AS (
   SELECT DISTINCT f.entity_scheme, f.entity_value, f.filing_ref, f.known_at FROM facts_in f
@@ -153,9 +156,10 @@ placed AS (
   LEFT JOIN pos p ON p.entity_scheme = f.entity_scheme AND p.entity_value = f.entity_value
        AND p.filing_ref = coalesce(b.from_filing, f.filing_ref)
        AND p.tag = split_part(f.original_tag, ':', 2)
-       AND starts_with(p.tag_version, t.version_prefix)
+       AND len(list_filter(p.versions, lambda v: starts_with(v, t.version_prefix))) > 0
 ),
-eligible AS (SELECT * FROM placed WHERE NOT statement_only OR tier = 0),
+eligible AS (SELECT * FROM placed WHERE CASE WHEN on_several = 'sum' THEN tier = 0
+                  ELSE NOT statement_only OR tier = 0 END),
 cands AS (
   SELECT * EXCLUDE (answering) FROM (
     SELECT *, first_value(taxonomy) OVER (

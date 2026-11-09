@@ -103,3 +103,29 @@ def test_review_status_comes_from_the_answering_table():
     facts = [_fact("ifrs-full:Assets", 50, "A", OLD)]
     r = _concept(_run(facts, [_pos("Assets", "A", OLD, "ifrs/2022")]), "assets")
     assert r["review_status"] == "reviewed" and r["dictionary_version"] == "2.0.0"
+
+
+def test_one_filing_with_two_versions_of_a_tag_counts_the_fact_once():
+    facts = [_fact("us-gaap:UnsecuredDebt", 10, "B", NEW, unit="USD"),
+             _fact("us-gaap:SecuredDebt", 15, "B", NEW, unit="USD")]
+    positions = [_pos("UnsecuredDebt", "B", NEW, "us-gaap/2023"),
+                 _pos("UnsecuredDebt", "B", NEW, "us-gaap/2024"),
+                 _pos("SecuredDebt", "B", NEW, "us-gaap/2024")]
+    r = _concept(_run(facts, positions), "debt_components")
+    assert r["value"] == 25 and r["original_tag"] == "us-gaap:UnsecuredDebt+us-gaap:SecuredDebt"
+
+
+def test_a_computed_total_reads_one_taxonomy():
+    facts = [_fact("ifrs-full:EquityAttributableToOwnersOfParent", 20, "A", OLD),
+             _fact("us-gaap:LiabilitiesAndStockholdersEquity", 100, "A", OLD, unit="USD")]
+    positions = [_pos("EquityAttributableToOwnersOfParent", "A", OLD, "ifrs/2024"),
+                 _pos("LiabilitiesAndStockholdersEquity", "A", OLD, "us-gaap/2024")]
+    assert _concept(_run(facts, positions), "liabilities") is None
+
+
+def test_a_sum_concepts_candidates_are_its_statement_lines():
+    facts = [_fact("ifrs-full:Borrowings", 30, "A", OLD),
+             _fact("us-gaap:UnsecuredDebt", 10, "B", NEW, unit="USD")]
+    positions = [_pos("Borrowings", "A", OLD, "ifrs/2022"), _pos("Assets", "B", NEW, "us-gaap/2023")]
+    r = _concept(_run(facts, positions), "debt_components")
+    assert r["value"] == 30 and r["original_tag"] == "ifrs-full:Borrowings"
