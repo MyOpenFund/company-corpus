@@ -5,6 +5,8 @@ from datetime import date
 import pytest
 
 from company_corpus.financials import (
+    Q4_RULES,
+    FlowSeries,
     _build_flow_series,
     _standalone_quarter,
     _ttm_flow,
@@ -170,3 +172,34 @@ def test_flow_series_unions_fallback_tags():
     assert s.annual["revenue"][date(2025, 9, 27)] == 450
     # The FY-end quarter is now derivable: 450 (FY) - 330 (9M YTD) = 120.
     assert _standalone_quarter(s, "revenue", date(2025, 9, 27)) == 120
+
+
+def _series(ytd9=None):
+    q = {"revenue": {date(2024, 3, 31): 10.0, date(2024, 6, 30): 11.0, date(2024, 9, 30): 12.0,
+                     date(2025, 3, 31): 14.0}}
+    a = {"revenue": {date(2024, 12, 31): 46.0}}
+    return FlowSeries(quarterly=q, annual=a, ytd9=ytd9 or {})
+
+
+def test_sum_of_quarters_derives_q4_without_ytd9():
+    s = _series()
+    assert _standalone_quarter(s, "revenue", date(2024, 12, 31), q4_rule="sum_of_quarters") == 13.0
+    assert _standalone_quarter(s, "revenue", date(2024, 12, 31)) is None  # ytd9 rule, no ytd9
+
+
+def test_sum_of_quarters_needs_three_contiguous_quarters():
+    s = _series()
+    del s.quarterly["revenue"][date(2024, 6, 30)]
+    assert _standalone_quarter(s, "revenue", date(2024, 12, 31), q4_rule="sum_of_quarters") is None
+
+
+def test_ttm_flow_uses_the_rule():
+    s = _series()
+    assert _ttm_flow(s, "revenue", date(2025, 3, 31), "quarterly", q4_rule="sum_of_quarters") == 50.0
+    assert _ttm_flow(s, "revenue", date(2025, 3, 31), "quarterly") is None
+
+
+def test_unknown_rule_is_refused():
+    with pytest.raises(ValueError, match="q4_rule"):
+        _standalone_quarter(_series(), "revenue", date(2024, 12, 31), q4_rule="guess")
+    assert Q4_RULES == ("ytd9", "sum_of_quarters")

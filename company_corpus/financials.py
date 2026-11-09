@@ -861,19 +861,39 @@ def _build_flow_series(flat, currency, *, concepts_by_key=CONCEPTS_BY_KEY, ttm_k
     return FlowSeries(quarterly=quarterly, annual=annual, ytd9=ytd9)
 
 
-def _standalone_quarter(series: FlowSeries, key: str, end: date) -> float | None:
+#: How an unreported fiscal-year-end quarter is rebuilt. ``ytd9`` (F1): FY - 9-month YTD.
+#: ``sum_of_quarters``: FY - the three standalone quarters before it, for data without a 9-month
+#: YTD band (the my-open-data store keeps quarterly, semiannual, annual, instant only). Chantier
+#: MCP-2 Q6: an off-spec rule, so a parameter; it differs from ``ytd9`` only when a quarter was
+#: restated without its YTD.
+Q4_RULES = ("ytd9", "sum_of_quarters")
+
+
+def _standalone_quarter(
+    series: FlowSeries, key: str, end: date, q4_rule: str = "ytd9",
+) -> float | None:
     """The ~3-month flow ending at ``end``; derive an unreported FY-end quarter."""
+    if q4_rule not in Q4_RULES:
+        raise ValueError(f"q4_rule must be one of {Q4_RULES}, got {q4_rule!r}")
     direct = series.quarterly.get(key, {}).get(end)
     if direct is not None:
         return direct
     fy = series.annual.get(key, {}).get(end)
     if fy is None:
         return None
-    # The FY-end quarter (Q4) = FY total - 9-month YTD ending ~one quarter earlier.
-    # Two can qualify (a merger, a changed calendar): the latest, whatever the order of the rows.
-    ytd9 = series.ytd9.get(key, {})
-    q3_ends = [q3_end for q3_end in ytd9 if 80 <= (end - q3_end).days <= 100]
-    return fy - ytd9[max(q3_ends)] if q3_ends else None
+    if q4_rule == "ytd9":
+        # The FY-end quarter (Q4) = FY total - 9-month YTD ending ~one quarter earlier.
+        # Two can qualify (a merger, a changed calendar): the latest, whatever the row order.
+        ytd9 = series.ytd9.get(key, {})
+        q3_ends = [q3_end for q3_end in ytd9 if 80 <= (end - q3_end).days <= 100]
+        return fy - ytd9[max(q3_ends)] if q3_ends else None
+    quarters = series.quarterly.get(key, {})
+    prior = sorted(q for q in quarters if 0 < (end - q).days < 300)[-3:]
+    if len(prior) != 3 or not 80 <= (end - prior[-1]).days <= 100:
+        return None
+    if any(not 80 <= (b - a).days <= 100 for a, b in zip(prior, prior[1:])):
+        return None
+    return fy - sum(quarters[q] for q in prior)
 
 
 def _quarter_ends(series: FlowSeries) -> list[date]:
@@ -885,7 +905,9 @@ def _quarter_ends(series: FlowSeries) -> list[date]:
     return sorted(ends)
 
 
-def _ttm_flow(series: FlowSeries, key: str, end: date, frequency: str) -> float | None:
+def _ttm_flow(
+    series: FlowSeries, key: str, end: date, frequency: str, q4_rule: str = "ytd9",
+) -> float | None:
     """Trailing-twelve-month sum of ``key`` ending at ``end``.
 
     Annual periods use the fiscal-year value directly; quarterly periods sum the
@@ -907,7 +929,7 @@ def _ttm_flow(series: FlowSeries, key: str, end: date, frequency: str) -> float 
             return None
     total = 0.0
     for q_end in window:
-        v = _standalone_quarter(series, key, q_end)
+        v = _standalone_quarter(series, key, q_end, q4_rule)
         if v is None:
             return None
         total += v
@@ -1007,12 +1029,12 @@ def _prior_year(by_end: dict[tuple[str, date], "PeriodSummary"], freq: str,
     return None
 
 
-def _attach_ttm(series: FlowSeries, summaries, *, ttm_keys) -> None:
+def _attach_ttm(series: FlowSeries, summaries, *, ttm_keys, q4_rule: str = "ytd9") -> None:
     by_end = {(s.frequency, s.period_end): s for s in summaries if s.period_end}
     for s in summaries:
         if not s.period_end:
             continue
-        t12 = {k: _ttm_flow(series, k, s.period_end, s.frequency) for k in ttm_keys}
+        t12 = {k: _ttm_flow(series, k, s.period_end, s.frequency, q4_rule) for k in ttm_keys}
         prior = _prior_year(by_end, s.frequency, s.period_end)
 
         def avg(key: str, _s=s, _prior=prior) -> float | None:
