@@ -221,6 +221,18 @@ and skips when it cannot be installed. With `REQUIRE_DUCKLAKE=1` that is a failu
 instead: the CI `store` job pre-installs the extension and sets it, so CI cannot pass
 without having run the test.
 
+**Reading the store back.** A store reader (such as `myopenfund-mcp`) gets F1's concepts and
+ratios from published rows without recomputing anything: run
+`concepts.selection.run_selection(facts, positions)` on one issuer's `fundamentals` vintages
+and `filing_statements`, then `concepts.store_summaries.summaries_from_rows(rows, company=...,
+vintages=<the same fundamentals rows>)`. It returns the same `PeriodSummary` objects as F1
+(`values`, point-in-time `derived` ratios, `ttm` ratios); `concept_catalog()` and
+`metric_catalog()` list what exists. The store has no 9-month YTD band, so the fiscal-year-end
+quarter is rebuilt as annual minus Q1 to Q3 (`q4_rule="sum_of_quarters"`; F1 keeps `"ytd9"`).
+Publication dates are read in New York time (`publication_tz`); the module docstring lists
+where they can differ from F1's by a few days. Without an SIC, pass `sector_known=False`:
+`sector_relevant` is then null rather than false.
+
 ## Operations
 
 **Doctrine, in one sentence:** every work command folds its own counters into a
