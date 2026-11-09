@@ -1,24 +1,32 @@
-"""The concept dictionary: which filed tags mean which concept (chantier 9, spec §6).
+"""The concept dictionary (chantier 9 spec §6, chantier 10 spec §3).
 
-Data lives in ``<taxonomy>.json`` next to this module, one file per taxonomy with its own version.
-A new taxonomy is a new data file: no rule here names an issuer, a country or a tag.
+``concepts.json`` defines each concept once: its meaning. ``tags/<table>.json`` says, for one
+taxonomy, which filed tags answer each concept. A new taxonomy is a new tag table: no rule here
+names an issuer, a country or a tag. Tags are identified by their full name ``ns:Tag``: the same
+bare name in two namespaces is two tags.
 """
 from __future__ import annotations
 
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib import resources
 
 STATEMENTS = ("BS", "IS", "CF")
 ON_SEVERAL = ("first", "sum")
 STATUSES = ("reviewed", "not_reviewed")
+KINDS = ("money", "money/shares", "shares")
+#: Namespaces a table may take a tag from besides its own: cover-page facts
+#: (shares_outstanding falls back to dei:EntityCommonStockSharesOutstanding).
+HELPER_NAMESPACES: tuple[str, ...] = ("dei",)
+#: Tag tables loaded when none are named, in order; a table is ``tags/<name>.json``.
+DEFAULT_TABLES: tuple[str, ...] = ("us_gaap",)
 _SEMVER = re.compile(r"\d+\.\d+\.\d+")
-_UNIT = re.compile(r"USD|USD/shares|shares")
 
 
 class DictionaryError(ValueError):
-    """The dictionary file breaks its own rules."""
+    """The dictionary files break their own rules."""
 
 
 @dataclass(frozen=True)
@@ -33,16 +41,38 @@ class ComputedTotal:
 
 @dataclass(frozen=True)
 class ConceptDef:
+    """What a concept means, whatever the taxonomy."""
+
     key: str
     label: str
     statement: str
     instant: bool
-    unit: str
+    kind: str             # money | money/shares | shares
+
+
+@dataclass(frozen=True)
+class TagEntry:
+    """How one taxonomy answers one concept."""
+
+    concept: str
     status: str
     on_several: str
     tags: tuple[str, ...]                 # "ns:Tag", preference order
-    statement_only_tags: tuple[str, ...]  # "ns:Tag", count only on ``statement``
+    statement_only_tags: tuple[str, ...]  # "ns:Tag", count only on the concept's statement
     computed: ComputedTotal | None = None
+
+    @property
+    def all_tags(self) -> tuple[str, ...]:
+        return (*self.tags, *self.statement_only_tags)
+
+
+@dataclass(frozen=True)
+class TagTable:
+    name: str                     # file stem, e.g. "us_gaap"
+    taxonomy: str
+    namespace: str                # companyfacts namespace, e.g. "us-gaap"
+    position_version_prefix: str  # how filing_statements.tag_version names this taxonomy
+    entries: dict[str, TagEntry]  # concept key -> entry, in concepts.json order
 
 
 @dataclass(frozen=True)
@@ -52,31 +82,53 @@ class TagSpec:
     ns: str
     tag: str
     instant: bool
-    unit: str
+    kind: str
+    taxonomy_ns: str              # namespace of the table the tag belongs to
+
+    @property
+    def full(self) -> str:
+        return f"{self.ns}:{self.tag}"
 
 
 @dataclass(frozen=True, eq=False)  # compared and cached by identity: one object per load
 class Dictionary:
     version: str
-    taxonomy: str
     conflict_tolerance: float
     restatement_tolerance: float
     concepts: dict[str, ConceptDef]
+    tables: tuple[TagTable, ...]
+
+    @property
+    def namespaces(self) -> tuple[str, ...]:
+        """The taxonomy namespaces of the loaded tables, in table order."""
+        return tuple(t.namespace for t in self.tables)
+
+    def table(self, namespace: str) -> TagTable:
+        for t in self.tables:
+            if t.namespace == namespace:
+                return t
+        raise KeyError(namespace)
+
+    def entries(self, key: str) -> list[tuple[TagTable, TagEntry]]:
+        """The tables answering concept ``key``, in table order."""
+        return [(t, t.entries[key]) for t in self.tables if key in t.entries]
 
     def tag_specs(self) -> dict[str, TagSpec]:
-        """Every tag to ingest, chains and helpers alike, by bare tag name."""
+        """Every tag to ingest, chains and helpers alike, by full tag."""
         out: dict[str, TagSpec] = {}
 
-        def add(full: str, instant: bool, unit: str) -> None:
+        def add(full: str, instant: bool, kind: str, taxonomy_ns: str) -> None:
             ns, tag = full.split(":", 1)
-            out[tag] = TagSpec(ns, tag, instant, unit)
+            out[full] = TagSpec(ns, tag, instant, kind, taxonomy_ns)
 
-        for c in self.concepts.values():
-            for full in (*c.tags, *c.statement_only_tags):
-                add(full, c.instant, c.unit)
-            if c.computed:
-                for full in (c.computed.total_tag, *c.computed.minus_first_tag_of):
-                    add(full, True, c.unit)
+        for t in self.tables:
+            for e in t.entries.values():
+                c = self.concepts[e.concept]
+                for full in e.all_tags:
+                    add(full, c.instant, c.kind, t.namespace)
+                if e.computed:
+                    for full in (e.computed.total_tag, *e.computed.minus_first_tag_of):
+                        add(full, True, c.kind, t.namespace)
         return out
 
 
@@ -84,62 +136,104 @@ def _full(tag: str, namespace: str) -> str:
     return tag if ":" in tag else f"{namespace}:{tag}"
 
 
-def parse_dictionary(raw: dict) -> Dictionary:
-    """Validate and build; every refusal names the concept at fault."""
-    version, namespace = raw.get("version", ""), raw.get("namespace", "")
-    if not _SEMVER.fullmatch(version):
-        raise DictionaryError(f"version {version!r} is not MAJOR.MINOR.PATCH")
-    if not namespace:
-        raise DictionaryError("namespace is required")
-    for name in ("conflict_tolerance", "restatement_tolerance"):
-        tolerance = raw.get(name)
-        if not isinstance(tolerance, (int, float)) or isinstance(tolerance, bool) or tolerance < 0:
-            raise DictionaryError(f"{name} {tolerance!r} must be a number >= 0")
-    concepts: dict[str, ConceptDef] = {}
-    seen: dict[str, str] = {}
-    raw_concepts = raw.get("concepts") or {}
-    for key, c in raw_concepts.items():
+def _tolerance(raw: dict, name: str) -> float:
+    value = raw.get(name)
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
+        raise DictionaryError(f"{name} {value!r} must be a number >= 0")
+    return float(value)
+
+
+def _parse_concepts(raw: dict) -> dict[str, ConceptDef]:
+    out: dict[str, ConceptDef] = {}
+    for key, c in (raw.get("concepts") or {}).items():
         if c.get("statement") not in STATEMENTS:
-            raise DictionaryError(f"{key}: unknown statement {c.get('statement')!r}")
-        if c.get("on_several") not in ON_SEVERAL:
-            raise DictionaryError(f"{key}: on_several {c.get('on_several')!r} is invalid")
-        if c.get("status") not in STATUSES:
-            raise DictionaryError(f"{key}: status {c.get('status')!r} is invalid")
-        if not _UNIT.fullmatch(c.get("unit", "")):
-            raise DictionaryError(f"{key}: unit {c.get('unit')!r} is invalid")
+            raise DictionaryError(f"concepts: {key}: unknown statement {c.get('statement')!r}")
         if not isinstance(c.get("instant"), bool):
-            raise DictionaryError(f"{key}: instant must be true or false")
-        tags = tuple(_full(t, namespace) for t in c.get("tags") or ())
-        only = tuple(_full(t, namespace) for t in c.get("statement_only_tags") or ())
+            raise DictionaryError(f"concepts: {key}: instant must be true or false")
+        if c.get("kind") not in KINDS:
+            raise DictionaryError(f"concepts: {key}: kind {c.get('kind')!r} is invalid")
+        out[key] = ConceptDef(key, c.get("label") or key, c["statement"], c["instant"], c["kind"])
+    return out
+
+
+def _parse_table(name: str, raw: dict, concepts: dict[str, ConceptDef],
+                 seen: dict[str, str]) -> TagTable:
+    namespace = raw.get("namespace") or ""
+    prefix = raw.get("position_version_prefix") or ""
+    if not namespace:
+        raise DictionaryError(f"{name}: namespace is required")
+    if not isinstance(prefix, str) or not prefix:
+        raise DictionaryError(f"{name}: position_version_prefix is required")
+    allowed = {namespace, *HELPER_NAMESPACES}
+    entries: dict[str, TagEntry] = {}
+    raw_entries = raw.get("concepts") or {}
+    for key in raw_entries:
+        if key not in concepts:
+            raise DictionaryError(f"{name}: unknown concept {key}")
+    for key in concepts:                  # concepts.json order
+        if key not in raw_entries:
+            continue
+        e = raw_entries[key]
+        where = f"{name}: {key}"
+        if e.get("on_several") not in ON_SEVERAL:
+            raise DictionaryError(f"{where}: on_several {e.get('on_several')!r} is invalid")
+        if e.get("status") not in STATUSES:
+            raise DictionaryError(f"{where}: status {e.get('status')!r} is invalid")
+        tags = tuple(_full(t, namespace) for t in e.get("tags") or ())
+        only = tuple(_full(t, namespace) for t in e.get("statement_only_tags") or ())
         if not tags and not only:
-            raise DictionaryError(f"{key}: no tags")
+            raise DictionaryError(f"{where}: no tags")
         computed = None
-        if "computed" in c:
-            m = c["computed"]
+        if "computed" in e:
+            m = e["computed"]
             computed = ComputedTotal(_full(m["total_tag"], namespace), tuple(m["minus_first_of"]),
                                      tuple(_full(t, namespace) for t in m["minus_first_tag_of"]))
-        for full in (*tags, *only,
-                     *((computed.total_tag, *computed.minus_first_tag_of) if computed else ())):
-            bare = full.split(":", 1)[1]
-            if bare in seen:
-                raise DictionaryError(f"{key}: tag {bare} already in {seen[bare]}")
-            seen[bare] = key
-        concepts[key] = ConceptDef(key, c.get("label") or key, c["statement"], c["instant"],
-                                   c["unit"], c["status"], c["on_several"], tags, only, computed)
-    for c in concepts.values():
-        for ref in c.computed.minus_first_of if c.computed else ():
-            if ref not in concepts:
-                raise DictionaryError(f"{c.key}: computed refers to unknown concept {ref}")
-    return Dictionary(version, raw.get("taxonomy", ""), float(raw["conflict_tolerance"]),
-                      float(raw["restatement_tolerance"]), concepts)
+            for ref in computed.minus_first_of:
+                if ref not in concepts:
+                    raise DictionaryError(f"{where}: computed refers to unknown concept {ref}")
+        helpers = (computed.total_tag, *computed.minus_first_tag_of) if computed else ()
+        for full in (*tags, *only, *helpers):
+            ns = full.split(":", 1)[0]
+            if full in seen:
+                raise DictionaryError(f"{where}: tag {full} already in {seen[full]}")
+            if ns not in allowed:
+                raise DictionaryError(f"{where}: tag {full} is outside namespace {namespace}")
+            seen[full] = where
+        entries[key] = TagEntry(key, e["status"], e["on_several"], tags, only, computed)
+    return TagTable(name, raw.get("taxonomy") or namespace, namespace, prefix, entries)
 
 
-_LOADED: dict[str, Dictionary] = {}
+def parse_dictionary(concepts_raw: dict, tables_raw: Sequence[tuple[str, dict]]) -> Dictionary:
+    """Validate and build; every refusal names the file and the concept at fault."""
+    version = concepts_raw.get("version", "")
+    if not _SEMVER.fullmatch(version):
+        raise DictionaryError(f"version {version!r} is not MAJOR.MINOR.PATCH")
+    conflict = _tolerance(concepts_raw, "conflict_tolerance")
+    restatement = _tolerance(concepts_raw, "restatement_tolerance")
+    concepts = _parse_concepts(concepts_raw)
+    seen: dict[str, str] = {}
+    tables: list[TagTable] = []
+    for name, raw in tables_raw:
+        for other in tables:          # before the tags, so the error names the real overlap
+            if other.namespace == raw.get("namespace"):
+                raise DictionaryError(f"{name}: namespace {other.namespace} already in {other.name}")
+            if other.position_version_prefix == raw.get("position_version_prefix"):
+                raise DictionaryError(f"{name}: position_version_prefix "
+                                      f"{other.position_version_prefix} already in {other.name}")
+        tables.append(_parse_table(name, raw, concepts, seen))
+    return Dictionary(version, conflict, restatement, concepts, tuple(tables))
 
 
-def load_dictionary(name: str = "us_gaap") -> Dictionary:
-    """The packaged dictionary ``<name>.json``, parsed once."""
-    if name not in _LOADED:
-        text = resources.files(__package__).joinpath(f"{name}.json").read_text(encoding="utf-8")
-        _LOADED[name] = parse_dictionary(json.loads(text))
-    return _LOADED[name]
+_LOADED: dict[tuple[str, ...], Dictionary] = {}
+
+
+def load_dictionary(tables: Sequence[str] = DEFAULT_TABLES) -> Dictionary:
+    """The packaged concepts and the named tag tables, parsed once per table list."""
+    key = tuple(tables)
+    if key not in _LOADED:
+        root = resources.files(__package__)
+        concepts = json.loads(root.joinpath("concepts.json").read_text(encoding="utf-8"))
+        raws = [(name, json.loads(root.joinpath("tags", f"{name}.json").read_text(encoding="utf-8")))
+                for name in key]
+        _LOADED[key] = parse_dictionary(concepts, raws)
+    return _LOADED[key]

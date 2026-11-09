@@ -1,0 +1,433 @@
+{
+ "version": "2.0.0",
+ "conflict_tolerance": 0.01,
+ "restatement_tolerance": 0.5,
+ "concepts": {
+  "revenue": {
+   "label": "Revenue",
+   "statement": "IS",
+   "instant": false,
+   "kind": "money"
+  },
+  "cost_of_revenue": {
+   "label": "Cost of revenue",
+   "statement": "IS",
+   "instant": false,
+   "kind": "money"
+  },
+  "gross_profit": {
+   "label": "Gross profit",
+   "statement": "IS",
+   "instant": false,
+   "kind": "money"
+  },
+  "sga_expense": {
+   "label": "SG&A expense",
+   "statement": "IS",
+   "instant": false,
+   "kind": "money"
+  },
+  "rnd_expense": {
+   "label": "R&D expense",
+   "statement": "IS",
+   "instant": false,
+   "kind": "money"
+  },
+  "operating_income": {
+   "label": "Operating income",
+   "statement": "IS",
+   "instant": false,
+   "kind": "money"
+  },
+  "interest_expense": {
+   "label": "Interest expense",
+   "statement": "IS",
+   "instant": false,
+   "kind": "money"
+  },
+  "interest_net": {
+   "label": "Interest income (expense), net",
+   "statement": "IS",
+   "instant": false,
+   "kind": "money"
+  },
+  "pretax_income": {
+   "label": "Pretax income",
+   "statement": "IS",
+   "instant": false,
+   "kind": "money"
+  },
+  "pretax_domestic": {
+   "label": "Pretax income (domestic)",
+   "statement": "IS",
+   "instant": false,
+   "kind": "money"
+  },
+  "pretax_foreign": {
+   "label": "Pretax income (foreign)",
+   "statement": "IS",
+   "instant": false,
+   "kind": "money"
+  },
+  "income_tax": {
+   "label": "Income tax expense",
+   "statement": "IS",
+   "instant": false,
+   "kind": "money"
+  },
+  "net_income": {
+   "label": "Net income",
+   "statement": "IS",
+   "instant": false,
+   "kind": "money"
+  },
+  "net_income_consolidated": {
+   "label": "Net income including NCI",
+   "statement": "IS",
+   "instant": false,
+   "kind": "money"
+  },
+  "net_income_nci": {
+   "label": "Net income attributable to NCI",
+   "statement": "IS",
+   "instant": false,
+   "kind": "money"
+  },
+  "preferred_dividends": {
+   "label": "Preferred dividends",
+   "statement": "IS",
+   "instant": false,
+   "kind": "money"
+  },
+  "dep_amort": {
+   "label": "Depreciation & amortization",
+   "statement": "CF",
+   "instant": false,
+   "kind": "money"
+  },
+  "eps_basic": {
+   "label": "EPS (basic)",
+   "statement": "IS",
+   "instant": false,
+   "kind": "money/shares"
+  },
+  "eps_diluted": {
+   "label": "EPS (diluted)",
+   "statement": "IS",
+   "instant": false,
+   "kind": "money/shares"
+  },
+  "dividends_per_share": {
+   "label": "Dividends declared per share",
+   "statement": "IS",
+   "instant": false,
+   "kind": "money/shares"
+  },
+  "cfo": {
+   "label": "Cash from operations",
+   "statement": "CF",
+   "instant": false,
+   "kind": "money"
+  },
+  "cfi": {
+   "label": "Cash from investing",
+   "statement": "CF",
+   "instant": false,
+   "kind": "money"
+  },
+  "cff": {
+   "label": "Cash from financing",
+   "statement": "CF",
+   "instant": false,
+   "kind": "money"
+  },
+  "capex": {
+   "label": "Capital expenditures",
+   "statement": "CF",
+   "instant": false,
+   "kind": "money"
+  },
+  "stock_comp": {
+   "label": "Stock-based compensation",
+   "statement": "CF",
+   "instant": false,
+   "kind": "money"
+  },
+  "dividends_paid": {
+   "label": "Dividends paid",
+   "statement": "CF",
+   "instant": false,
+   "kind": "money"
+  },
+  "buybacks": {
+   "label": "Share repurchases",
+   "statement": "CF",
+   "instant": false,
+   "kind": "money"
+  },
+  "acquisitions_net": {
+   "label": "Acquisitions (net of cash acquired)",
+   "statement": "CF",
+   "instant": false,
+   "kind": "money"
+  },
+  "debt_proceeds": {
+   "label": "Debt issuance proceeds",
+   "statement": "CF",
+   "instant": false,
+   "kind": "money"
+  },
+  "debt_repayments": {
+   "label": "Debt repayments",
+   "statement": "CF",
+   "instant": false,
+   "kind": "money"
+  },
+  "finance_lease_principal": {
+   "label": "Finance lease principal payments",
+   "statement": "CF",
+   "instant": false,
+   "kind": "money"
+  },
+  "asset_sale_proceeds": {
+   "label": "Proceeds from asset/business sales",
+   "statement": "CF",
+   "instant": false,
+   "kind": "money"
+  },
+  "assets": {
+   "label": "Total assets",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "assets_current": {
+   "label": "Current assets",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "cash": {
+   "label": "Cash & equivalents",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "cash_and_st_investments": {
+   "label": "Cash, equivalents and short-term investments",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "short_term_investments": {
+   "label": "Short-term investments",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "long_term_investments": {
+   "label": "Long-term investments",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "restricted_cash": {
+   "label": "Restricted cash",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "receivables": {
+   "label": "Accounts receivable",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "receivables_total": {
+   "label": "Receivables, total (trade and other)",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "inventory": {
+   "label": "Inventory",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "ppe_net": {
+   "label": "Property, plant & equipment (net)",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "goodwill": {
+   "label": "Goodwill",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "intangibles": {
+   "label": "Intangible assets (ex-goodwill)",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "liabilities": {
+   "label": "Total liabilities",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "liabilities_current": {
+   "label": "Current liabilities",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "payables": {
+   "label": "Accounts payable",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "payables_and_accrued": {
+   "label": "Payables and accrued liabilities",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "long_term_debt": {
+   "label": "Long-term debt (noncurrent)",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "long_term_debt_lines": {
+   "label": "Long-term debt lines (sum)",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "long_term_debt_incl_current": {
+   "label": "Long-term debt including current maturities",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "debt_total": {
+   "label": "Total debt as reported",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "debt_components": {
+   "label": "Debt lines on the balance sheet (sum)",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "lt_debt_current": {
+   "label": "Long-term debt (current portion)",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "short_term_debt": {
+   "label": "Short-term borrowings",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "debt_current_total": {
+   "label": "Current debt, total",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "finance_lease_current": {
+   "label": "Finance lease liability (current)",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "finance_lease_noncurrent": {
+   "label": "Finance lease liability (noncurrent)",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "operating_lease_current": {
+   "label": "Operating lease liability (current)",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "operating_lease_noncurrent": {
+   "label": "Operating lease liability (noncurrent)",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "equity": {
+   "label": "Stockholders' equity (parent)",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "equity_total": {
+   "label": "Total equity (incl. NCI)",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "noncontrolling_interest": {
+   "label": "Noncontrolling interest",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "preferred_stock": {
+   "label": "Preferred stock (carrying value)",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "retained_earnings": {
+   "label": "Retained earnings / (accumulated deficit)",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "treasury_stock": {
+   "label": "Treasury stock",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "aoci": {
+   "label": "Accumulated other comprehensive income / (loss)",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "pension_obligations": {
+   "label": "Pension & post-retirement obligations (noncurrent)",
+   "statement": "BS",
+   "instant": true,
+   "kind": "money"
+  },
+  "shares_outstanding": {
+   "label": "Shares outstanding",
+   "statement": "BS",
+   "instant": true,
+   "kind": "shares"
+  },
+  "wavg_shares_diluted": {
+   "label": "Weighted-avg diluted shares",
+   "statement": "IS",
+   "instant": false,
+   "kind": "shares"
+  }
+ }
+}

@@ -38,8 +38,8 @@ def _values(rows) -> str:
     return ", ".join("(" + ", ".join(_lit(x) for x in r) + ")" for r in rows)
 
 
-def _computed_ctes(i: int, c) -> tuple[str, str]:
-    m, statement = c.computed, c.statement
+def _computed_ctes(i: int, c, e) -> tuple[str, str]:
+    m, statement = e.computed, c.statement
     first = _values((k, n) for n, k in enumerate(m.minus_first_of))
     minus = _values((t, n) for n, t in enumerate(m.minus_first_tag_of))
     cte = f""",
@@ -64,7 +64,7 @@ computed_{i} AS (
   SELECT {_lit(c.key)} AS concept, t.entity_scheme, t.entity_value, t.valid_date, t.frequency,
          t.basis, t.source_code, t.period_start, t.value - b.value - coalesce(m.value, 0) AS value,
          t.unit, 'computed:' || t.original_tag AS original_tag, t.filing_ref, t.source_doc_id,
-         t.known_at, 'derived' AS location, FALSE AS conflict, {_lit(c.status)} AS review_status,
+         t.known_at, 'derived' AS location, FALSE AS conflict, {_lit(e.status)} AS review_status,
          TRUE AS on_statement
   FROM total_{i} t
   JOIN base_{i} b USING ({_PERIOD}, filing_ref)
@@ -80,20 +80,23 @@ def selection_sql(dictionary: Dictionary | None = None, *, facts: str = "facts",
                   positions: str = "positions") -> str:
     """One DuckDB statement over the views ``facts`` and ``positions``."""
     d = dictionary or load_dictionary()
-    tags, concepts = [], []
-    for c in d.concepts.values():
-        concepts.append((c.key, c.statement, c.on_several, c.status))
-        chain = [(t, False) for t in c.tags] + [(t, True) for t in c.statement_only_tags]
-        tags.extend((c.key, t, rank, only) for rank, (t, only) in enumerate(chain))
+    tags = []
+    for t in d.tables:
+        for e in t.entries.values():
+            chain = [(x, False) for x in e.tags] + [(x, True) for x in e.statement_only_tags]
+            tags.extend((e.concept, x, rank, only, e.on_several, e.status)
+                        for rank, (x, only) in enumerate(chain))
+    concepts = [(c.key, c.statement) for c in d.concepts.values()]
     extra, selects = [], [f"SELECT {_OUT} FROM picked", f"SELECT {_OUT} FROM summed"]
-    for i, c in enumerate(c for c in d.concepts.values() if c.computed):
-        cte, select = _computed_ctes(i, c)
+    computed = [(t, e) for t in d.tables for e in t.entries.values() if e.computed]
+    for i, (t, e) in enumerate(computed):
+        cte, select = _computed_ctes(i, d.concepts[e.concept], e)
         extra.append(cte)
         selects.append(select)
     tol, restated = repr(d.conflict_tolerance), repr(d.restatement_tolerance)
     key = "entity_scheme, entity_value, original_tag, valid_date, frequency, basis, source_code"
-    return f"""WITH dict_tags(concept, original_tag, tag_rank, statement_only) AS (VALUES {_values(tags)}),
-dict_concepts(concept, statement, on_several, review_status) AS (VALUES {_values(concepts)}),
+    return f"""WITH dict_tags(concept, original_tag, tag_rank, statement_only, on_several, review_status) AS (VALUES {_values(tags)}),
+dict_concepts(concept, statement) AS (VALUES {_values(concepts)}),
 vintages AS (
   SELECT entity_scheme, entity_value, original_tag, period_start, frequency, basis, value, unit,
          filing_ref, source_doc_id, known_at, valid_date, source_code,
@@ -120,7 +123,7 @@ borrowed AS (
 placed AS (
   SELECT f.entity_scheme, f.entity_value, f.valid_date, f.frequency, f.basis, f.source_code,
          f.period_start, f.value, f.unit, f.original_tag, f.filing_ref, f.source_doc_id, f.known_at,
-         f.replaced, t.concept, t.tag_rank, t.statement_only, c.on_several, c.review_status,
+         f.replaced, t.concept, t.tag_rank, t.statement_only, t.on_several, t.review_status,
          CASE WHEN k.filing_ref IS NOT NULL
               THEN (CASE WHEN p.statements IS NULL THEN 'note' ELSE 'statement' END)
               WHEN b.from_filing IS NOT NULL THEN 'inferred' ELSE 'unknown' END AS location,

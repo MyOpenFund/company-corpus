@@ -98,7 +98,7 @@ def select_for_f1(facts: dict, statements: Sequence[dict] = (),
                                          DEFAULT_CURRENCY_ANCHOR_TAGS, dictionary=d,
                                          frequencies=F1_FREQUENCIES)
               if p.filed is not None and _quantized(p.value) is not None
-              and (specs[p.tag].unit != "USD" or currency is None or p.unit == currency)]
+              and (specs[f"{p.ns}:{p.tag}"].kind != "money" or currency is None or p.unit == currency)]
     return Selected(run_selection(facts_table(points), positions_table(statements), d), points,
                     counters)
 
@@ -158,11 +158,11 @@ def build_summaries(facts: dict, *, company: str, company_current: str, name_for
     selected = select_for_f1(facts, statements, d)
     specs = d.tag_specs()
     namespaces = sorted({s.ns for s in specs.values()})
-    chain_tags = {t.split(":", 1)[1] for c in d.concepts.values() for t in (*c.tags, *c.statement_only_tags)}
+    chain_tags = {full for t in d.tables for e in t.entries.values() for full in e.all_tags}
     duration, instant, allowed = group_periods(selected.rows)
     points_at: dict[tuple[date, str], list[Point]] = {}
     for p in selected.points:
-        if p.tag in chain_tags:
+        if f"{p.ns}:{p.tag}" in chain_tags:
             points_at.setdefault((p.end, p.frequency), []).append(p)
     summaries: list[PeriodSummary] = []
     for (end, freq), per_concept in duration.items():

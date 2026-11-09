@@ -43,13 +43,17 @@ class Concept:
     unit: str = "USD"      # expected unit (USD / USD/shares / shares)
 
 
-# The curated set comes from the dictionary (``concepts/us_gaap.json``), so every pillar shares
-# its keys and labels. Tags here feed only the generic ``summaries_from_flat``; the SEC path goes
-# through ``concepts.selection``. Order = display order in the summary.
+# The curated set comes from the dictionary (``concepts/concepts.json`` and the us-gaap table
+# ``concepts/tags/us_gaap.json``), so every pillar shares its keys and labels. Tags here feed only
+# the generic ``summaries_from_flat``; the SEC path goes through ``concepts.selection``.
+# Order = display order in the summary.
+_UNIT_OF_KIND = {"money": "USD", "money/shares": "USD/shares", "shares": "shares"}
+_US_DICTIONARY = load_dictionary(("us_gaap",))
 CONCEPTS: tuple[Concept, ...] = tuple(
-    Concept(c.key, c.label, tuple(t.split(":", 1)[1] for t in (*c.tags, *c.statement_only_tags)),
-            c.instant, c.unit)
-    for c in load_dictionary().concepts.values())
+    Concept(c.key, c.label,
+            tuple(t.split(":", 1)[1] for t in _US_DICTIONARY.table("us-gaap").entries[c.key].all_tags),
+            c.instant, _UNIT_OF_KIND[c.kind])
+    for c in _US_DICTIONARY.concepts.values())
 
 CONCEPTS_BY_KEY = {c.key: c for c in CONCEPTS}
 

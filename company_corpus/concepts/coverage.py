@@ -25,12 +25,12 @@ def coverage(rows: list[dict], on_statement: Collection[tuple[str, str]],
     reference = max(at_end, key=lambda r: (r["known_at"], r["filing_ref"] or ""))["filing_ref"]
     found = {r["concept"]: r for r in at_end}
     out: Counter = Counter()
-    for key, c in d.concepts.items():
+    for key in d.concepts:
         row = found.get(key)
         if row is None:
             out[f"coverage:{key}:absent"] += 1
             if any((reference, t.split(":", 1)[1]) in on_statement
-                   for t in (*c.tags, *c.statement_only_tags)):
+                   for _, e in d.entries(key) for t in e.all_tags):
                 out[f"coverage:{key}:on_statement_no_value"] += 1
             continue
         out[f"coverage:{key}:{row['location']}"] += 1

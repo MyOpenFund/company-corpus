@@ -41,10 +41,11 @@ def _rows(dictionary):
 
 
 def _changed(change):
-    raw = json.loads(resources.files("company_corpus.concepts").joinpath("us_gaap.json")
-                     .read_text(encoding="utf-8"))
-    change(raw["concepts"])
-    return parse_dictionary(raw)
+    root = resources.files("company_corpus.concepts")
+    concepts = json.loads(root.joinpath("concepts.json").read_text(encoding="utf-8"))
+    table = json.loads(root.joinpath("tags", "us_gaap.json").read_text(encoding="utf-8"))
+    change(table["concepts"])
+    return parse_dictionary(concepts, [("us_gaap", table)])
 
 
 def test_changing_the_dictionary_changes_no_published_row():

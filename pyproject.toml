@@ -37,4 +37,4 @@ company-corpus = "company_corpus.cli:main"
 include = ["company_corpus*"]
 
 [tool.setuptools.package-data]
-"company_corpus.concepts" = ["*.json"]
+"company_corpus.concepts" = ["*.json", "tags/*.json"]

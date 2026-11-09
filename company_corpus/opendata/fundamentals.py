@@ -88,9 +88,9 @@ def _unit_drop(spec: TagSpec, unit: str, currency: str | None) -> str | None:
     the filing's reporting currency (a convenience translation is not a second fact). The shape
     of the unit is checked first, so a malformed unit is ``unexpected_unit`` whatever the
     filing's currency signals say."""
-    if spec.unit == "shares":
+    if spec.kind == "shares":
         return None if unit == "shares" else "unexpected_unit"
-    if spec.unit.endswith("/shares"):
+    if spec.kind == "money/shares":
         numerator = unit[:-len("/shares")] if unit.endswith("/shares") else ""
     else:
         numerator = unit
@@ -195,11 +195,11 @@ def as_filed_points(flat: dict[str, list[dict]], bands, counters: Counter,
     """Every usable point of every dictionary tag from a financial report, helpers included,
     whatever its priority."""
     specs = (dictionary or load_dictionary()).tag_specs()
-    per_share = {tag for tag, spec in specs.items() if spec.unit.endswith("/shares")}
+    per_share = {spec.tag for spec in specs.values() if spec.kind == "money/shares"}
     currencies = _filing_currencies(flat, anchor_tags, per_share)
     out: list[Point] = []
-    for tag, spec in specs.items():
-        for p in flat.get(tag, []):
+    for spec in specs.values():
+        for p in flat.get(spec.tag, []):
             if p.get("ns") != spec.ns:
                 counters["dropped:other_namespace"] += 1
                 continue
