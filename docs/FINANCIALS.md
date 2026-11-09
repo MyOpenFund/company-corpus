@@ -42,7 +42,7 @@ summed or divided as if it were the functional currency.
 The curated line items are data, in two levels (dictionary version 2.0.0):
 `company_corpus/concepts/concepts.json` holds the meaning of each concept (label, statement,
 instant, `kind` = `money`, `money/shares` or `shares`, and the global tolerances), and one table per
-taxonomy, `concepts/tags/<table>.json`, holds that taxonomy's tags (its `namespace`, its
+taxonomy, `concepts/tags/<table>.json`, holds that taxonomy's tags (its `taxonomy`, `namespace`, its
 `position_version_prefix`, and per concept a `status`, `on_several`, preference-ordered `tags`,
 `statement_only_tags` and `computed`). The loaded tables are `us_gaap` and `ifrs_full`
 (`DEFAULT_TABLES`). A full tag `ns:Tag` belongs to one table; the same bare name in two namespaces is
@@ -139,8 +139,6 @@ Known limits:
 - `cash` of a bank is `CashAndDueFromBanks`, without interest-bearing deposits at other banks.
 - A filing with two durations ending on one date can raise a spurious `conflict` in F1 (the store
   drops such a pair as `ambiguous_observation`).
-- A custom tag reusing a `us-gaap` local name counts as that tag on the statement (about 17 of
-  597,248 rows in one quarter).
 - `liabilities` is computed when no total is filed: total liabilities and equity, minus total equity
   (else parent equity), minus the first mezzanine line, all from the balance sheet, marked `derived`.
   A filing newer than the bulk files gets no computed total until its real positions arrive.
@@ -279,9 +277,10 @@ four decimal places: **32.5629** at 2025-12-27 and **34.9060** at 2026-03-28
   second tag, after `LongTermDebtNoncurrent`; it bundles capitalised (finance) leases into the debt
   figure, which is debt-like and acceptable when the filer reports debt only in that
   combined form.
-- Full IFRS (`ifrs-full`) concept mapping is deferred to the international pillar. On the SEC path
-  only the `us-gaap` and `dei` namespaces are read, so an IFRS-only filer gets no mapped concept
-  there (`ProfitLoss` is the `net_income_consolidated` concept, a us-gaap tag).
+- IFRS concepts absent from the IFRS table stay unmapped on the SEC path. Ingestion reads `us-gaap`,
+  `ifrs-full` and `dei`, and `tags/ifrs_full.json` is a default table, so an IFRS-only filer is mapped
+  for the concepts that table lists; the remaining limit is the set of concepts it does not (see
+  `tags/ifrs_full.json`).
 
 **Cross-checked live** against real filings for a 10-issuer basket (Apple, Microsoft,
 Alphabet, Berkshire, Comcast, McDonald's, Walmart, Costco, JPMorgan, BofA): net

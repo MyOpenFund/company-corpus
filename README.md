@@ -177,7 +177,6 @@ on. Counters:
 | `dropped:non_reporting_currency`, `dropped:unexpected_unit` | unit filters; the reporting currency is that of each filing, so later filings never change the points selected from earlier ones |
 | `dropped:currency_ambiguous` | a filing's vote over its monetary facts and the currency of its balance sheet totals contradict each other, or tie with nothing to settle them (also: per-share points only, in several currencies): the filing publishes no money rather than risk a wrong row. Investigate any non-zero count |
 | `dropped:not_a_report` | a point from a form that is not a financial report (`Config.store_report_forms`), such as a proxy statement |
-| `dropped:other_namespace` | a point whose tag is in another taxonomy than the dictionary entry (for example a company extension that reuses a us-gaap name) |
 | `statements_missing` | no statement positions archived for the issuer: run `company-corpus statements` |
 | `dropped:bad_point`, `dropped:no_known_at`, `dropped:value_out_of_range` | unusable points |
 | `dropped:implausible_filed` | a point with no acceptance time whose `filed` date is more than `Config.store_stale_filed_max_days_ahead` days after the run day (Eastern): dropped, or it would be a new vintage on every run |
