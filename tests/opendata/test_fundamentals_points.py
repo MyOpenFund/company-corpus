@@ -14,7 +14,7 @@ from tests.opendata.factories import companyfacts, point
 
 def _select(us_gaap, dei=None):
     counters = Counter()
-    pts = as_filed_points(flatten_with_namespace(companyfacts(us_gaap, dei)),
+    pts = as_filed_points(flatten_with_namespace(companyfacts(us_gaap, dei), ("us-gaap", "dei")),
                         DEFAULT_DURATION_BANDS, counters, DEFAULT_CURRENCY_ANCHOR_TAGS)
     return pts, counters
 

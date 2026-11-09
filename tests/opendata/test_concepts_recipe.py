@@ -78,7 +78,7 @@ def test_recipe_equals_f1_on_real_filings(published):
     store, loaded = published
     with Store.open(store) as s:
         t = s.assemble(recipe())
-    assert t.schema.metadata[b"myopendata.recipe"].startswith(RECIPE_NAME.encode() + b"@1.0.0")
+    assert t.schema.metadata[b"myopendata.recipe"].startswith(RECIPE_NAME.encode() + b"@2.0.0")
     by_issuer = {}
     for r in t.to_pylist():
         by_issuer.setdefault(r["entity_value"], {})[(r["concept"], r["valid_date"], r["frequency"])] = r

@@ -11,6 +11,9 @@ Changing one of these tables therefore alters rows already published at the same
 
 The concept dictionary is not one of them: rows are as filed, keyed by tag, so changing it changes
 no published row (tested below). A new tag brings new rows.
+Chantier 10 (2026-11-09) rewrote the anchor tags as full tags and added the ifrs-full ones. The
+us-gaap four keep their meaning (a US filing has no ifrs-full fact, so no vote moves); this was
+checked against every published issuer on the real corpus before merging.
 The expected values are in ``published_derivations.json`` next to this module.
 """
 import json
@@ -41,10 +44,11 @@ def _rows(dictionary):
 
 
 def _changed(change):
-    raw = json.loads(resources.files("company_corpus.concepts").joinpath("us_gaap.json")
-                     .read_text(encoding="utf-8"))
-    change(raw["concepts"])
-    return parse_dictionary(raw)
+    root = resources.files("company_corpus.concepts")
+    concepts = json.loads(root.joinpath("concepts.json").read_text(encoding="utf-8"))
+    table = json.loads(root.joinpath("tags", "us_gaap.json").read_text(encoding="utf-8"))
+    change(table["concepts"])
+    return parse_dictionary(concepts, [("us_gaap", table)])
 
 
 def test_changing_the_dictionary_changes_no_published_row():
@@ -66,6 +70,12 @@ def test_changing_the_dictionary_changes_no_published_row():
     assert _rows(_changed(reorder)) == base
     assert _rows(_changed(move)) == base
     assert base.items() <= _rows(_changed(add)).items()
+
+
+def test_the_ifrs_table_changes_no_us_row():
+    from company_corpus.concepts.dictionary import load_dictionary
+
+    assert _rows(load_dictionary(("us_gaap", "ifrs_full"))) == _rows(load_dictionary(("us_gaap",)))
 
 
 def test_form_taxonomy_matches_what_was_published():

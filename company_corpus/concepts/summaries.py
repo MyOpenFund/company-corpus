@@ -18,8 +18,14 @@ from ..financials import (
     _TTM_FLOW_KEYS,
     reporting_currency,
 )
-from ..opendata.fundamentals import Point, _quantized, as_filed_points, flatten_with_namespace
-from .coverage import coverage
+from ..opendata.fundamentals import (
+    Point,
+    _quantized,
+    as_filed_points,
+    flatten_with_namespace,
+    ingest_namespaces,
+)
+from .coverage import coverage, positioned_tags
 from .dictionary import Dictionary, load_dictionary
 from .selection import run_selection
 
@@ -45,7 +51,8 @@ FACT_SCHEMA = pa.schema([
     ("valid_date", pa.date32()), ("source_code", pa.string())])
 POSITION_SCHEMA = pa.schema([
     ("entity_scheme", pa.string()), ("entity_value", pa.string()), ("filing_ref", pa.string()),
-    ("statement", pa.string()), ("tag", pa.string()), ("known_at", pa.timestamp("us", tz="UTC"))])
+    ("statement", pa.string()), ("tag", pa.string()), ("tag_version", pa.string()),
+    ("known_at", pa.timestamp("us", tz="UTC"))])
 
 
 @dataclass
@@ -82,7 +89,8 @@ def positions_table(statements: Sequence[dict]) -> pa.Table:
         day = _filed(s.get("filed"))
         if day is not None:
             rows.append({"entity_scheme": "cik", "entity_value": "f1", "filing_ref": s["accn"],
-                         "statement": s["statement"], "tag": s["tag"], "known_at": _end_of_day(day)})
+                         "statement": s["statement"], "tag": s["tag"],
+                         "tag_version": s.get("version") or "", "known_at": _end_of_day(day)})
     return pa.Table.from_pylist(rows, schema=POSITION_SCHEMA)
 
 
@@ -91,14 +99,14 @@ def select_for_f1(facts: dict, statements: Sequence[dict] = (),
     """Selection over one issuer's companyfacts and statement positions, in the F1 bands, with
     F1's issuer-wide reporting currency for monetary values."""
     d = dictionary or load_dictionary()
-    flat = flatten_with_namespace(facts)
+    flat = flatten_with_namespace(facts, ingest_namespaces(d))
     currency, counters = reporting_currency(flat), Counter()
     specs = d.tag_specs()
     points = [p for p in as_filed_points(flat, F1_DURATION_BANDS, counters,
                                          DEFAULT_CURRENCY_ANCHOR_TAGS, dictionary=d,
                                          frequencies=F1_FREQUENCIES)
               if p.filed is not None and _quantized(p.value) is not None
-              and (specs[p.tag].unit != "USD" or currency is None or p.unit == currency)]
+              and (specs[f"{p.ns}:{p.tag}"].kind != "money" or currency is None or p.unit == currency)]
     return Selected(run_selection(facts_table(points), positions_table(statements), d), points,
                     counters)
 
@@ -158,11 +166,11 @@ def build_summaries(facts: dict, *, company: str, company_current: str, name_for
     selected = select_for_f1(facts, statements, d)
     specs = d.tag_specs()
     namespaces = sorted({s.ns for s in specs.values()})
-    chain_tags = {t.split(":", 1)[1] for c in d.concepts.values() for t in (*c.tags, *c.statement_only_tags)}
+    chain_tags = {full for t in d.tables for e in t.entries.values() for full in e.all_tags}
     duration, instant, allowed = group_periods(selected.rows)
     points_at: dict[tuple[date, str], list[Point]] = {}
     for p in selected.points:
-        if p.tag in chain_tags:
+        if f"{p.ns}:{p.tag}" in chain_tags:
             points_at.setdefault((p.end, p.frequency), []).append(p)
     summaries: list[PeriodSummary] = []
     for (end, freq), per_concept in duration.items():
@@ -183,14 +191,14 @@ def build_summaries(facts: dict, *, company: str, company_current: str, name_for
         summaries.append(PeriodSummary(
             period_end=end, frequency=_F1_LABEL.get(freq, freq), publication_date=first.filed,
             sec_form=first.form or "XBRL", accession=first.accn, company=pit or company,
-            company_current=company_current, values=values, currency=_currency(facts), sic=sic,
+            company_current=company_current, values=values, currency=_currency(facts, d), sic=sic,
             debt_rule="concepts"))
     summaries.sort(key=lambda s: (s.period_end or date.min, s.frequency), reverse=True)
     return summaries
 
 
-def _currency(facts: dict) -> str:
-    return reporting_currency(flatten_with_namespace(facts)) or "USD"
+def _currency(facts: dict, d: Dictionary) -> str:
+    return reporting_currency(flatten_with_namespace(facts, ingest_namespaces(d))) or "USD"
 
 
 def attach_ttm(facts: dict, summaries: list[PeriodSummary], *, statements: Sequence[dict] = (),
@@ -201,5 +209,7 @@ def attach_ttm(facts: dict, summaries: list[PeriodSummary], *, statements: Seque
 
 def f1_coverage(facts: dict, statements: Sequence[dict] = (),
                 dictionary: Dictionary | None = None) -> Counter:
-    on_statement = {(s["accn"], s["tag"]) for s in statements}
-    return coverage(select_for_f1(facts, statements, dictionary).rows, on_statement, dictionary)
+    d = dictionary or load_dictionary()
+    on_statement = positioned_tags(((s["accn"], s["tag"], s.get("version") or "")
+                                    for s in statements), d)
+    return coverage(select_for_f1(facts, statements, d).rows, on_statement, d)

@@ -64,10 +64,13 @@ DEFAULT_REPORT_FORMS: tuple[str, ...] = (
     "20-F", "20-F/A", "40-F", "40-F/A", "6-K", "6-K/A", "8-K", "8-K/A",
 )
 
-#: Balance sheet totals whose currency must agree with a filing's vote over its monetary facts
-#: (``opendata.fundamentals``). On 39,428 filings with balance sheet totals, scanned 2026-11-04, they never disagree.
+#: Balance sheet totals cross-checking each filing's reporting currency, as full tags, one set per
+#: taxonomy. Frozen after a first publish (tests/opendata/published_derivations.json).
 DEFAULT_CURRENCY_ANCHOR_TAGS: tuple[str, ...] = (
-    "Assets", "Liabilities", "StockholdersEquity", "LiabilitiesAndStockholdersEquity",
+    "us-gaap:Assets", "us-gaap:Liabilities", "us-gaap:StockholdersEquity",
+    "us-gaap:LiabilitiesAndStockholdersEquity",
+    "ifrs-full:Assets", "ifrs-full:Liabilities", "ifrs-full:Equity",
+    "ifrs-full:EquityAndLiabilities",
 )
 
 #: EDGAR state/country codes of foreign business addresses -> ISO 3166-1 alpha-2, for
@@ -170,9 +173,10 @@ class Config:
         _check_duration_bands(self.store_duration_bands)
         tags = self.store_currency_anchor_tags
         if not (isinstance(tags, tuple) and tags
-                and all(isinstance(t, str) and t for t in tags)):
+                and all(isinstance(t, str) and len(t.split(":", 1)) == 2
+                        and all(t.split(":", 1)) for t in tags)):
             raise ValueError(
-                "store_currency_anchor_tags must be a non-empty tuple of non-empty strings")
+                "store_currency_anchor_tags must be a non-empty tuple of full tags 'ns:Tag'")
         if self.statements_publish_grace_days < 0:
             raise ValueError("statements_publish_grace_days must be >= 0")
         if self.store_stale_filed_max_days_ahead < 0:

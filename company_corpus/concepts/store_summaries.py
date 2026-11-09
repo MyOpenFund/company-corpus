@@ -88,7 +88,7 @@ def summaries_from_rows(rows: Iterable[dict], *, company: str, company_current: 
     duration, instant, allowed = group_periods(rows)
     filed_at: dict[tuple[date, str], list[dict]] = {}
     if vintages is not None:
-        chain_tags = {t for c in d.concepts.values() for t in (*c.tags, *c.statement_only_tags)}
+        chain_tags = {full for t in d.tables for e in t.entries.values() for full in e.all_tags}
         # Selection rows always carry their entity keys (synthetic ones may not); vintages may be
         # arbitrary dicts, so they are read with .get and kept only for the rows' issuer.
         issuers = {(r["entity_scheme"], r["entity_value"]) for r in rows if "entity_value" in r}
@@ -125,9 +125,12 @@ def summaries_from_rows(rows: Iterable[dict], *, company: str, company_current: 
 
 
 def concept_catalog(dictionary: Dictionary | None = None) -> list[dict]:
-    """The dictionary's concepts: ``key``, ``label``, ``unit``, ``statement``, ``instant``."""
+    """The dictionary's concepts: ``key``, ``label``, ``kind``, ``statement``, ``instant``.
+
+    ``kind`` is ``money``, ``money/shares`` or ``shares``: a concept has no fixed unit since the
+    dictionary spans taxonomies and reporting currencies (a value's unit is on its summary)."""
     d = dictionary or load_dictionary()
-    return [{"key": c.key, "label": c.label, "unit": c.unit, "statement": c.statement,
+    return [{"key": c.key, "label": c.label, "kind": c.kind, "statement": c.statement,
              "instant": c.instant} for c in d.concepts.values()]
 
 

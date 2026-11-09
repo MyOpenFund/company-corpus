@@ -95,11 +95,12 @@ def _fact(tag, value, filing, known, *, end="2024-12-31"):
             "valid_date": date.fromisoformat(end), "source_code": "sec"}
 
 
-def _pos(tag, filing, known, statement="BS"):
+def _pos(tag, filing, known, statement="BS", version="us-gaap/2024"):
     from datetime import datetime, timezone
 
     return {"entity_scheme": "cik", "entity_value": "1", "filing_ref": filing,
-            "statement": statement, "tag": tag, "known_at": datetime(*known, tzinfo=timezone.utc)}
+            "statement": statement, "tag": tag, "tag_version": version,
+            "known_at": datetime(*known, tzinfo=timezone.utc)}
 
 
 def _run(facts, positions):

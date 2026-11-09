@@ -43,13 +43,25 @@ class Concept:
     unit: str = "USD"      # expected unit (USD / USD/shares / shares)
 
 
-# The curated set comes from the dictionary (``concepts/us_gaap.json``), so every pillar shares
-# its keys and labels. Tags here feed only the generic ``summaries_from_flat``; the SEC path goes
-# through ``concepts.selection``. Order = display order in the summary.
+# The curated set comes from the dictionary (``concepts/concepts.json`` and the us-gaap table
+# ``concepts/tags/us_gaap.json``), so every pillar shares its keys and labels. Tags here feed only
+# the generic ``summaries_from_flat``; the SEC path goes through ``concepts.selection``.
+# Order = display order in the summary.
+_UNIT_OF_KIND = {"money": "USD", "money/shares": "USD/shares", "shares": "shares"}
+_US_DICTIONARY = load_dictionary(("us_gaap",))
+
+
+def _us_tags(key: str) -> tuple[str, ...]:
+    """The us-gaap table's tags for a concept; empty when that table does not carry it."""
+    entry = _US_DICTIONARY.table("us-gaap").entries.get(key)
+    return entry.all_tags if entry is not None else ()
+
+
 CONCEPTS: tuple[Concept, ...] = tuple(
-    Concept(c.key, c.label, tuple(t.split(":", 1)[1] for t in (*c.tags, *c.statement_only_tags)),
-            c.instant, c.unit)
-    for c in load_dictionary().concepts.values())
+    Concept(c.key, c.label,
+            tuple(t.split(":", 1)[1] for t in _us_tags(c.key)),
+            c.instant, _UNIT_OF_KIND[c.kind])
+    for c in _US_DICTIONARY.concepts.values())
 
 CONCEPTS_BY_KEY = {c.key: c for c in CONCEPTS}
 
@@ -310,6 +322,7 @@ _PARENT_ATTRIB_TAGS: frozenset[str] = frozenset({
     "StockholdersEquity", "EquityAttributableToOwnersOfParent",   # equity (owners of parent)
     "NetIncomeLoss", "ProfitLossAttributableToOwnersOfParent",    # earnings (owners of parent)
     "NetIncomeLossAvailableToCommonStockholdersBasic",            # same, after preferred dividends
+    "ProfitLossAttributableToOrdinaryEquityHoldersOfParentEntity",  # IFRS twin of the line above
 })
 _TOTAL_ATTRIB_TAGS: frozenset[str] = frozenset({
     "Equity",        # IFRS consolidated equity (incl. NCI)
@@ -1135,7 +1148,7 @@ def render_summary_html(summary: PeriodSummary) -> str:
         f"Period: {html.escape(summary.period_label)} ({summary.frequency}), ending {end}<br>"
         f"<b>Publication date (filed): {pub}</b><br>"
         f"Source form: {html.escape(summary.sec_form)} — accession {html.escape(summary.accession)}<br>"
-        f"Data: SEC XBRL company facts (us-gaap)</p>"
+        f"Data: SEC XBRL company facts</p>"
         f"{reported}{derived_tbl}{ttm_tbl}</body></html>"
     )
 
