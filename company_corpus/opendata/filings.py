@@ -36,7 +36,7 @@ def _listed(archive: SubmissionsArchive) -> tuple[dict[str, tuple], set[str]]:
         for i, accn in enumerate(block.get("accessionNumber") or []):
             if not accn:
                 continue
-            fields = tuple(c[i] if i < len(c) else None for c in columns)
+            fields = tuple((c[i] or None) if i < len(c) else None for c in columns)
             if seen.setdefault(accn, fields) != fields:
                 ambiguous.add(accn)
     return seen, ambiguous

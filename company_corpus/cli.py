@@ -1560,7 +1560,7 @@ def build_parser() -> argparse.ArgumentParser:
     xb.set_defaults(func=_cmd_xbrl)
 
     sb = sub.add_parser("store-batches",
-                        help="write my-open-data batches (SEC identity, fundamentals, filing_statements) from "
+                        help="write my-open-data batches (SEC identity, fundamentals, filing_statements, filings) from "
                              "layer 0 (dry-run by default)")
     sbsrc = sb.add_mutually_exclusive_group(required=True)
     sbsrc.add_argument("--universe", help="universe name")

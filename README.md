@@ -89,6 +89,11 @@ submissions archive), always the full history; replaying the same inputs is a no
 which concept is decided when reading: see [`docs/FINANCIALS.md`](docs/FINANCIALS.md).
 `store-batches` writes into a landing zone and never publishes: you run
 `myopendata publish` afterwards. It is a dry run unless `--write`.
+A `fundamentals.filing_ref` can lack a `filings` row when EDGAR lists the filing under another
+accession number than the one companyfacts cites (3 of 40,049 on the 672-issuer corpus,
+2026-11-09): a reader treats an unmatched `filing_ref` as form unknown.
+Run with `--write` and without `--offline` to refresh stale archives: offline, filings made after
+the last archive fetch are missing from `filings` and their facts carry the fallback `known_at`.
 
 ```bash
 pip install ".[store]"          # my-open-data writer (optional extra); publishing needs my-open-data[publisher]
@@ -178,7 +183,7 @@ on. Counters:
 | `known_at_fallback`, `known_at_capped`, `known_at_naive` | `known_at` derived without an acceptance time (capped at run time / naive timestamp) |
 | `source_doc_id_null` | any report form outside the taxonomy (10-KT, 10-QT): the row has a null `source_doc_id` |
 | `filing_not_in_manifest` | informational: the `source_doc_id` is set but no manifest row holds it; most issuers' manifests hold only F1 summaries |
-| `filings:<counter>` | the `filings` batch's counters, prefixed: `filings:dropped:not_a_report` (non-report forms), `filings:dropped:bad_filing_date`, `filings:report_date_missing`, `filings:ambiguous_filing`, `filings:known_at_fallback` |
+| `filings:<counter>` | the `filings` batch's counters, prefixed: `filings:dropped:not_a_report` (non-report forms), `filings:dropped:bad_filing_date`, `filings:report_date_missing`, `filings:ambiguous_filing`, `filings:known_at_fallback`, plus the shared known_at / source_doc_id counters (`known_at_capped`, `known_at_naive`, `dropped:no_known_at`, `dropped:implausible_filed`, `source_doc_id_null`, `filing_not_in_manifest`), prefixed the same way |
 | `value_rounded` | value rounded to fit the contract |
 | `country_unknown[:code]` | unmapped EDGAR country code |
 | `former_name_shadowed`, `former_name_undated` | former-name handling in identity rows |
