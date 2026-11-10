@@ -404,6 +404,7 @@ class _Source:
 
 
 FACTS = {"cik": 320193, "facts": {"us-gaap": {}}}
+OTHER_FACTS = {"cik": 789019, "facts": {"us-gaap": {}}}
 TEN = [_summary(y) for y in range(2014, 2024)]
 
 
@@ -514,7 +515,7 @@ def test_one_refused_issuer_does_not_stop_the_others(config, monkeypatch):
     other = normalize_cik("789019")
     _run(config, monkeypatch, TEN)
     _run(config, monkeypatch, TEN, cik=other)
-    _Source.plan = {CIK: (FACTS, [], [], {}), other: (FACTS, TEN[1:], [], {})}
+    _Source.plan = {CIK: (FACTS, [], [], {}), other: (OTHER_FACTS, TEN[1:], [], {})}
     monkeypatch.setattr("company_corpus.pipeline.EdgarXBRL", _Source)
     rep = fetch_financials([CIK, other], config=config, fetcher=object(), dry_run=False)
     assert rep.prune_refused == 1 and rep.prune_by_issuer == {other: 1}
@@ -532,7 +533,7 @@ def test_an_os_error_from_prune_f1_is_one_issuer_s_error(config, monkeypatch):
         return real(self, cik, *a, **kw)
 
     monkeypatch.setattr(Storage, "prune_f1", failing)
-    _Source.plan = {CIK: (FACTS, TEN[1:], [], {}), other: (FACTS, TEN[1:], [], {})}
+    _Source.plan = {CIK: (FACTS, TEN[1:], [], {}), other: (OTHER_FACTS, TEN[1:], [], {})}
     monkeypatch.setattr("company_corpus.pipeline.EdgarXBRL", _Source)
     rep = fetch_financials([CIK, other], config=config, fetcher=object(), dry_run=False)
     errs = [e for e in rep.errors if e["source"] == "f1_prune"]
@@ -673,7 +674,7 @@ def test_an_unclean_issuer_then_a_clean_one_in_one_run(config, monkeypatch):
     _run(config, monkeypatch, TEN)
     _run(config, monkeypatch, TEN, cik=other)
     error = {"source": "edgar_xbrl", "context": CIK, "error": "boom"}
-    _Source.plan = {CIK: (FACTS, TEN[1:], [error], {}), other: (FACTS, TEN[1:], [], {})}
+    _Source.plan = {CIK: (FACTS, TEN[1:], [error], {}), other: (OTHER_FACTS, TEN[1:], [], {})}
     monkeypatch.setattr("company_corpus.pipeline.EdgarXBRL", _Source)
     rep = fetch_financials([CIK, other], config=config, fetcher=object(), dry_run=False)
     assert rep.prune_skipped == 1 and rep.pruned == 1 and rep.prune_by_issuer == {other: 1}
@@ -704,6 +705,7 @@ def test_cli_no_prune_and_allow_shrink(config, monkeypatch):
                                stats=SimpleNamespace(seen=0, added=0, updated=0, unchanged=0),
                                prune_summary={"pruned": 0, "would_prune": 0, "refused": 0,
                                               "skipped": 0, "files": 0, "table_groups": 0,
+                                              "records_refused": 0,
                                               "by_issuer": {}, "refused_by_issuer": {}})
 
     monkeypatch.setattr("company_corpus.cli.fetch_financials", fake)
@@ -784,3 +786,102 @@ def test_a_sec_error_beside_a_prune_refusal_stays_a_sec_failure(config, monkeypa
     (sec,) = rep["sources"]
     assert sec["docs_failed"] == 1 and sec["fetch_errors"] == 1
     assert rep["local_refusals"]["count"] == 1 and rep["totals"]["docs_failed"] == 2
+
+
+# ---- follow-ups of the final review ----
+
+def test_refused_records_are_listed_by_prune_f1(config):
+    st = Storage(config)
+    bad, good, kept = _rec(2018), _rec(2019), _rec(2023)
+    _seed(st, bad, good, kept)
+    bad.primary_path = f"raw/{CIK}/F1/companyfacts.json"
+    res = st.prune_f1(CIK, [bad, good], [kept], dry_run=True)
+    assert res.refused == [bad.doc_id] and [r.doc_id for r in res.records] == [good.doc_id]
+
+
+def test_a_failed_delete_is_a_refused_record(config, monkeypatch):
+    st = Storage(config)
+    gone, kept = _rec(2019), _rec(2023)
+    _seed(st, gone, kept)
+    monkeypatch.setattr(Path, "unlink", lambda self, *a, **k: (_ for _ in ()).throw(
+        PermissionError("locked")))
+    res = st.prune_f1(CIK, [gone], [kept], dry_run=False)
+    assert res.refused == [gone.doc_id] and not res.records
+
+
+def test_records_refused_reach_the_report_and_the_cli_line(config, monkeypatch, capsys):
+    _run(config, monkeypatch, TEN)
+    m = Storage(config).load_manifest(CIK)
+    gone = next(r for r in m.values() if r.period_of_report == date(2014, 12, 31))
+    gone.primary_path = f"raw/{CIK}/F1/companyfacts.json"
+    Storage(config)._write_manifest(CIK, m.values())
+    rep = _run(config, monkeypatch, TEN[1:])
+    assert rep.records_refused == 1 and rep.prune_summary["records_refused"] == 1
+    _Source.plan = {CIK: (FACTS, TEN[1:], [], {})}
+    _cli(monkeypatch, config, "xbrl", "--ciks", CIK)
+    assert "records-refused=1" in capsys.readouterr().out
+    assert _run_report(config)["details"]["xbrl"]["prune"]["records_refused"] == 1
+
+
+def _failing_log(monkeypatch, config):
+    real = Path.open
+
+    def opener(self, mode="r", *a, **k):
+        if self == config.f1_prune_log_path and "a" in mode:
+            raise OSError("disk full")
+        return real(self, mode, *a, **k)
+
+    monkeypatch.setattr(Path, "open", opener)
+
+
+def test_a_failed_log_append_keeps_the_prune_and_names_the_lost_tombstones(config, monkeypatch):
+    st = Storage(config)
+    gone, kept = _rec(2019), _rec(2023)
+    _seed(st, gone, kept)
+    _failing_log(monkeypatch, config)
+    res = st.prune_f1(CIK, [gone], [kept], dry_run=False)
+    assert [r.doc_id for r in res.records] == [gone.doc_id] and len(res.files) == 2
+    assert set(st.load_manifest(CIK)) == {kept.doc_id} and not res.refused
+    (err,) = res.errors
+    assert err["source"] == "f1_prune" and err["doc_ids"] == [gone.doc_id]
+    assert "tombstone" in err["error"] and "disk full" in err["error"]
+
+
+def test_a_failed_log_append_still_counts_the_pruned_records(config, monkeypatch):
+    _run(config, monkeypatch, TEN)
+    _failing_log(monkeypatch, config)
+    rep = _run(config, monkeypatch, TEN[1:])
+    assert rep.pruned == 1 and rep.prune_by_issuer == {CIK: 1} and rep.records_refused == 0
+    assert any(e["source"] == "f1_prune" and len(e.get("doc_ids", [])) == 1 for e in rep.errors)
+    assert len(_f1_ids(config)) == 9
+
+
+def test_empty_statements_skip_the_prune_like_missing_ones(config, monkeypatch):
+    _run(config, monkeypatch, TEN)
+    rep = _run(config, monkeypatch, TEN[1:], coverage={"statements_empty": 1})
+    assert rep.prune_skipped == 1 and rep.pruned == 0 and len(_f1_ids(config)) == 10
+    config.f1_prune_requires_statements = False
+    rep = _run(config, monkeypatch, TEN[1:], coverage={"statements_empty": 1})
+    assert rep.pruned == 1
+
+
+def test_a_companyfacts_of_another_cik_is_not_a_clean_read_even_with_summaries(config,
+                                                                               monkeypatch):
+    _run(config, monkeypatch, TEN)
+    rep = _run(config, monkeypatch, TEN[1:], facts={"cik": 789019, "facts": {"us-gaap": {}}})
+    assert rep.prune_skipped == 1 and rep.pruned == 0 and len(_f1_ids(config)) == 10
+
+
+def test_a_legacy_table_row_without_frequency_is_dropped_with_its_record(config):
+    st = Storage(config)
+    gone, kept = _rec(2019, frequency=""), _rec(2023)
+    _seed(st, gone, kept)
+    path = config.financials_dir / f"{CIK}.jsonl"
+    rows = _table(config)
+    for r in rows:
+        if r["period_end"] == "2019-12-31":
+            r.pop("frequency")
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    assert st.prune_f1(CIK, [gone], [kept], dry_run=True).table_groups == 1
+    res = st.prune_f1(CIK, [gone], [kept], dry_run=False)
+    assert res.table_groups == 1 and {r["period_end"] for r in _table(config)} == {"2023-12-31"}

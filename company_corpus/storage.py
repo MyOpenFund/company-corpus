@@ -141,11 +141,14 @@ F1_ARTEFACT_SUFFIXES: tuple[str, ...] = (".primary.html", ".txt", ".pdf")
 @dataclass
 class F1PruneResult:
     """One issuer's prune: the records pruned (or to prune in a dry run), their files, the
-    table groups dropped, and the records refused with the reason."""
+    table groups dropped, the doc_ids of the records refused (a path or name check, another
+    issuer's cik, a record also kept, a failed delete: each keeps its row) and the error items
+    (one per refused record, plus one naming the tombstones a failed log append lost)."""
 
     records: list[FilingRecord] = field(default_factory=list)
     files: list[str] = field(default_factory=list)
     table_groups: int = 0
+    refused: list[str] = field(default_factory=list)
     errors: list[dict] = field(default_factory=list)
 
 
@@ -164,8 +167,15 @@ def _in_years(record: FilingRecord, since_year: int | None, until_year: int | No
 
 
 def _f1_group(record: FilingRecord) -> tuple:
-    """The record's group in ``financials/<cik>.jsonl`` (source ``sec``, basis None)."""
-    return _iso(record.period_of_report), record.frequency
+    """The record's group in ``financials/<cik>.jsonl`` (source ``sec``, basis None). A missing
+    frequency is None on both sides: ``FilingRecord`` reads it as ``""``, a legacy table row
+    without the field as None, and the two must name the same group."""
+    return _iso(record.period_of_report), record.frequency or None
+
+
+def _row_f1_group(row: dict) -> tuple:
+    """A table row's group, normalized like :func:`_f1_group`."""
+    return row.get("period_end"), row.get("frequency") or None
 
 
 class ShrinkGuardError(RuntimeError):
@@ -819,9 +829,11 @@ class Storage:
         Only records still in the issuer's manifest are pruned (one already gone is skipped
         silently). A record of another issuer than ``cik``, one the caller also passed as kept,
         one with a path outside ``raw/<cik>/F1/`` or not named after it, or one whose file
-        cannot be deleted keeps its row, with an error item. A table group is dropped only when
-        no F1 record that stays in the manifest, and no ``kept`` record, holds it (an accession
-        change keeps its period).
+        cannot be deleted keeps its row, is listed in ``refused`` and has an error item. An
+        ``OSError`` appending the log, after the manifest rewrite, does not undo the prune: the
+        result stands and an error item names the doc_ids whose tombstones may be lost. A table
+        group is dropped only when no F1 record that stays in the manifest, and no ``kept``
+        record, holds it (an accession change keeps its period).
         """
         cik = normalize_cik(cik)
         result = F1PruneResult()
@@ -839,6 +851,7 @@ class Storage:
             else:
                 files, refusal = self._f1_artefacts(rec)
             if refusal:
+                result.refused.append(rec.doc_id)
                 result.errors.append({"source": "f1_prune", "context": cik,
                                       "doc_id": rec.doc_id, "error": refusal})
             else:
@@ -866,6 +879,7 @@ class Storage:
                         deleted.append(self._rel_real(path))
             except OSError as exc:
                 result.files.extend(deleted)
+                result.refused.append(rec.doc_id)
                 result.errors.append({"source": "f1_prune", "context": cik, "doc_id": rec.doc_id,
                                       "error": f"{type(exc).__name__}: {exc}"})
                 continue
@@ -882,14 +896,22 @@ class Storage:
         if drop:
             remaining = [r for r in rows
                          if not (r.get("source") == "sec"
-                                 and (r.get("period_end"), r.get("frequency")) in drop)]
+                                 and _row_f1_group(r) in drop)]
             if remaining:
                 _atomic_write_text(table, _jsonl(remaining))
             else:
                 table.unlink()
         pruned = {r.doc_id for r in result.records}
         self._write_manifest(cik, [r for i, r in manifest.items() if i not in pruned])
-        self._log_pruned(log, run_id=run_id)
+        try:
+            self._log_pruned(log, run_id=run_id)
+        except OSError as exc:
+            # The records are gone already: the prune stands, only its tombstones are lost.
+            lost = [row["doc_id"] for row in log]
+            result.errors.append({
+                "source": "f1_prune", "context": cik, "doc_ids": lost,
+                "error": f"pruned, but the f1_pruned.jsonl tombstones of {', '.join(lost)} "
+                         f"may be lost: {type(exc).__name__}: {exc}"})
         return result
 
     def _f1_groups_to_drop(self, table: Path, manifest: dict[str, FilingRecord],
@@ -903,8 +925,7 @@ class Storage:
         held |= {_f1_group(r) for r in kept}
         candidates = {_f1_group(r) for r in pruned} - held
         rows = self._read_table(table)
-        present = {(r.get("period_end"), r.get("frequency")) for r in rows
-                   if r.get("source") == "sec"}
+        present = {_row_f1_group(r) for r in rows if r.get("source") == "sec"}
         return rows, candidates & present
 
     def _log_pruned(self, rows: list[dict], *, run_id: str | None) -> None:

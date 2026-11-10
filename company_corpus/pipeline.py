@@ -330,6 +330,9 @@ class FinancialsReport:
     would_prune: int = 0
     prune_refused: int = 0
     prune_skipped: int = 0
+    # Records prune_f1 refused inside an issuer it did prune (a path or name check, another
+    # cik, a failed delete): each keeps its manifest row and has an error item.
+    records_refused: int = 0
     pruned_files: int = 0
     pruned_table_groups: int = 0
     prune_by_issuer: dict[str, int] = field(default_factory=dict)
@@ -339,6 +342,7 @@ class FinancialsReport:
     def prune_summary(self) -> dict:
         return {"pruned": self.pruned, "would_prune": self.would_prune,
                 "refused": self.prune_refused, "skipped": self.prune_skipped,
+                "records_refused": self.records_refused,
                 "files": self.pruned_files, "table_groups": self.pruned_table_groups,
                 "by_issuer": dict(sorted(self.prune_by_issuer.items())),
                 "refused_by_issuer": dict(sorted(self.prune_refused_by_issuer.items()))}
@@ -414,9 +418,13 @@ def fetch_financials(
             if prune:
                 report.prune_skipped += 1
             continue
+        # ``source.coverage`` is this issuer's alone (a fresh EdgarXBRL per issuer). An empty
+        # statements file reads like a missing one: no positions, a degraded selection.
         clean = statements_ok and not source.errors and (
             not config.f1_prune_requires_statements
-            or not source.coverage.get("statements_missing")) and (
+            or not (source.coverage.get("statements_missing")
+                    or source.coverage.get("statements_empty"))) and (
+            _companyfacts_is_own(cik, facts)) and (
             bool(summaries) or _companyfacts_is_whole(cik, facts))
 
         records: list[FilingRecord] = []
@@ -488,6 +496,17 @@ def fetch_financials(
     return report
 
 
+def _companyfacts_is_own(cik: str, facts) -> bool:
+    """Whether a companyfacts payload is ``cik``'s: it names that cik, or none. A payload
+    naming another (or an unreadable) cik is never a clean read, summaries or not."""
+    if not isinstance(facts, dict) or "cik" not in facts:
+        return True
+    try:
+        return normalize_cik(facts["cik"]) == normalize_cik(cik)
+    except ValueError:
+        return False
+
+
 def _companyfacts_is_whole(cik: str, facts) -> bool:
     """Whether a companyfacts payload is a real document of ``cik``: a non-empty ``facts``
     dict, and the issuer's own ``cik`` when the payload names one. An issuer with no summary
@@ -495,12 +514,7 @@ def _companyfacts_is_whole(cik: str, facts) -> bool:
     if not isinstance(facts, dict) or not isinstance(facts.get("facts"), dict) \
             or not facts["facts"]:
         return False
-    if "cik" not in facts:
-        return True
-    try:
-        return normalize_cik(facts["cik"]) == normalize_cik(cik)
-    except ValueError:
-        return False
+    return _companyfacts_is_own(cik, facts)
 
 
 def _prune_stale_f1(storage: Storage, cik: str, records: Sequence[FilingRecord],
@@ -531,6 +545,7 @@ def _prune_stale_f1(storage: Storage, cik: str, records: Sequence[FilingRecord],
                               "error": f"{type(exc).__name__}: {exc}"})
         return
     report.errors.extend(res.errors)
+    report.records_refused += len(res.refused)
     if dry_run:
         report.would_prune += len(res.records)
     else:

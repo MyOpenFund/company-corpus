@@ -54,3 +54,17 @@ def test_fetch_financials_is_idempotent(xbrl_fetcher, config):
     fetch_financials(["320193"], dry_run=False, config=config, fetcher=xbrl_fetcher)
     rep = fetch_financials(["320193"], dry_run=False, config=config, fetcher=xbrl_fetcher)
     assert rep.stats.added == 0 and rep.stats.unchanged == 2
+
+
+def test_an_empty_statements_file_is_flagged_and_reads_like_a_missing_one(xbrl_fetcher, config):
+    from company_corpus.opendata.statements import statements_path
+    missing = EdgarXBRL(fetcher=xbrl_fetcher, config=config)
+    _, without = missing.period_summaries("320193")
+    assert missing.coverage["statements_missing"] == 1 and not missing.coverage["statements_empty"]
+    path = statements_path(config, "320193")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("", encoding="utf-8")
+    empty = EdgarXBRL(fetcher=xbrl_fetcher, config=config)
+    _, with_empty = empty.period_summaries("320193")
+    assert empty.coverage["statements_empty"] == 1 and not empty.coverage["statements_missing"]
+    assert [s.values for s in with_empty] == [s.values for s in without]   # F1 values unchanged

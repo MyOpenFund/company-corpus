@@ -205,3 +205,10 @@ def test_format_prints_statements_missing_when_present():
 
     lines = list(format_coverage(Counter({"statements_missing": 3})))
     assert any("statements_missing" in x and "3" in x for x in lines)
+
+
+def test_format_prints_statements_empty_when_present():
+    from collections import Counter
+
+    lines = list(format_coverage(Counter({"statements_empty": 2})))
+    assert any("statements_empty" in x and "2" in x for x in lines)
