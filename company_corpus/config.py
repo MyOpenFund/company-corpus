@@ -158,6 +158,13 @@ class Config:
     #: once: new quarters never arrive and ``inferred`` values do not upgrade. Only a deliberate
     #: ``statements --write`` downloads the archives again.
     statements_keep_archives: bool = True
+    #: F1 pruning (``xbrl``, chantier 11). The largest share of an issuer's F1 records, within
+    #: the run's year scope, one run may prune without --allow-shrink: above it the issuer is
+    #: refused (a truncated companyfacts must not delete history).
+    f1_prune_max_fraction: float = 0.10
+    #: True: an issuer whose statement positions are missing is not pruned (positions decide
+    #: values, so missing ones degrade the selection and must not delete history).
+    f1_prune_requires_statements: bool = True
     edgar_country_codes: dict[str, str] = field(
         default_factory=lambda: dict(DEFAULT_EDGAR_COUNTRY_CODES))
 
@@ -181,6 +188,8 @@ class Config:
             raise ValueError("statements_publish_grace_days must be >= 0")
         if self.store_stale_filed_max_days_ahead < 0:
             raise ValueError("store_stale_filed_max_days_ahead must be >= 0")
+        if not 0.0 <= self.f1_prune_max_fraction <= 1.0:
+            raise ValueError("f1_prune_max_fraction must be within [0, 1]")
         try:
             ZoneInfo(self.store_known_at_fallback_tz)
         except (ZoneInfoNotFoundError, ValueError) as exc:
@@ -262,6 +271,11 @@ class Config:
     @property
     def discovery_errors_path(self) -> Path:
         return self.data_dir / "discovery_errors.jsonl"
+
+    @property
+    def f1_prune_log_path(self) -> Path:
+        """One JSON line per pruned F1 record (chantier 11): the tombstones downstream readers need."""
+        return self.data_dir / "f1_pruned.jsonl"
 
     def manifest_file(self, cik: str) -> Path:
         """Per-issuer manifest path: ``data/manifest/<zero-padded-cik>.jsonl``."""

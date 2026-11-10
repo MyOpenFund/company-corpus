@@ -182,8 +182,9 @@ _ALIASES: dict[str, str] = {
 # Local sources: the tool's own refusals, which are NOT authorities.
 # ---------------------------------------------------------------------------
 #: Producer ``source`` tags that name this corpus itself rather than a
-#: publisher: a write the no-shrink guard refused, an identity collision --
-#: decisions taken locally, before or after any backend was involved. They are
+#: publisher: a write the no-shrink guard refused, an identity collision, the
+#: stale-F1 prune of ``xbrl`` (``f1_prune``: its guard, a path it refused, a failed
+#: rewrite) -- decisions taken locally, before or after any backend was involved. They are
 #: deliberately absent from :data:`SOURCE_CODES`: that registry holds one code
 #: per real-world regulatory authority (23 of them, pinned by
 #: ``tests/test_source_codes.py``), and a local refusal has no authority behind
@@ -191,7 +192,7 @@ _ALIASES: dict[str, str] = {
 #: corpus's own decision. Callers route these to the run report's
 #: :meth:`company_corpus.runreport.RunReport.record_local_refusal` counter,
 #: which counts them as failures of the run under no source row at all.
-LOCAL_SOURCES: frozenset[str] = frozenset({"storage"})
+LOCAL_SOURCES: frozenset[str] = frozenset({"storage", "f1_prune"})
 
 
 def is_local_source(name: "str | None") -> bool:
