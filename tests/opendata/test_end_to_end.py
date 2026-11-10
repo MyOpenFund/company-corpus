@@ -81,6 +81,25 @@ def test_publish_replay_and_restatement(config, tmp_path):
     assert forms == {K: "10-K", KA: "10-K/A"}
 
 
+def test_ytd9_row_is_published_and_read_back(config, tmp_path):
+    write_companyfacts(config, CIK, companyfacts({"Revenues": {"USD": [
+        point(300, "2024-03-31", start="2023-07-01", accn=K, form="10-Q", fp="Q3"),   # 274 days
+        point(400, "2024-06-30", start="2023-07-01", accn=K)]}}))                    # annual
+    write_archive(config, CIK, submissions_main(cik=CIK, filings=[
+        (K, "2024-07-30T20:06:22.000Z", "10-K")]))
+    store = StoreConfig(data_root=tmp_path / "store", catalog=str(tmp_path / "meta.ducklake"))
+    for c in (ENTITY_OBSERVATIONS, FUNDAMENTALS, FILINGS):
+        approve_contract(store, c, "test")
+    rep = store_batches([CIK], config=config, landing=store.landing, write=True,
+                        run_id="r", now=NOW)
+    assert rep.issuers[0].status == "ok", rep.issuers[0].error
+    assert publish_pending(store, now=NOW).exit_code == 0
+    with Store.open(store) as s:
+        rows = s.read_asof("fundamentals", filters={"original_tag": "us-gaap:Revenues"}).to_pylist()
+    assert sorted((r["frequency"], r["value"]) for r in rows) == [
+        ("annual", Decimal(400)), ("ytd9", Decimal(300))]
+
+
 def _store(tmp_path):
     store = StoreConfig(data_root=tmp_path / "store", catalog=str(tmp_path / "meta.ducklake"))
     approve_contract(store, ENTITY_OBSERVATIONS, "test")

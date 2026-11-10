@@ -1,4 +1,4 @@
-"""SEC companyfacts points -> my-open-data ``fundamentals`` 3.0.0 rows, as filed.
+"""SEC companyfacts points -> my-open-data ``fundamentals`` 3.1.0 rows, as filed.
 
 Every observation of every dictionary tag is emitted, one row per filing that reports a value;
 the my-open-data publisher skips what it already holds. Which tag answers which concept is decided
@@ -20,7 +20,7 @@ from ..models import FilingRecord
 from ..taxonomy import from_edgar_form
 
 #: Duration labels that are my-open-data frequencies; any other band label is a drop reason.
-EMITTED_FREQUENCIES: tuple[str, ...] = ("quarterly", "semiannual", "annual")
+EMITTED_FREQUENCIES: tuple[str, ...] = ("quarterly", "semiannual", "annual", "ytd9")
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,7 @@ class Point:
     ns: str
     start: date | None
     end: date
-    frequency: str     # quarterly | semiannual | annual | instant
+    frequency: str     # quarterly | semiannual | annual | ytd9 | instant
     value: Decimal
     unit: str
     accn: str

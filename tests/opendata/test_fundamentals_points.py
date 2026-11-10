@@ -47,8 +47,9 @@ def test_instant_and_durations_get_their_frequency():
         ("Revenues", "annual", Decimal(40)),
         ("Revenues", "quarterly", Decimal(10)),
         ("Revenues", "semiannual", Decimal(20)),
+        ("Revenues", "ytd9", Decimal(30)),
     ]
-    assert c["dropped:ytd9"] == 1 and c["dropped:odd_duration"] == 1
+    assert c["dropped:ytd9"] == 0 and c["dropped:odd_duration"] == 1
 
 
 def test_every_dictionary_tag_is_kept_whatever_its_place_in_the_chain():

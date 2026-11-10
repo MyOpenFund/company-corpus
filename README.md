@@ -80,7 +80,7 @@ python -m company_corpus register-financials --ch-bulk accounts_monthly_2024_01.
 
 `store-batches` turns layer 0 (the stored `companyfacts.json` and the EDGAR
 submissions archive) into [my-open-data](https://github.com/MyOpenFund/my-open-data)
-batches. For each issuer it emits one `entity_observations` batch, one `fundamentals` 3.0.0
+batches. For each issuer it emits one `entity_observations` batch, one `fundamentals` 3.1.0
 batch (facts as filed, by tag) and one `filing_statements` 1.0.0 batch (which tag is on which
 statement) and one `filings` 1.0.0 batch (each report filing's form and `reportDate`, from the
 submissions archive), always the full history; replaying the same inputs is a no-op in the store.
@@ -173,7 +173,7 @@ on. Counters:
 
 | counter | meaning |
 |---|---|
-| `dropped:ytd9`, `dropped:odd_duration`, `dropped:period_shape` | duration points outside the configured bands or shape |
+| `dropped:odd_duration`, `dropped:period_shape` | duration points outside the configured bands or shape (the 9-month year-to-date band is emitted as `ytd9`) |
 | `dropped:non_reporting_currency`, `dropped:unexpected_unit` | unit filters; the reporting currency is that of each filing, so later filings never change the points selected from earlier ones |
 | `dropped:currency_ambiguous` | a filing's vote over its monetary facts and the currency of its balance sheet totals contradict each other, or tie with nothing to settle them (also: per-share points only, in several currencies): the filing publishes no money rather than risk a wrong row. Investigate any non-zero count |
 | `dropped:not_a_report` | a point from a form that is not a financial report (`Config.store_report_forms`), such as a proxy statement |
@@ -236,8 +236,9 @@ ratios from published rows without recomputing anything: run
 and `filing_statements`, then `concepts.store_summaries.summaries_from_rows(rows, company=...,
 vintages=<the same fundamentals rows>)`. It returns the same `PeriodSummary` objects as F1
 (`values`, point-in-time `derived` ratios, `ttm` ratios); `concept_catalog()` (entries carry `kind`, not a unit) and
-`metric_catalog()` list what exists. The store has no 9-month YTD band, so the fiscal-year-end
-quarter is rebuilt as annual minus Q1 to Q3 (`q4_rule="sum_of_quarters"`; F1 keeps `"ytd9"`).
+`metric_catalog()` list what exists. The store carries the 9-month YTD band (`ytd9`, fundamentals 3.1.0), so the fiscal-year-end
+quarter is rebuilt as annual minus 9-month YTD like F1 (`q4_rule="ytd9"`, the default;
+`"sum_of_quarters"` stays a parameter).
 Publication dates are read in New York time (`publication_tz`); the module docstring lists
 where they can differ from F1's by a few days. Without an SIC, pass `sector_known=False`:
 `sector_relevant` is then null rather than false.

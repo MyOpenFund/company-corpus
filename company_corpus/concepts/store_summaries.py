@@ -6,8 +6,9 @@ Output: :class:`~company_corpus.financials.PeriodSummary` objects whose ``values
 whose ``derived`` (point-in-time) and ``ttm`` ratios come from the same functions as F1, so a
 store reader never computes a concept or a ratio itself.
 
-The store has no 9-month YTD band, so the TTM Q4 rule defaults to ``q4_rule="sum_of_quarters"``
-(Q4 = annual - Q1 - Q2 - Q3) instead of F1's ``"ytd9"`` (spec MCP-2 Q6); it stays a parameter.
+The store carries the 9-month YTD band (``ytd9``, fundamentals 3.1.0), so the TTM Q4 rule defaults
+to F1's ``q4_rule="ytd9"`` (Q4 = annual - 9-month YTD); ``"sum_of_quarters"`` (Q4 = annual - Q1 - Q2
+- Q3, spec MCP-2 Q6) stays a parameter.
 
 Publication date: pass the issuer's ``fundamentals`` rows as ``vintages`` (see
 :func:`summaries_from_rows`). ``known_at`` is a UTC instant (my-open-data declares it
@@ -58,7 +59,7 @@ DEFAULT_PUBLICATION_TZ = "America/New_York"
 
 def summaries_from_rows(rows: Iterable[dict], *, company: str, company_current: str | None = None,
                         sic: str | None = None, sector_known: bool = True,
-                        q4_rule: Q4Rule = "sum_of_quarters",
+                        q4_rule: Q4Rule = "ytd9",
                         vintages: Iterable[dict] | None = None,
                         publication_tz: str = DEFAULT_PUBLICATION_TZ,
                         dictionary: Dictionary | None = None) -> list[PeriodSummary]:

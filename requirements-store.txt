@@ -1,4 +1,4 @@
 # CI job "store": the unit suite plus my-open-data with its publisher, for the end-to-end
 # writer -> publisher test in tests/opendata. Same pin as the [store] extra in pyproject.toml.
 -r requirements-dev.txt
-my-open-data[publisher] @ git+https://github.com/MyOpenFund/my-open-data@f47fe3c5211cd2d3444637507a6b4305fd128a51
+my-open-data[publisher] @ git+https://github.com/MyOpenFund/my-open-data@0cfefbc8f0c72f9e298963f2a44eb95623021d05
