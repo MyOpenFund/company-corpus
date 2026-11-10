@@ -2,15 +2,20 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from datetime import date, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from company_corpus.config import Config, normalize_cik
+from company_corpus.financials import PeriodSummary
 from company_corpus.models import FilingRecord
+from company_corpus.pipeline import fetch_financials
 from company_corpus.storage import Storage
 from company_corpus.taxonomy import FormType
+from company_corpus.verify import verify
 
 CIK = normalize_cik("320193")
 
@@ -367,3 +372,213 @@ def test_a_data_dir_reached_through_a_symlink_logs_clean_paths(tmp_path):
     (line,) = [json.loads(x) for x in config.f1_prune_log_path.read_text().splitlines()]
     assert line["deleted_files"] == [gone.primary_path, gone.text_path]
     assert not (real / gone.primary_path).exists()
+
+
+# ---- B2: fetch_financials prunes after a clean read ----
+
+
+
+def _summary(year: int, accession: str = "acc") -> PeriodSummary:
+    return PeriodSummary(period_end=date(year, 12, 31), frequency="annual",
+                         publication_date=date(year + 1, 2, 20), sec_form="10-K",
+                         accession=f"{accession}-{year}", company="Acme", company_current="Acme",
+                         values={"assets": {"value": year, "unit": "USD", "label": "Assets"}})
+
+
+class _Source:
+    """EdgarXBRL stand-in: ``plan[cik]`` = facts, summaries, error items, coverage."""
+
+    plan: dict = {}
+
+    def __init__(self, **_):
+        self.errors: list[dict] = []
+        self.coverage: Counter = Counter()
+
+    def period_summaries(self, cik, since_year=None, until_year=None):
+        facts, summaries, errors, coverage = self.plan[normalize_cik(cik)]
+        self.errors.extend(errors)
+        self.coverage.update(coverage)
+        return facts, [s for s in summaries
+                       if (since_year is None or s.period_end.year >= since_year)
+                       and (until_year is None or s.period_end.year <= until_year)]
+
+
+FACTS = {"cik": 320193, "facts": {"us-gaap": {}}}
+TEN = [_summary(y) for y in range(2014, 2024)]
+
+
+def _run(config, monkeypatch, summaries, *, cik=CIK, facts=FACTS, errors=(), coverage=None,
+         **kw):
+    _Source.plan = {**_Source.plan, cik: (facts, list(summaries), list(errors), coverage or {})}
+    monkeypatch.setattr("company_corpus.pipeline.EdgarXBRL", _Source)
+    kw.setdefault("dry_run", False)
+    return fetch_financials([cik], config=config, fetcher=object(), **kw)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_plan():
+    _Source.plan = {}
+
+
+def _f1_ids(config, cik=CIK) -> set[str]:
+    return {i for i, r in Storage(config).load_manifest(cik).items() if r.form_type is FormType.F1}
+
+
+def test_one_changed_accession_in_ten_is_pruned_at_the_guard_boundary(config, monkeypatch):
+    _run(config, monkeypatch, TEN)
+    before = _f1_ids(config)
+    rep = _run(config, monkeypatch, [*TEN[:-1], _summary(2023, "new")])
+    assert rep.pruned == 1 and rep.prune_refused == 0 and rep.pruned_files == 2
+    assert rep.pruned_table_groups == 0 and rep.prune_by_issuer == {CIK: 1}
+    assert len(_f1_ids(config)) == 10 and len(before - _f1_ids(config)) == 1
+    assert verify(config) == []
+
+
+def test_two_of_ten_is_refused_without_allow_shrink(config, monkeypatch):
+    _run(config, monkeypatch, TEN)
+    rep = _run(config, monkeypatch, TEN[2:])
+    assert rep.pruned == 0 and rep.prune_refused == 1 and len(_f1_ids(config)) == 10
+    assert any(e["source"] == "f1_prune" and "--allow-shrink" in e["error"] for e in rep.errors)
+    config.f1_prune_max_fraction = 1.0
+    rep = _run(config, monkeypatch, TEN[2:])
+    assert rep.pruned == 2 and rep.pruned_table_groups == 2 and len(_f1_ids(config)) == 8
+
+
+def test_an_issuer_with_no_summary_left_is_pruned_whole_with_allow_shrink(config, monkeypatch):
+    _run(config, monkeypatch, TEN)
+    facts_file = config.raw_dir / CIK / "F1" / "companyfacts.json"
+    assert facts_file.exists()
+    rep = _run(config, monkeypatch, [])
+    assert rep.prune_refused == 1 and len(_f1_ids(config)) == 10
+    config.f1_prune_max_fraction = 1.0
+    rep = _run(config, monkeypatch, [])
+    assert rep.pruned == 10 and _f1_ids(config) == set()
+    assert not (config.financials_dir / f"{CIK}.jsonl").exists() and facts_file.exists()
+    assert verify(config) == []
+
+
+@pytest.mark.parametrize("kind", ["fetch_error", "source_error", "statements_missing"])
+def test_an_issuer_not_read_cleanly_is_never_pruned(config, monkeypatch, kind):
+    _run(config, monkeypatch, TEN)
+    config.f1_prune_max_fraction = 1.0
+    error = {"source": "edgar_xbrl", "context": CIK, "error": "boom"}
+    kw = {"fetch_error": {"facts": None, "errors": [error]},
+          "source_error": {"errors": [error]},
+          "statements_missing": {"coverage": {"statements_missing": 1}}}[kind]
+    rep = _run(config, monkeypatch, [], **kw)
+    assert rep.prune_skipped == 1 and rep.pruned == 0 and len(_f1_ids(config)) == 10
+
+
+def test_missing_statements_may_be_allowed(config, monkeypatch):
+    _run(config, monkeypatch, TEN)
+    config.f1_prune_requires_statements = False
+    rep = _run(config, monkeypatch, TEN[1:], coverage={"statements_missing": 1})
+    assert rep.pruned == 1
+
+
+def test_a_failed_statements_refresh_skips_every_issuer(config, monkeypatch):
+    _run(config, monkeypatch, TEN)
+    monkeypatch.setattr("company_corpus.pipeline.refresh_statements",
+                        lambda *a, **k: SimpleNamespace(errors=["zip unreadable"]))
+    rep = _run(config, monkeypatch, TEN[1:])
+    assert rep.prune_skipped == 1 and len(_f1_ids(config)) == 10
+
+
+def test_a_colliding_issuer_is_never_pruned(config, monkeypatch):
+    _run(config, monkeypatch, TEN)
+    rep = _run(config, monkeypatch, [TEN[0], TEN[0]])
+    assert rep.prune_skipped == 1 and len(_f1_ids(config)) == 10
+
+
+def test_years_scope_protects_the_periods_the_run_did_not_look_at(config, monkeypatch):
+    _run(config, monkeypatch, TEN)
+    rep = _run(config, monkeypatch, TEN[1:], since_year=2023, until_year=2023)
+    assert rep.pruned == 0 and rep.prune_refused == 0 and len(_f1_ids(config)) == 10
+
+
+def test_a_dry_run_counts_would_prune_and_writes_nothing(config, monkeypatch):
+    _run(config, monkeypatch, TEN)
+    rep = _run(config, monkeypatch, TEN[1:], dry_run=True)
+    assert rep.would_prune == 1 and rep.pruned == 0 and rep.pruned_files == 2
+    assert len(_f1_ids(config)) == 10 and not config.f1_prune_log_path.exists()
+
+
+def test_no_prune_leaves_everything(config, monkeypatch):
+    _run(config, monkeypatch, TEN)
+    rep = _run(config, monkeypatch, TEN[1:], prune=False)
+    assert rep.prune_summary["pruned"] == 0 and rep.prune_skipped == 0
+    assert len(_f1_ids(config)) == 10
+
+
+def test_one_refused_issuer_does_not_stop_the_others(config, monkeypatch):
+    other = normalize_cik("789019")
+    _run(config, monkeypatch, TEN)
+    _run(config, monkeypatch, TEN, cik=other)
+    _Source.plan = {CIK: (FACTS, [], [], {}), other: (FACTS, TEN[1:], [], {})}
+    monkeypatch.setattr("company_corpus.pipeline.EdgarXBRL", _Source)
+    rep = fetch_financials([CIK, other], config=config, fetcher=object(), dry_run=False)
+    assert rep.prune_refused == 1 and rep.prune_by_issuer == {other: 1}
+
+
+def test_an_os_error_from_prune_f1_is_one_issuer_s_error(config, monkeypatch):
+    other = normalize_cik("789019")
+    _run(config, monkeypatch, TEN)
+    _run(config, monkeypatch, TEN, cik=other)
+    real = Storage.prune_f1
+
+    def failing(self, cik, *a, **kw):
+        if normalize_cik(cik) == CIK:
+            raise PermissionError("manifest locked")
+        return real(self, cik, *a, **kw)
+
+    monkeypatch.setattr(Storage, "prune_f1", failing)
+    _Source.plan = {CIK: (FACTS, TEN[1:], [], {}), other: (FACTS, TEN[1:], [], {})}
+    monkeypatch.setattr("company_corpus.pipeline.EdgarXBRL", _Source)
+    rep = fetch_financials([CIK, other], config=config, fetcher=object(), dry_run=False)
+    errs = [e for e in rep.errors if e["source"] == "f1_prune"]
+    assert len(errs) == 1 and errs[0]["context"] == CIK and "PermissionError" in errs[0]["error"]
+    assert rep.pruned == 1 and rep.prune_by_issuer == {other: 1}
+    assert len(_f1_ids(config)) == 10 and len(_f1_ids(config, other)) == 9
+    logged = [json.loads(x) for x in config.discovery_errors_path.read_text().splitlines()]
+    assert any(e.get("source") == "f1_prune" and e.get("context") == CIK for e in logged)
+
+
+def test_prune_f1_error_items_reach_the_report(config, monkeypatch):
+    _run(config, monkeypatch, TEN)
+    m = Storage(config).load_manifest(CIK)
+    gone = next(r for r in m.values() if r.period_of_report == date(2014, 12, 31))
+    gone.primary_path = f"raw/{CIK}/F1/companyfacts.json"   # a pointer prune_f1 refuses
+    Storage(config)._write_manifest(CIK, m.values())
+    rep = _run(config, monkeypatch, TEN[1:])
+    assert rep.pruned == 0 and any(
+        e["source"] == "f1_prune" and e.get("doc_id") == gone.doc_id for e in rep.errors)
+    assert (config.raw_dir / CIK / "F1" / "companyfacts.json").exists()
+
+
+def test_a_crash_before_the_manifest_write_is_finished_by_the_next_run(config, monkeypatch):
+    _run(config, monkeypatch, TEN)
+    gone = next(r for r in Storage(config).load_manifest(CIK).values()
+                if r.period_of_report == date(2014, 12, 31))
+    real = Storage._write_manifest
+    calls = {"n": 0}
+
+    def crashing(self, cik, records):
+        records = list(records)
+        if gone.doc_id not in {r.doc_id for r in records}:   # the prune's rewrite only
+            calls["n"] += 1
+            raise OSError("disk full")
+        return real(self, cik, records)
+
+    monkeypatch.setattr(Storage, "_write_manifest", crashing)
+    rep = _run(config, monkeypatch, TEN[1:])
+    assert rep.pruned == 0 and any(
+        e["source"] == "f1_prune" and "disk full" in e["error"] for e in rep.errors)
+    assert calls["n"] == 1 and gone.doc_id in _f1_ids(config)
+    assert not (config.data_dir / gone.primary_path).exists()
+    assert not config.f1_prune_log_path.exists()
+    monkeypatch.setattr(Storage, "_write_manifest", real)
+    rep = _run(config, monkeypatch, TEN[1:])
+    assert rep.pruned == 1 and gone.doc_id not in _f1_ids(config)
+    (line,) = [json.loads(x) for x in config.f1_prune_log_path.read_text().splitlines()]
+    assert line["doc_id"] == gone.doc_id and line["deleted_files"] == []
+    assert verify(config) == []

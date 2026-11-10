@@ -324,6 +324,22 @@ class FinancialsReport:
     stats: SaveStats = field(default_factory=SaveStats)
     errors: list[dict] = field(default_factory=list)
     coverage: Counter = field(default_factory=Counter)
+    # Stale F1 records (chantier 11): pruned with --write, would_prune in a dry run; issuers
+    # refused by the f1_prune_max_fraction guard, and issuers not read cleanly (never pruned).
+    pruned: int = 0
+    would_prune: int = 0
+    prune_refused: int = 0
+    prune_skipped: int = 0
+    pruned_files: int = 0
+    pruned_table_groups: int = 0
+    prune_by_issuer: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def prune_summary(self) -> dict:
+        return {"pruned": self.pruned, "would_prune": self.would_prune,
+                "refused": self.prune_refused, "skipped": self.prune_skipped,
+                "files": self.pruned_files, "table_groups": self.pruned_table_groups,
+                "by_issuer": dict(sorted(self.prune_by_issuer.items()))}
 
 
 def fetch_financials(
@@ -336,6 +352,7 @@ def fetch_financials(
     fetcher: Fetcher | None = None,
     storage: Storage | None = None,
     run_id: str | None = None,
+    prune: bool = True,
 ) -> FinancialsReport:
     """Build per-period XBRL financial summaries (family F1) into manifests.
 
@@ -355,6 +372,17 @@ def fetch_financials(
     the no-shrink guard refuses (:class:`storage.ShrinkGuardError`, reachable
     under ``--replace``) is handled the same way: that issuer's remaining writes
     are skipped and reported, the run goes on.
+
+    With ``prune`` (the default), an issuer read cleanly -- companyfacts fetched, no error
+    item for it, statement positions present (unless ``f1_prune_requires_statements`` is
+    off) and no ``sec_statements`` error for the run -- loses the F1 records within the
+    run's year scope that this run no longer produces (an accession change, a vanished
+    period, no summary left at all): their table groups, files and manifest rows, each
+    logged to ``f1_pruned.jsonl``. A dry run only counts them (``would_prune``). An issuer
+    whose stale share exceeds ``f1_prune_max_fraction`` is refused with an error item
+    (``--allow-shrink`` lifts it); one not read cleanly is counted ``prune_skipped``. An
+    issuer whose companyfacts hold no summary is still read (nothing is written for it)
+    so that its leftovers can be pruned.
     """
     config = config or Config()
     fetcher = fetcher or Fetcher(config)
@@ -362,8 +390,10 @@ def fetch_financials(
     cik_list = list(ciks)
 
     report = FinancialsReport(issuers=len(cik_list))
+    statements_ok = True
     if not dry_run:
         for err in refresh_statements(cik_list, config=config, fetcher=fetcher).errors:
+            statements_ok = False
             report.errors.append({"source": "sec_statements", "context": "bulk files", "error": err})
     for cik in cik_list:
         source = EdgarXBRL(fetcher=fetcher, config=config)
@@ -371,8 +401,13 @@ def fetch_financials(
             cik, since_year=since_year, until_year=until_year)
         report.errors.extend(source.errors)
         report.coverage.update(source.coverage)
-        if not facts or not summaries:
+        if not facts:
+            if prune:
+                report.prune_skipped += 1
             continue
+        clean = statements_ok and not source.errors and (
+            not config.f1_prune_requires_statements
+            or not source.coverage.get("statements_missing"))
 
         records: list[FilingRecord] = []
         rows: list[dict] = []
@@ -400,11 +435,13 @@ def fetch_financials(
             # must not cost the run its other issuers' work.
             report.errors.append({"source": "edgar_xbrl", "context": normalize_cik(cik),
                                   "doc_ids": exc.doc_ids, "error": str(exc)})
+            if prune:
+                report.prune_skipped += 1
             continue
 
         report.periods += len(records)
         try:
-            if not dry_run:
+            if not dry_run and records:
                 for rec, ps in zip(records, summaries, strict=True):
                     storage.write_financial_summary(rec, render_summary_html(ps),
                                                     _summary_text(ps))
@@ -418,11 +455,58 @@ def fetch_financials(
             # the other issuers still produce.
             report.errors.append({"source": "edgar_xbrl", "context": normalize_cik(cik),
                                   "error": str(exc)})
+            if prune:
+                report.prune_skipped += 1
             continue
+        if prune:
+            if clean:
+                _prune_stale_f1(storage, cik, records, since_year=since_year,
+                                until_year=until_year, dry_run=dry_run, config=config,
+                                report=report, run_id=run_id)
+            else:
+                report.prune_skipped += 1
 
     if not dry_run and report.errors:
         storage.record_errors(report.errors, run_id=run_id)
     return report
+
+
+def _prune_stale_f1(storage: Storage, cik: str, records: Sequence[FilingRecord], *,
+                    since_year: int | None, until_year: int | None, dry_run: bool,
+                    config: Config, report: FinancialsReport, run_id: str | None) -> None:
+    """Prune one cleanly read issuer's F1 records the run did not produce (spec §3).
+
+    An ``OSError`` from the prune (manifest or table rewrite) is that issuer's error item,
+    not the run's death: its stale rows stay, the next run finds them again.
+    """
+    cik = normalize_cik(cik)
+    stale, in_scope = storage.stale_f1_records(
+        cik, (r.doc_id for r in records), since_year=since_year, until_year=until_year)
+    if not stale:
+        return
+    if len(stale) > in_scope * config.f1_prune_max_fraction:
+        report.prune_refused += 1
+        report.errors.append({
+            "source": "f1_prune", "context": cik,
+            "error": f"{cik}: refusing to prune {len(stale)} of {in_scope} F1 record(s) "
+                     f"(f1_prune_max_fraction={config.f1_prune_max_fraction}). "
+                     "Re-run with --allow-shrink to force."})
+        return
+    try:
+        res = storage.prune_f1(cik, stale, records, dry_run=dry_run, run_id=run_id)
+    except OSError as exc:
+        report.errors.append({"source": "f1_prune", "context": cik,
+                              "error": f"{type(exc).__name__}: {exc}"})
+        return
+    report.errors.extend(res.errors)
+    if dry_run:
+        report.would_prune += len(res.records)
+    else:
+        report.pruned += len(res.records)
+    report.pruned_files += len(res.files)
+    report.pruned_table_groups += res.table_groups
+    if res.records:
+        report.prune_by_issuer[cik] = len(res.records)
 
 
 def _assert_unique_doc_ids(cik: str, records: Sequence[FilingRecord]) -> None:
