@@ -220,6 +220,7 @@ data/
 ├── financials_register/<entity_id>.jsonl  # register statutory financials (committed)
 ├── ownership/<cik>.jsonl      # normalized insider / 13F rows (committed)
 ├── discovery_errors.jsonl     # append-only audit trail
+├── f1_pruned.jsonl            # append-only tombstones of pruned F1 records (`xbrl --write`)
 ├── reports/                   # completeness matrices (incl. register_coverage_<source>.jsonl per register source)
 └── raw/<cik>/<code>/<year>/   # the documents themselves (git-ignored, regenerable)
 ```
