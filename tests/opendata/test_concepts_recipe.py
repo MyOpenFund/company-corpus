@@ -36,7 +36,8 @@ from tests.concepts.support import fixture  # noqa: E402
 from tests.opendata.factories import submissions_main, write_archive, write_companyfacts  # noqa: E402
 
 NOW = datetime(2026, 11, 6, 12, tzinfo=timezone.utc)
-CASES = ["marriott", "metlife", "pepsico", "federal_realty", "otis", "equinix", "jpmorgan"]
+CASES = ["marriott", "metlife", "pepsico", "federal_realty", "otis", "equinix", "jpmorgan",
+         "lilly_early"]
 
 
 def _accepted(day: str) -> str:
@@ -92,6 +93,19 @@ def test_recipe_equals_f1_on_real_filings(published):
                   != (by_issuer[cik][k]["value"], by_issuer[cik][k]["original_tag"],
                       by_issuer[cik][k]["location"], by_issuer[cik][k]["conflict"])]
         assert differ == [], name
+
+
+def test_recipe_drops_a_balance_filed_before_its_date(published):
+    """Lilly's 10-K for 2013 (filed 2014-02-19) holds a short-term debt at 2014-03-31: dropped."""
+    store, loaded = published
+    cik, _ = loaded["lilly_early"]
+    with Store.open(store) as s:
+        t = s.assemble(recipe())
+    assert t.schema.metadata[b"myopendata.recipe"].startswith(RECIPE_NAME.encode() + b"@2.1.0")
+    mine = [r for r in t.to_pylist() if r["entity_value"] == cik
+            and r["valid_date"].isoformat() == "2014-03-31"]
+    assert mine                                               # the quarter itself is there
+    assert [r for r in mine if r["concept"] == "short_term_debt"] == []
 
 
 def test_recipe_reads_as_of(published):
