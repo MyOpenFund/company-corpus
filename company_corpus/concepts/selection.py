@@ -80,6 +80,10 @@ def _on_position(prefix: str) -> str:
 def _computed_ctes(i: int, c, e, prefix: str, namespace: str,
                    filing_tz: str) -> tuple[str, str]:
     m, statement, on_position = e.computed, c.statement, _on_position(prefix)
+    # total_i drops early facts of a ``drop`` concept. minus_i repeats the filter as a redundant
+    # defence only: it joins total_i on the period and filing_ref, and one filing's facts share
+    # known_at and valid_date, so an early minus line can only meet an early (already dropped)
+    # total. Kept so the CTE stays correct on its own if the join ever changes.
     on_time = "" if c.filed_before_period_end == "keep" else f" AND NOT {_early('f', filing_tz)}"
     first = _values((k, n) for n, k in enumerate(m.minus_first_of))
     minus = _values((t, n) for n, t in enumerate(m.minus_first_tag_of))
@@ -240,7 +244,11 @@ SELECT *, {_lit(d.version)} AS dictionary_version FROM ({' UNION ALL '.join(sele
 
 
 def recipe(dictionary: Dictionary | None = None, *, filing_tz: str = DEFAULT_FILING_TZ):
-    """The ``fundamentals_concepts`` Recipe; needs my-open-data's reader."""
+    """The ``fundamentals_concepts`` Recipe; needs my-open-data's reader.
+
+    ``filing_tz`` changes which facts count as filed before their period ended, hence the rows,
+    but not the Recipe's version label (the dictionary version): a non-default zone gives
+    different rows under the same label, so readers should keep the default."""
     from myopendata.reader import Recipe
 
     d = dictionary or load_dictionary()

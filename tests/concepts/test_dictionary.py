@@ -173,3 +173,19 @@ def test_a_concept_overrides_the_top_level_rule():
     d = parse_dictionary(concepts, tables)
     assert d.concepts["revenue"].filed_before_period_end == "drop"
     assert d.concepts["assets"].filed_before_period_end == "keep"
+
+
+def test_the_rule_on_a_tag_table_entry_is_refused():
+    """The rule is a concept's meaning, so it lives in concepts.json, never in a tag table."""
+    concepts, tables = _raw()
+    tables[0][1]["concepts"]["revenue"]["filed_before_period_end"] = "keep"
+    with pytest.raises(DictionaryError, match="us_gaap: revenue: unknown key.*filed_before_period_end"):
+        parse_dictionary(concepts, tables)
+
+
+@pytest.mark.parametrize("where", ["concepts.json", "us_gaap"])
+def test_a_stray_top_level_key_is_refused(where):
+    concepts, tables = _raw()
+    (concepts if where == "concepts.json" else tables[0][1])["conflict_tolerence"] = 0.02
+    with pytest.raises(DictionaryError, match=f"{where}: unknown key.*conflict_tolerence"):
+        parse_dictionary(concepts, tables)

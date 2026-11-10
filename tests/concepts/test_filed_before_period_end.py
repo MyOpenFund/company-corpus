@@ -49,12 +49,33 @@ def test_a_balance_only_filed_before_its_date_has_no_value():
 
 
 def test_an_early_statement_line_no_longer_beats_an_on_time_note():
-    """Before chantier 11 the early fact won: on the statement (tier 0) beats a note (tier 1)."""
-    facts = [_fact("us-gaap:ShortTermBorrowings", 1000, "K", K_FILED),
+    """Two tags of one concept, so ``facts_in`` (per tag) keeps both and only the concept rule
+    decides. Before chantier 11 the early fact won: on the statement (tier 0) beats a note
+    (tier 1), and the two values disagreeing flagged a conflict."""
+    facts = [_fact("us-gaap:CommercialPaper", 1000, "K", K_FILED),
              _fact("us-gaap:ShortTermBorrowings", 900, "Q", Q_FILED)]
-    positions = [_position("K", "ShortTermBorrowings", K_FILED),
+    positions = [_position("K", "CommercialPaper", K_FILED),
                  _position("Q", "Assets", Q_FILED)]
-    assert _value(_select(facts, positions), "short_term_debt") == Decimal(900)
+    found = [r for r in _select(facts, positions)
+             if r["concept"] == "short_term_debt" and r["valid_date"] == Q1]
+    assert [(r["value"], r["filing_ref"], r["location"], r["conflict"]) for r in found] == [
+        (Decimal(900), "Q", "note", False)]
+
+
+def _debt_lines(filing, known_at):
+    facts = [_fact("us-gaap:SeniorNotes", 700, filing, known_at),
+             _fact("us-gaap:ConvertibleNotesPayable", 300, filing, known_at)]
+    positions = [_position(filing, "SeniorNotes", known_at),
+                 _position(filing, "ConvertibleNotesPayable", known_at)]
+    return facts, positions
+
+
+@pytest.mark.parametrize("known_at, expected", [(K_FILED, None), (Q_FILED, Decimal(1000))])
+def test_a_sum_of_statement_lines_follows_the_rule(known_at, expected):
+    """debt_components sums its balance-sheet lines (on_several = sum): early lines are dropped
+    before the sum, on-time ones are summed."""
+    rows = _select(*_debt_lines("K", known_at))
+    assert _value(rows, "debt_components") == expected
 
 
 def test_a_dividend_declared_ahead_of_its_quarter_is_kept():

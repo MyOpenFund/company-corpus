@@ -19,7 +19,12 @@ time gets 23:59:59 New York, which is already the next day in UTC. On real store
 carry EDGAR acceptance times (unlike the fixtures, built with no acceptance map), EDGAR gives a
 filing accepted after 17:30 ET the next business day's ``filingDate``: for such late-accepted
 filings ``publication_date`` can precede F1's (which uses ``filingDate``) by 1-3 days, and the
-``>= period end`` filter can differ at that boundary. When the producer caps ``known_at`` at its
+``>= period end`` filter can differ at that boundary. The same boundary reaches values, not
+only the date: the selection's ``filed_before_period_end`` rule reads the store's acceptance
+instant (F1: the ``filingDate``), so a filing accepted after 17:30 ET in the business days just
+before a period end can be early in the store yet on time in F1 (never the reverse: the
+``filingDate`` is never before the acceptance date); near a period end a ``drop`` concept's value,
+not only the publication date, can then differ between F1 and the store. When the producer caps ``known_at`` at its
 run time (``now``), the New York date can also fall before the filing date.
 
 Currency: per period, the first ISO-4217 (3-letter) unit among the period's values in dictionary
