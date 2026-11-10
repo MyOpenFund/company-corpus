@@ -16,8 +16,10 @@ from company_corpus.concepts.summaries import (
     FACT_SCHEMA,
     POSITION_SCHEMA,
     build_summaries,
+    group_periods,
     select_for_f1,
 )
+from company_corpus.concepts.store_summaries import summaries_from_rows
 
 from .support import fixture, pick
 
@@ -113,14 +115,25 @@ def test_an_unknown_filing_zone_is_refused():
         selection_sql(filing_tz="Mars/Olympus")
 
 
+def _read(path):
+    return json.loads(resources.files("company_corpus.concepts").joinpath(path)
+                      .read_text(encoding="utf-8"))
+
+
 def _dictionary(top: str, liabilities: str):
-    def read(path):
-        return json.loads(resources.files("company_corpus.concepts").joinpath(path)
-                          .read_text(encoding="utf-8"))
-    concepts = read("concepts.json")
+    concepts = _read("concepts.json")
     concepts["filed_before_period_end"] = top
     concepts["concepts"]["liabilities"]["filed_before_period_end"] = liabilities
-    return parse_dictionary(concepts, [("us_gaap", read("tags/us_gaap.json"))])
+    return parse_dictionary(concepts, [("us_gaap", _read("tags/us_gaap.json"))])
+
+
+def _all_keep_dictionary():
+    """The dictionary as before chantier 11: every concept keeps its early facts."""
+    concepts = _read("concepts.json")
+    concepts["filed_before_period_end"] = "keep"
+    for c in concepts["concepts"].values():
+        c.pop("filed_before_period_end", None)
+    return parse_dictionary(concepts, [("us_gaap", _read("tags/us_gaap.json"))])
 
 
 @pytest.mark.parametrize("liabilities, expected", [("keep", Decimal(60)), ("drop", None)])
@@ -161,4 +174,110 @@ def test_the_rest_of_the_real_quarter_is_unchanged():
         fx["facts"], company="x", company_current="x", statements=fx["statements"])}
     s = q[(date(2014, 3, 31), "quarterly")]
     assert (s.publication_date, s.accession) == (date(2014, 4, 28), "0000059478-14-000102")
-    assert len(s.values) == 40          # 41 before chantier 11, short_term_debt gone
+    before = {(b.period_end, b.frequency): b for b in build_summaries(
+        fx["facts"], company="x", company_current="x", statements=fx["statements"],
+        dictionary=_all_keep_dictionary())}[(date(2014, 3, 31), "quarterly")]
+    assert "short_term_debt" in before.values           # what the quarter had before chantier 11
+    assert "short_term_debt" not in s.values
+    assert set(s.values) == set(before.values) - {"short_term_debt"}
+    assert len(s.values) == 40
+
+
+# --- a period whose only duration rows were early (spec case 6) ---------------------------------
+
+K_DAY, S_DAY = date(2014, 2, 19), date(2014, 8, 5)
+
+
+def _point(start, end, val, accn, filed, fp, form):
+    return {"start": start, "end": end, "val": val, "accn": accn, "fy": 2014, "fp": fp,
+            "form": form, "filed": filed}
+
+
+def _companyfacts():
+    """FY2013 revenue on time in the 10-K, which also (wrongly) holds a Q1 2014 revenue: the
+    issuer's only quarterly fact, filed before Q1 ended. H1 2014 comes on time."""
+    revenue = [_point("2013-01-01", "2013-12-31", 4000, "K", "2014-02-19", "FY", "10-K"),
+               _point("2014-01-01", "2014-03-31", 1000, "K", "2014-02-19", "FY", "10-K"),
+               _point("2014-01-01", "2014-06-30", 2100, "S", "2014-08-05", "Q2", "10-Q")]
+    return {"cik": 1, "entityName": "X",
+            "facts": {"us-gaap": {"Revenues": {"units": {"USD": revenue}}}}}
+
+
+def _early_quarter_rows():
+    k_at, s_at = datetime(2014, 2, 19, 21, tzinfo=UTC), datetime(2014, 8, 5, 21, tzinfo=UTC)
+    facts = [_fact("us-gaap:Revenues", 4000, "K", k_at, end=date(2013, 12, 31),
+                   start=date(2013, 1, 1), frequency="annual"),
+             _fact("us-gaap:Revenues", 1000, "K", k_at, end=Q1, start=date(2014, 1, 1),
+                   frequency="quarterly"),
+             _fact("us-gaap:Revenues", 2100, "S", s_at, end=date(2014, 6, 30),
+                   start=date(2014, 1, 1), frequency="semiannual")]
+    positions = [_position("K", "Revenues", k_at, statement="IS"),
+                 _position("S", "Revenues", s_at, statement="IS")]
+    return facts, positions
+
+
+def test_a_period_with_only_early_rows_has_no_summary_in_f1():
+    by = {(s.period_end, s.frequency): s for s in build_summaries(
+        _companyfacts(), company="x", company_current="x")}
+    assert (Q1, "quarterly") not in by
+    assert set(by) == {(date(2013, 12, 31), "annual"), (date(2014, 6, 30), "semi-annual")}
+    assert by[(date(2014, 6, 30), "semi-annual")].publication_date == S_DAY
+    # Keeping the early fact, the issuer has quarters: no half-year summary, and Q1 none either
+    # (only seen before it ended).
+    assert [(s.period_end, s.frequency) for s in build_summaries(
+        _companyfacts(), company="x", company_current="x",
+        dictionary=_all_keep_dictionary())] == [(date(2013, 12, 31), "annual")]
+
+
+def test_a_period_with_only_early_rows_has_no_summary_in_the_store():
+    facts, positions = _early_quarter_rows()
+    rows = _select(facts, positions)
+    by = {(s.period_end, s.frequency): s
+          for s in summaries_from_rows(rows, company="x", vintages=facts)}
+    assert (Q1, "quarterly") not in by
+    assert set(by) == {(date(2013, 12, 31), "annual"), (date(2014, 6, 30), "semi-annual")}
+    assert by[(date(2013, 12, 31), "annual")].publication_date == K_DAY
+    kept = _select(facts, positions, dictionary=_all_keep_dictionary())
+    assert [(s.period_end, s.frequency)
+            for s in summaries_from_rows(kept, company="x", vintages=facts)] == [
+        (date(2013, 12, 31), "annual")]
+
+
+def test_an_issuer_whose_only_quarters_were_early_switches_to_half_years():
+    facts, positions = _early_quarter_rows()
+    _, _, allowed = group_periods(_select(facts, positions))
+    assert allowed == {"annual", "semiannual"}       # quarterly left `seen` with its early rows
+    _, _, before = group_periods(_select(facts, positions, dictionary=_all_keep_dictionary()))
+    assert before == {"annual", "quarterly"}
+
+
+# --- known_at must be an instant -----------------------------------------------------------------
+
+def test_a_naive_known_at_is_refused():
+    naive = pa.schema([f.with_type(pa.timestamp("us")) if f.name == "known_at" else f
+                       for f in FACT_SCHEMA])
+    facts = pa.Table.from_pylist([_fact("us-gaap:ShortTermBorrowings", 1000, "K",
+                                        datetime(2014, 4, 28, 12))], schema=naive)
+    with pytest.raises(ValueError, match="known_at.*TIMESTAMPTZ"):
+        run_selection(facts, pa.Table.from_pylist([], schema=POSITION_SCHEMA))
+
+
+@pytest.mark.parametrize("session_tz", ["Asia/Tokyo", "Pacific/Honolulu", "UTC"])
+@pytest.mark.parametrize("known_at, kept", [
+    (datetime(2014, 3, 31, 2, 0, tzinfo=UTC), False),
+    (datetime(2014, 3, 31, 23, 59, 59, tzinfo=UTC), True),
+    (datetime(2014, 4, 1, 3, 0, tzinfo=UTC), True),
+])
+def test_the_session_time_zone_does_not_move_the_boundary(session_tz, known_at, kept):
+    import duckdb
+
+    con = duckdb.connect(":memory:")
+    try:
+        con.execute(f"SET TimeZone = '{session_tz}'")
+        con.register("facts", pa.Table.from_pylist(
+            [_fact("us-gaap:ShortTermBorrowings", 1000, "K", known_at)], schema=FACT_SCHEMA))
+        con.register("positions", pa.Table.from_pylist([], schema=POSITION_SCHEMA))
+        rows = con.sql(selection_sql()).to_arrow_table().to_pylist()
+    finally:
+        con.close()
+    assert (_value(rows, "short_term_debt") is not None) is kept

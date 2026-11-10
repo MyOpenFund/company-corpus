@@ -134,7 +134,12 @@ the store Recipe share the rule (one SQL statement), so a dropped fact leaves th
 that period unless an on-time candidate exists. One boundary differs: F1 reads the `filingDate`, the
 store the acceptance instant, and EDGAR gives a filing accepted after 17:30 ET the next business
 day's `filingDate`, so a filing accepted late just before a period end can be early in the store and
-on time in F1.
+on time in F1. The restatement flag works per tag, before the concept rule: a dropped early vintage
+can still set `conflict` on a later value of the same tag. A period whose rows were all early facts
+of `drop` concepts has no row left, hence no summary; and an issuer whose only quarterly rows were
+early has no quarters left, so its summaries switch to semi-annual when it has half-years. The
+selection needs `known_at` as a TIMESTAMPTZ (`run_selection` refuses a naive timestamp), so the
+DuckDB session `TimeZone` never moves the boundary.
 
 Positions come from the SEC Financial Statement Data Sets (`company-corpus statements`). Those files
 come out after the quarter ends, so the newest filings have no positions yet: such a filing borrows

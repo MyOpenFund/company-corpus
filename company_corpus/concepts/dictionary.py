@@ -62,7 +62,7 @@ class ConceptDef:
     statement: str
     instant: bool
     kind: str             # money | money/shares | shares
-    filed_before_period_end: str = "drop"   # drop | keep; parse_dictionary always sets it
+    filed_before_period_end: str          # drop | keep
 
 
 @dataclass(frozen=True)

@@ -124,7 +124,10 @@ computed_{i} AS (
 def selection_sql(dictionary: Dictionary | None = None, *, facts: str = "facts",
                   positions: str = "positions", filing_tz: str = DEFAULT_FILING_TZ) -> str:
     """One DuckDB statement over the views ``facts`` and ``positions``; ``filing_tz`` is the zone
-    a filing's ``known_at`` is read in to tell whether it came before its period ended."""
+    a filing's ``known_at`` is read in to tell whether it came before its period ended.
+
+    ``facts.known_at`` must be a TIMESTAMPTZ: the zone is then explicit and the session
+    ``TimeZone`` never matters. A naive TIMESTAMP would be cast through the session zone."""
     filing_tz = _zone(filing_tz)
     d = dictionary or load_dictionary()
     tags = []
@@ -248,7 +251,8 @@ def recipe(dictionary: Dictionary | None = None, *, filing_tz: str = DEFAULT_FIL
 
     ``filing_tz`` changes which facts count as filed before their period ended, hence the rows,
     but not the Recipe's version label (the dictionary version): a non-default zone gives
-    different rows under the same label, so readers should keep the default."""
+    different rows under the same label, so readers should keep the default. The view's
+    ``known_at`` must be a TIMESTAMPTZ (my-open-data declares it so), see :func:`selection_sql`."""
     from myopendata.reader import Recipe
 
     d = dictionary or load_dictionary()
@@ -258,9 +262,16 @@ def recipe(dictionary: Dictionary | None = None, *, filing_tz: str = DEFAULT_FIL
 
 def run_selection(facts, positions, dictionary: Dictionary | None = None, *,
                   filing_tz: str = DEFAULT_FILING_TZ) -> list[dict]:
-    """The Recipe's SQL on in-memory Arrow tables."""
+    """The Recipe's SQL on in-memory Arrow tables. ``facts.known_at`` must be a timestamp with a
+    time zone (TIMESTAMPTZ): a naive one is refused, since reading it in the filing zone would
+    depend on the DuckDB session ``TimeZone``."""
     import duckdb
+    import pyarrow as pa
 
+    known_at = facts.schema.field("known_at").type
+    if pa.types.is_timestamp(known_at) and known_at.tz is None:
+        raise ValueError("facts.known_at is a timestamp without time zone: the selection needs "
+                         "a TIMESTAMPTZ (a UTC instant)")
     con = duckdb.connect(":memory:")
     try:
         con.register("facts", facts)
