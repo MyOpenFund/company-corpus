@@ -52,16 +52,17 @@ def _same(a, b, rel) -> bool:
                                        and a == pytest.approx(b, rel=rel))
 
 
+@pytest.mark.parametrize("q4_rule", ["ytd9", "sum_of_quarters"])
 @pytest.mark.parametrize("name", FIXTURE_NAMES)
-def test_store_summaries_equal_f1(name):
+def test_store_summaries_equal_f1(name, q4_rule):
     """Spec MCP-2 Q5: same periods, values, ratios (point-in-time and TTM), publication date,
-    accession and currency as F1 under the same Q4 rule (here sum_of_quarters; the ytd9 default is
-    checked on the oracle fixture below; annual TTM does not use the Q4 rule)."""
+    accession and currency as F1 under the same Q4 rule, for both rules (annual TTM does not use
+    the Q4 rule)."""
     fx = fixture(name)
     f1_list = build_summaries(fx["facts"], company="x", company_current="x",
                               statements=fx["statements"])
-    attach_ttm(fx["facts"], f1_list, statements=fx["statements"], q4_rule="sum_of_quarters")
-    f1, store = by_period(f1_list), by_period(store_summaries(name, q4_rule="sum_of_quarters"))
+    attach_ttm(fx["facts"], f1_list, statements=fx["statements"], q4_rule=q4_rule)
+    f1, store = by_period(f1_list), by_period(store_summaries(name, q4_rule=q4_rule))
     assert store.keys() == f1.keys() and f1, name
     for k, s in store.items():
         f = f1[k]
@@ -93,10 +94,9 @@ def _f1_quarterly_ttm(name, rule) -> dict:
 def test_quarterly_ttm_equals_f1_under_ytd9_on_store_rows():
     """The store carries the 9-month YTD band (fundamentals 3.1.0), so the default Q4 rule is F1's
     ytd9 and store-row quarterly TTM equals F1's exactly, including the windows holding oracle's
-    FY2022 Q4 (not reported standalone). The store must carry ytd9 because the two rules really
-    differ on real data: on Target the quarterly D&A is the income-statement line while the
-    9-month YTD and the annual are the cash-flow total, so sum_of_quarters and ytd9 differ by
-    1.1-3.5 % on EBITDA TTM."""
+    FY2022 Q4 (not reported standalone). The store must carry ytd9 because the two rules can
+    really differ when the quarterly and the year-to-date lines come from different statements
+    (seen on real data, not in these fixtures)."""
     store = _quarterly_ttm(summaries_from_rows(store_rows("oracle"), company="x"))
     f1 = _f1_quarterly_ttm("oracle", "ytd9")
     assert store and store.keys() == f1.keys()

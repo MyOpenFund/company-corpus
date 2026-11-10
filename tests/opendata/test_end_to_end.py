@@ -83,7 +83,7 @@ def test_publish_replay_and_restatement(config, tmp_path):
 
 def test_ytd9_row_is_published_and_read_back(config, tmp_path):
     write_companyfacts(config, CIK, companyfacts({"Revenues": {"USD": [
-        point(300, "2024-03-31", start="2023-07-01", accn=K, form="10-Q", fp="Q3"),   # 274 days
+        point(300, "2024-03-31", start="2023-07-01", accn=K, form="10-Q", fp="Q3"),   # 275 days
         point(400, "2024-06-30", start="2023-07-01", accn=K)]}}))                    # annual
     write_archive(config, CIK, submissions_main(cik=CIK, filings=[
         (K, "2024-07-30T20:06:22.000Z", "10-K")]))
@@ -169,3 +169,21 @@ def test_known_limit_a_lower_accession_arriving_second_is_quarantined(config, tm
 
     assert second.exit_code != 0 and len(second.quarantined) == 1, second.to_json()
     assert "conflicting_republish" in json.dumps(second.quarantined)
+
+
+def test_a_fundamentals_contract_without_ytd9_is_refused_up_front(monkeypatch):
+    """A my-open-data older than fundamentals 3.1 fails once, clearly, not issuer by issuer."""
+    import dataclasses
+
+    import myopendata.contracts.standard as standard
+
+    from company_corpus.opendata import batches
+
+    freq = FUNDAMENTALS.column("frequency")
+    old = dataclasses.replace(
+        FUNDAMENTALS, version="3.0.0",
+        columns=tuple(dataclasses.replace(c, allowed=tuple(v for v in c.allowed if v != "ytd9"))
+                      if c is freq else c for c in FUNDAMENTALS.columns))
+    monkeypatch.setattr(standard, "FUNDAMENTALS", old)
+    with pytest.raises(batches.StoreUnavailable, match="fundamentals 3.1"):
+        batches._myopendata()
