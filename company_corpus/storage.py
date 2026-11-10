@@ -14,8 +14,8 @@ import json
 import os
 import tempfile
 import warnings
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -24,6 +24,7 @@ from .extract import clean_text
 from .models import FilingRecord
 from .paths import safe_component
 from .submission import filename_from_url, parse_submission, select_primary
+from .taxonomy import FormType
 
 
 def _read_umask() -> int:
@@ -130,6 +131,41 @@ def coverage_key(row: dict) -> tuple:
         if value:
             return (field_name, value)
     return ("row", json.dumps(row, sort_keys=True, default=str))
+
+
+#: The files a period summary may have, besides what its manifest row points at:
+#: ``write_financial_summary`` writes the first two, ``render-pdf`` the third.
+F1_ARTEFACT_SUFFIXES: tuple[str, ...] = (".primary.html", ".txt", ".pdf")
+
+
+@dataclass
+class F1PruneResult:
+    """One issuer's prune: the records pruned (or to prune in a dry run), their files, the
+    table groups dropped, and the records refused with the reason."""
+
+    records: list[FilingRecord] = field(default_factory=list)
+    files: list[str] = field(default_factory=list)
+    table_groups: int = 0
+    errors: list[dict] = field(default_factory=list)
+
+
+def _iso(d: date | None) -> str | None:
+    return d.isoformat() if d else None
+
+
+def _in_years(record: FilingRecord, since_year: int | None, until_year: int | None) -> bool:
+    """The run's ``--years`` scope, on the period like ``build_summaries`` filters it.
+    A record without a period is outside any year scope."""
+    if since_year is None and until_year is None:
+        return True
+    end = record.period_of_report
+    return end is not None and (since_year is None or end.year >= since_year) and (
+        until_year is None or end.year <= until_year)
+
+
+def _f1_group(record: FilingRecord) -> tuple:
+    """The record's group in ``financials/<cik>.jsonl`` (source ``sec``, basis None)."""
+    return _iso(record.period_of_report), record.frequency
 
 
 class ShrinkGuardError(RuntimeError):
@@ -725,6 +761,123 @@ class Storage:
         it did not touch exactly where it was.
         """
         return str(self._write_table(path, rows, key=coverage_key))
+
+    # ---- stale F1 records (chantier 11) ----
+    def stale_f1_records(self, cik: str, keep_doc_ids: Iterable[str], *,
+                         since_year: int | None = None,
+                         until_year: int | None = None) -> tuple[list[FilingRecord], int]:
+        """``(stale, in_scope)``: the issuer's F1 records within the year scope whose doc_id
+        the run did not produce, and how many F1 records the scope holds (the guard's base)."""
+        keep = set(keep_doc_ids)
+        scoped = [r for r in self.load_manifest(cik).values()
+                  if r.form_type is FormType.F1 and _in_years(r, since_year, until_year)]
+        return [r for r in scoped if r.doc_id not in keep], len(scoped)
+
+    def _f1_artefacts(self, record: FilingRecord) -> tuple[list[Path], str | None]:
+        """The record's files, or why one of its paths may not be deleted. Every path must
+        resolve under ``raw/<cik>/F1/`` and be named after the record: nothing else is F1's,
+        and a symlink is judged by its target, the file an unlink would really lose."""
+        cik = normalize_cik(record.cik)
+        root = (self.config.raw_dir / cik / "F1").resolve()
+        base = self.raw_dir_for(record)
+        pointers = [p for p in (record.primary_path, record.text_path, record.pdf_path) if p]
+        paths = [self.config.data_dir / p for p in pointers]
+        paths += [base / f"{record.doc_id}{suffix}" for suffix in F1_ARTEFACT_SUFFIXES]
+        out: list[Path] = []
+        for path in paths:
+            real = path.resolve()
+            if not real.is_relative_to(root) or not real.name.startswith(f"{record.doc_id}."):
+                return [], (f"refusing to prune {record.doc_id}: {path} is not one of its "
+                            f"artefacts under raw/{cik}/F1/")
+            if real not in out:
+                out.append(real)
+        return out, None
+
+    def _rel_real(self, path: Path) -> str:
+        """``path`` (already resolved) relative to the resolved data dir."""
+        return os.path.relpath(path, self.config.data_dir.resolve())
+
+    def prune_f1(self, cik: str, stale: Sequence[FilingRecord], kept: Sequence[FilingRecord], *,
+                 dry_run: bool = True, run_id: str | None = None) -> F1PruneResult:
+        """Remove stale F1 records: table groups, files, manifest rows, then one log line each.
+
+        The order makes a crash harmless: until the manifest is rewritten the stale row is still
+        there, so the next run finds it stale again and finishes (idempotent). A table group a
+        kept record shares (an accession change keeps its period) is not touched. A record with
+        a path outside ``raw/<cik>/F1/``, or whose file cannot be deleted, keeps its row; so does
+        one the caller also passed as kept, whose files are the run's own.
+        """
+        cik = normalize_cik(cik)
+        result = F1PruneResult()
+        kept_ids = {r.doc_id for r in kept}
+        doomed: list[tuple[FilingRecord, list[Path]]] = []
+        for rec in stale:
+            if rec.doc_id in kept_ids:
+                files, refusal = [], f"refusing to prune {rec.doc_id}: the run also keeps it"
+            else:
+                files, refusal = self._f1_artefacts(rec)
+            if refusal:
+                result.errors.append({"source": "f1_prune", "context": cik,
+                                      "doc_id": rec.doc_id, "error": refusal})
+            else:
+                doomed.append((rec, files))
+        if not doomed:
+            return result
+        drop = {_f1_group(r) for r, _ in doomed} - {_f1_group(r) for r in kept}
+
+        def dropped(row: dict) -> bool:
+            return (row.get("source") == "sec"
+                    and (row.get("period_end"), row.get("frequency")) in drop)
+
+        table = self.config.financials_dir / f"{cik}.jsonl"
+        rows = self._read_table(table)
+        result.table_groups = len({(r.get("period_end"), r.get("frequency"))
+                                   for r in rows if dropped(r)})
+        if dry_run:
+            result.records = [r for r, _ in doomed]
+            result.files = [self._rel_real(p) for _, files in doomed for p in files if p.is_file()]
+            return result
+        if result.table_groups:
+            remaining = [r for r in rows if not dropped(r)]
+            if remaining:
+                _atomic_write_text(table, _jsonl(remaining))
+            else:
+                table.unlink()
+        log: list[dict] = []
+        for rec, files in doomed:
+            deleted: list[str] = []
+            try:
+                for path in files:
+                    if path.is_file():
+                        path.unlink()
+                        deleted.append(self._rel_real(path))
+            except OSError as exc:
+                result.files.extend(deleted)
+                result.errors.append({"source": "f1_prune", "context": cik, "doc_id": rec.doc_id,
+                                      "error": f"{type(exc).__name__}: {exc}"})
+                continue
+            result.records.append(rec)
+            result.files.extend(deleted)
+            log.append({"cik": cik, "doc_id": rec.doc_id,
+                        "period_of_report": _iso(rec.period_of_report), "frequency": rec.frequency,
+                        "accession": rec.accession, "filing_date": _iso(rec.filing_date),
+                        "sha256": rec.sha256, "deleted_files": deleted})
+        if result.records:
+            manifest = self.load_manifest(cik)
+            for rec in result.records:
+                manifest.pop(rec.doc_id, None)
+            self._write_manifest(cik, manifest.values())
+            self._log_pruned(log, run_id=run_id)
+        return result
+
+    def _log_pruned(self, rows: list[dict], *, run_id: str | None) -> None:
+        """Append the tombstones: what was pruned, when, by which run."""
+        path = self.config.f1_prune_log_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        now = datetime.now(timezone.utc).isoformat()
+        with path.open("a", encoding="utf-8") as fh:
+            for row in rows:
+                fh.write(json.dumps({"ts": now, "run_id": run_id, **row}, ensure_ascii=False) + "\n")
 
     # ---- discovery errors ----
     def record_errors(self, errors: Iterable[dict], *, run_id: str | None = None) -> int:
