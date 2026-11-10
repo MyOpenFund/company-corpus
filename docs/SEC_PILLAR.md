@@ -99,7 +99,9 @@ one (with or without summaries) and, for an issuer with no summary left, whole (
 `facts` dict); no error item for it; its statement positions present and non-empty (a missing
 `statements.jsonl` and an empty one, coverage keys `statements_missing` and `statements_empty`,
 both block the prune unless `Config.f1_prune_requires_statements` is off); and no failed
-statements refresh in the run. Any other issuer is counted `skipped` and keeps everything. An
+statements refresh in the run. Any other issuer is counted `skipped` and keeps everything.
+A companyfacts document naming another (or an unreadable) cik is never filed under the requested
+one: that issuer is skipped with an `edgar_xbrl` error item, nothing written, nothing pruned. An
 issuer absent from the SEC bulk files gets an empty positions file and so is never pruned by
 default.
 
@@ -129,8 +131,8 @@ item naming the doc_ids whose tombstones may be lost; add them to downstream rea
 legacy table row without `frequency` and a record without one name the same group.
 
 Inside an issuer it prunes, a record can still be refused: a path outside `raw/<cik>/F1/` or not
-named after it, another issuer's `cik`, a record the run also keeps, a file that cannot be deleted. It keeps its row, gets an
-error item, and is counted in `records-refused` (the issuer-level `refused` counts the guard
+named after it, another issuer's `cik`, a record the run also keeps, a file that cannot be
+deleted. It keeps its row, gets an error item, and is counted in `records-refused` (the issuer-level `refused` counts the guard
 only). **Legacy rows whose files carry another doc_id are refused on every run**: the manifest
 loader recomputes `doc_id` from the row, so files named after an older doc_id fail the name
 check. Clean them by hand (delete the files and the manifest row, then re-run `xbrl --write`).

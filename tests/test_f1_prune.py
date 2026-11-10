@@ -882,6 +882,13 @@ def test_a_companyfacts_of_another_cik_writes_nothing_and_is_an_error(config, mo
     assert _f1_ids(config) == set()
 
 
+@pytest.mark.parametrize("bad", [None, "", 0])
+def test_an_unreadable_companyfacts_cik_writes_nothing_and_says_so(config, monkeypatch, bad):
+    rep = _run(config, monkeypatch, TEN, facts={"cik": bad, "facts": {"us-gaap": {}}})
+    assert rep.periods == 0 and rep.prune_skipped == 1 and not rep.coverage
+    assert "unreadable cik" in rep.errors[0]["error"] and not (config.raw_dir / CIK).exists()
+
+
 def test_a_legacy_table_row_without_frequency_is_dropped_with_its_record(config):
     st = Storage(config)
     gone, kept = _rec(2019, frequency=""), _rec(2023)

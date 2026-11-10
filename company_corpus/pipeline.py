@@ -384,8 +384,8 @@ def fetch_financials(
 
     With ``prune`` (the default), an issuer read cleanly -- companyfacts fetched, no error
     item for it, statement positions present and non-empty (unless
-    ``f1_prune_requires_statements`` is off) and no ``sec_statements`` error for the run -- loses the F1 records within the
-    run's year scope that this run no longer produces (an accession change, a vanished
+    ``f1_prune_requires_statements`` is off) and no ``sec_statements`` error for the run --
+    loses the F1 records within the run's year scope that this run no longer produces (an accession change, a vanished
     period, no summary left at all): their table groups, files and manifest rows, each
     logged to ``f1_pruned.jsonl``. A dry run only counts them (``would_prune``). An issuer
     whose stale share exceeds ``f1_prune_max_fraction`` is refused with an error item
@@ -415,17 +415,16 @@ def fetch_financials(
         facts, summaries = source.period_summaries(
             cik, since_year=since_year, until_year=until_year)
         report.errors.extend(source.errors)
-        report.coverage.update(source.coverage)
-        if not facts:
+        if facts and not _companyfacts_is_own(cik, facts):
+            # Another issuer's document (or an unreadable cik) must not be filed under this
+            # one: nothing is written, nothing is pruned, its coverage is not counted.
+            report.errors.append({"source": "edgar_xbrl", "context": cik,
+                                  "error": _foreign_companyfacts(cik, facts)})
             if prune:
                 report.prune_skipped += 1
             continue
-        if not _companyfacts_is_own(cik, facts):
-            # Another issuer's document (or an unreadable cik) must not be filed under this
-            # one: nothing is written, nothing is pruned, the run says so.
-            report.errors.append({"source": "edgar_xbrl", "context": cik,
-                                  "error": f"{cik}: companyfacts names cik {facts.get('cik')!r}, "
-                                           "not this issuer; nothing written"})
+        report.coverage.update(source.coverage)
+        if not facts:
             if prune:
                 report.prune_skipped += 1
             continue
@@ -517,14 +516,21 @@ def _companyfacts_is_own(cik: str, facts) -> bool:
         return False
 
 
+def _foreign_companyfacts(cik: str, facts: dict) -> str:
+    """The error of a companyfacts payload that is not ``cik``'s."""
+    try:
+        named = normalize_cik(facts["cik"])
+    except ValueError:
+        return f"{cik}: companyfacts carries an unreadable cik {facts['cik']!r}; nothing written"
+    return f"{cik}: companyfacts names cik {named}, not this issuer; nothing written"
+
+
 def _companyfacts_is_whole(cik: str, facts) -> bool:
-    """Whether a companyfacts payload is a real document of ``cik``: a non-empty ``facts``
-    dict, and the issuer's own ``cik`` when the payload names one. An issuer with no summary
-    is a clean read only on such a payload (an error body would otherwise prune it whole)."""
-    if not isinstance(facts, dict) or not isinstance(facts.get("facts"), dict) \
-            or not facts["facts"]:
-        return False
-    return _companyfacts_is_own(cik, facts)
+    """Whether a companyfacts payload is a real document: a non-empty ``facts`` dict (its cik
+    is checked before, by :func:`_companyfacts_is_own`). An issuer with no summary is a clean
+    read only on such a payload (an error body would otherwise prune it whole)."""
+    return (isinstance(facts, dict) and isinstance(facts.get("facts"), dict)
+            and bool(facts["facts"]))
 
 
 def _prune_stale_f1(storage: Storage, cik: str, records: Sequence[FilingRecord],
