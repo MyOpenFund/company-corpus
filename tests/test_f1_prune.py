@@ -582,3 +582,99 @@ def test_a_crash_before_the_manifest_write_is_finished_by_the_next_run(config, m
     (line,) = [json.loads(x) for x in config.f1_prune_log_path.read_text().splitlines()]
     assert line["doc_id"] == gone.doc_id and line["deleted_files"] == []
     assert verify(config) == []
+
+
+# ---- B2 review fixes ----
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+@pytest.mark.parametrize("fraction,changed,pruned", [
+    (0.1, 1, True), (0.1, 2, False), (0.18, 2, False), (0.2, 2, True)])
+def test_the_guard_decides_alike_in_a_dry_run_and_a_write(config, monkeypatch, dry_run,
+                                                          fraction, changed, pruned):
+    _run(config, monkeypatch, TEN)
+    config.f1_prune_max_fraction = fraction
+    run = [*TEN[:-changed], *(_summary(s.period_end.year, "new") for s in TEN[-changed:])]
+    rep = _run(config, monkeypatch, run, dry_run=dry_run)
+    done = rep.would_prune if dry_run else rep.pruned
+    assert (done, rep.prune_refused) == ((changed, 0) if pruned else (0, 1))
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_the_guard_base_is_the_issuer_s_records_before_this_run(config, monkeypatch, dry_run):
+    _run(config, monkeypatch, TEN)
+    config.f1_prune_max_fraction = 0.09
+    rep = _run(config, monkeypatch, [*TEN[:-1], _summary(2023, "new")], dry_run=dry_run)
+    (err,) = [e for e in rep.errors if e["source"] == "f1_prune"]
+    assert "refusing to prune 1 of 10 F1 record(s)" in err["error"]
+
+
+def test_a_refused_issuer_is_listed_with_its_stale_count(config, monkeypatch):
+    _run(config, monkeypatch, TEN)
+    rep = _run(config, monkeypatch, TEN[2:])
+    assert rep.prune_refused_by_issuer == {CIK: 2}
+    assert rep.prune_summary["refused_by_issuer"] == {CIK: 2}
+    assert rep.prune_summary["by_issuer"] == {}
+
+
+@pytest.mark.parametrize("payload", [
+    {"message": "Not Found"},
+    {"cik": 789019, "facts": {"us-gaap": {}}},
+    {"cik": 320193, "facts": {}},
+    {"cik": "not a cik", "facts": {"us-gaap": {}}},
+])
+def test_a_hollow_companyfacts_with_no_summary_is_not_a_clean_read(config, monkeypatch, payload):
+    _run(config, monkeypatch, TEN)
+    config.f1_prune_max_fraction = 1.0
+    rep = _run(config, monkeypatch, [], facts=payload)
+    assert rep.prune_skipped == 1 and rep.pruned == 0 and len(_f1_ids(config)) == 10
+
+
+def test_a_companyfacts_without_cik_but_with_facts_is_a_clean_read(config, monkeypatch):
+    _run(config, monkeypatch, TEN)
+    config.f1_prune_max_fraction = 1.0
+    rep = _run(config, monkeypatch, [], facts={"facts": {"us-gaap": {}}})
+    assert rep.pruned == 10 and rep.prune_skipped == 0
+
+
+def test_a_duplicated_cik_is_read_once(config, monkeypatch):
+    _run(config, monkeypatch, TEN)
+    _Source.plan = {CIK: (FACTS, TEN[1:], [], {})}
+    monkeypatch.setattr("company_corpus.pipeline.EdgarXBRL", _Source)
+    rep = fetch_financials([CIK, "320193", "CIK0000320193"], config=config, fetcher=object(),
+                           dry_run=True)
+    assert rep.issuers == 1 and rep.periods == 9 and rep.would_prune == 1
+    assert rep.prune_by_issuer == {CIK: 1}
+
+
+def test_a_shrink_guard_refusal_skips_the_prune(config, monkeypatch):
+    from company_corpus.storage import ShrinkGuardError
+    _run(config, monkeypatch, TEN)
+
+    def refusing(self, cik, rows):
+        raise ShrinkGuardError(f"{cik}: refusing to drop 2 of 10 record group(s)")
+
+    monkeypatch.setattr(Storage, "write_financials_table", refusing)
+    rep = _run(config, monkeypatch, TEN[1:])
+    assert rep.prune_skipped == 1 and rep.pruned == 0 and len(_f1_ids(config)) == 10
+
+
+def test_a_fresh_issuer_with_facts_and_no_summary_writes_nothing(config, monkeypatch):
+    rep = _run(config, monkeypatch, [])
+    assert rep.pruned == 0 and rep.prune_skipped == 0 and rep.prune_refused == 0
+    assert not (config.raw_dir / CIK).exists()
+    assert not config.manifest_file(CIK).exists()
+    assert not (config.financials_dir / f"{CIK}.jsonl").exists()
+    assert not config.f1_prune_log_path.exists()
+
+
+def test_an_unclean_issuer_then_a_clean_one_in_one_run(config, monkeypatch):
+    other = normalize_cik("789019")
+    _run(config, monkeypatch, TEN)
+    _run(config, monkeypatch, TEN, cik=other)
+    error = {"source": "edgar_xbrl", "context": CIK, "error": "boom"}
+    _Source.plan = {CIK: (FACTS, TEN[1:], [error], {}), other: (FACTS, TEN[1:], [], {})}
+    monkeypatch.setattr("company_corpus.pipeline.EdgarXBRL", _Source)
+    rep = fetch_financials([CIK, other], config=config, fetcher=object(), dry_run=False)
+    assert rep.prune_skipped == 1 and rep.pruned == 1 and rep.prune_by_issuer == {other: 1}
+    assert len(_f1_ids(config)) == 10 and len(_f1_ids(config, other)) == 9
