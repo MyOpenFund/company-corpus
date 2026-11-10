@@ -146,14 +146,23 @@ def test_the_top_level_rule_is_required():
         parse_dictionary(concepts, tables)
 
 
+@pytest.mark.parametrize("value", ["maybe", None, ["drop"]])
 @pytest.mark.parametrize("where", ["top", "concept"])
-def test_an_unknown_rule_is_refused(where):
+def test_an_unknown_rule_is_refused(where, value):
     concepts, tables = _raw()
     if where == "top":
-        concepts["filed_before_period_end"] = "maybe"
+        concepts["filed_before_period_end"] = value
     else:
-        concepts["concepts"]["revenue"]["filed_before_period_end"] = "maybe"
+        concepts["concepts"]["revenue"]["filed_before_period_end"] = value
     with pytest.raises(DictionaryError, match="filed_before_period_end"):
+        parse_dictionary(concepts, tables)
+
+
+def test_an_unknown_concept_key_is_refused():
+    """A misspelt rule must not silently fall back to the top-level default."""
+    concepts, tables = _raw()
+    concepts["concepts"]["revenue"]["filed_before_period_ends"] = "keep"
+    with pytest.raises(DictionaryError, match="revenue: unknown key.*filed_before_period_ends"):
         parse_dictionary(concepts, tables)
 
 

@@ -28,6 +28,9 @@ _SEMVER = re.compile(r"\d+\.\d+\.\d+")
 #: (a balance or a flow cannot be known before its period ends: such a fact is a wrong context or
 #: a pro forma figure) or ``keep`` it (a declaration made ahead of its period is a real fact).
 FILED_BEFORE_PERIOD_END = ("drop", "keep")
+#: The keys a concept of ``concepts.json`` may carry: any other is refused, so a misspelt key
+#: cannot silently fall back to a default.
+CONCEPT_KEYS = ("label", "statement", "instant", "kind", "filed_before_period_end")
 
 
 class DictionaryError(ValueError):
@@ -160,6 +163,9 @@ def _parse_concepts(raw: dict) -> dict[str, ConceptDef]:
     default = _early_rule(raw.get("filed_before_period_end"), "concepts.json")
     out: dict[str, ConceptDef] = {}
     for key, c in (raw.get("concepts") or {}).items():
+        unknown = sorted(set(c) - set(CONCEPT_KEYS))
+        if unknown:
+            raise DictionaryError(f"concepts: {key}: unknown key(s) {', '.join(unknown)}")
         if c.get("statement") not in STATEMENTS:
             raise DictionaryError(f"concepts: {key}: unknown statement {c.get('statement')!r}")
         if not isinstance(c.get("instant"), bool):
