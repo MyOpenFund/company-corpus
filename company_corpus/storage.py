@@ -774,45 +774,67 @@ class Storage:
         return [r for r in scoped if r.doc_id not in keep], len(scoped)
 
     def _f1_artefacts(self, record: FilingRecord) -> tuple[list[Path], str | None]:
-        """The record's files, or why one of its paths may not be deleted. Every path must
-        resolve under ``raw/<cik>/F1/`` and be named after the record: nothing else is F1's,
-        and a symlink is judged by its target, the file an unlink would really lose."""
+        """The record's files, or why one of its paths may not be deleted.
+
+        Every path must resolve under ``raw/<cik>/F1/`` and be named after the record: nothing
+        else is F1's. A symlink is judged by its target, the file an unlink would really lose,
+        and by its own place; both the link and its target are returned, so neither is left
+        behind (no dangling link). Paths come back with their directories resolved.
+        """
         cik = normalize_cik(record.cik)
         root = (self.config.raw_dir / cik / "F1").resolve()
         base = self.raw_dir_for(record)
         pointers = [p for p in (record.primary_path, record.text_path, record.pdf_path) if p]
         paths = [self.config.data_dir / p for p in pointers]
         paths += [base / f"{record.doc_id}{suffix}" for suffix in F1_ARTEFACT_SUFFIXES]
+
+        def ours(p: Path) -> bool:
+            return p.is_relative_to(root) and p.name.startswith(f"{record.doc_id}.")
+
         out: list[Path] = []
         for path in paths:
-            real = path.resolve()
-            if not real.is_relative_to(root) or not real.name.startswith(f"{record.doc_id}."):
+            place = Path(os.path.realpath(path.parent)) / path.name   # the link itself
+            real = path.resolve()                                     # what it points at
+            if not ours(real) or not ours(place):
                 return [], (f"refusing to prune {record.doc_id}: {path} is not one of its "
                             f"artefacts under raw/{cik}/F1/")
-            if real not in out:
-                out.append(real)
+            for p in (place, real):
+                if p not in out:
+                    out.append(p)
         return out, None
 
     def _rel_real(self, path: Path) -> str:
-        """``path`` (already resolved) relative to the resolved data dir."""
+        """``path`` (directories already resolved) relative to the resolved data dir."""
         return os.path.relpath(path, self.config.data_dir.resolve())
 
     def prune_f1(self, cik: str, stale: Sequence[FilingRecord], kept: Sequence[FilingRecord], *,
                  dry_run: bool = True, run_id: str | None = None) -> F1PruneResult:
-        """Remove stale F1 records: table groups, files, manifest rows, then one log line each.
+        """Remove stale F1 records: files, table groups, manifest rows, then one log line each.
 
         The order makes a crash harmless: until the manifest is rewritten the stale row is still
-        there, so the next run finds it stale again and finishes (idempotent). A table group a
-        kept record shares (an accession change keeps its period) is not touched. A record with
-        a path outside ``raw/<cik>/F1/``, or whose file cannot be deleted, keeps its row; so does
-        one the caller also passed as kept, whose files are the run's own.
+        there, so the next run finds it stale again and finishes (idempotent). After a crash or
+        an OSError, the re-run's ``deleted_files`` (log and ``files``) hold only what that run
+        deleted: what an earlier attempt removed is not logged again.
+
+        Only records still in the issuer's manifest are pruned (one already gone is skipped
+        silently). A record of another issuer than ``cik``, one the caller also passed as kept,
+        one with a path outside ``raw/<cik>/F1/`` or not named after it, or one whose file
+        cannot be deleted keeps its row, with an error item. A table group is dropped only when
+        no F1 record that stays in the manifest, and no ``kept`` record, holds it (an accession
+        change keeps its period).
         """
         cik = normalize_cik(cik)
         result = F1PruneResult()
+        manifest = self.load_manifest(cik)
         kept_ids = {r.doc_id for r in kept}
         doomed: list[tuple[FilingRecord, list[Path]]] = []
         for rec in stale:
-            if rec.doc_id in kept_ids:
+            if normalize_cik(rec.cik) != cik:
+                files, refusal = [], (f"refusing to prune {rec.doc_id}: its cik "
+                                      f"{normalize_cik(rec.cik)} is not {cik}")
+            elif rec.doc_id not in manifest:
+                continue
+            elif rec.doc_id in kept_ids:
                 files, refusal = [], f"refusing to prune {rec.doc_id}: the run also keeps it"
             else:
                 files, refusal = self._f1_artefacts(rec)
@@ -823,32 +845,23 @@ class Storage:
                 doomed.append((rec, files))
         if not doomed:
             return result
-        drop = {_f1_group(r) for r, _ in doomed} - {_f1_group(r) for r in kept}
 
-        def dropped(row: dict) -> bool:
-            return (row.get("source") == "sec"
-                    and (row.get("period_end"), row.get("frequency")) in drop)
+        def present(path: Path) -> bool:
+            return path.is_symlink() or path.is_file()
 
         table = self.config.financials_dir / f"{cik}.jsonl"
-        rows = self._read_table(table)
-        result.table_groups = len({(r.get("period_end"), r.get("frequency"))
-                                   for r in rows if dropped(r)})
         if dry_run:
             result.records = [r for r, _ in doomed]
-            result.files = [self._rel_real(p) for _, files in doomed for p in files if p.is_file()]
+            result.files = [self._rel_real(p) for _, files in doomed for p in files if present(p)]
+            result.table_groups = len(self._f1_groups_to_drop(table, manifest, result.records,
+                                                              kept)[1])
             return result
-        if result.table_groups:
-            remaining = [r for r in rows if not dropped(r)]
-            if remaining:
-                _atomic_write_text(table, _jsonl(remaining))
-            else:
-                table.unlink()
         log: list[dict] = []
         for rec, files in doomed:
             deleted: list[str] = []
             try:
                 for path in files:
-                    if path.is_file():
+                    if present(path):
                         path.unlink()
                         deleted.append(self._rel_real(path))
             except OSError as exc:
@@ -862,13 +875,37 @@ class Storage:
                         "period_of_report": _iso(rec.period_of_report), "frequency": rec.frequency,
                         "accession": rec.accession, "filing_date": _iso(rec.filing_date),
                         "sha256": rec.sha256, "deleted_files": deleted})
-        if result.records:
-            manifest = self.load_manifest(cik)
-            for rec in result.records:
-                manifest.pop(rec.doc_id, None)
-            self._write_manifest(cik, manifest.values())
-            self._log_pruned(log, run_id=run_id)
+        if not result.records:
+            return result
+        rows, drop = self._f1_groups_to_drop(table, manifest, result.records, kept)
+        result.table_groups = len(drop)
+        if drop:
+            remaining = [r for r in rows
+                         if not (r.get("source") == "sec"
+                                 and (r.get("period_end"), r.get("frequency")) in drop)]
+            if remaining:
+                _atomic_write_text(table, _jsonl(remaining))
+            else:
+                table.unlink()
+        pruned = {r.doc_id for r in result.records}
+        self._write_manifest(cik, [r for i, r in manifest.items() if i not in pruned])
+        self._log_pruned(log, run_id=run_id)
         return result
+
+    def _f1_groups_to_drop(self, table: Path, manifest: dict[str, FilingRecord],
+                           pruned: Sequence[FilingRecord], kept: Sequence[FilingRecord]
+                           ) -> tuple[list[dict], set[tuple]]:
+        """The table's rows, and the ``sec`` groups of ``pruned`` that the table holds and no
+        F1 record staying in ``manifest`` (nor a ``kept`` one) still holds."""
+        gone = {r.doc_id for r in pruned}
+        held = {_f1_group(r) for r in manifest.values()
+                if r.form_type is FormType.F1 and r.doc_id not in gone}
+        held |= {_f1_group(r) for r in kept}
+        candidates = {_f1_group(r) for r in pruned} - held
+        rows = self._read_table(table)
+        present = {(r.get("period_end"), r.get("frequency")) for r in rows
+                   if r.get("source") == "sec"}
+        return rows, candidates & present
 
     def _log_pruned(self, rows: list[dict], *, run_id: str | None) -> None:
         """Append the tombstones: what was pruned, when, by which run."""

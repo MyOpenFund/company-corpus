@@ -151,6 +151,10 @@ def test_a_failed_delete_keeps_the_row_and_a_rerun_finishes(config, monkeypatch)
     res = st.prune_f1(CIK, [gone], [kept], dry_run=False)
     assert not res.records and "PermissionError" in res.errors[0]["error"]
     assert gone.doc_id in st.load_manifest(CIK)
+    # the primary went before the .txt failed: reported; the row stays, so does its table group
+    assert res.files == [gone.primary_path] and res.table_groups == 0
+    assert {r["period_end"] for r in _table(config)} == {"2019-12-31", "2023-12-31"}
+    assert not config.f1_prune_log_path.exists()
     monkeypatch.setattr(Path, "unlink", real_unlink)
     stale, _ = st.stale_f1_records(CIK, [kept.doc_id])
     res = st.prune_f1(CIK, stale, [kept], dry_run=False)
@@ -167,7 +171,7 @@ def test_a_symlink_escaping_raw_cik_f1_refuses_the_record(config, tmp_path):
     st = Storage(config)
     gone, kept = _rec(2019), _rec(2023)
     _seed(st, gone, kept)
-    outside = tmp_path / "elsewhere.txt"
+    outside = tmp_path / f"{gone.doc_id}.txt"   # the record's name: only the boundary refuses it
     outside.write_text("keep me")
     link = config.data_dir / gone.text_path
     link.unlink()
@@ -228,3 +232,138 @@ def test_a_record_passed_as_both_stale_and_kept_is_refused(config):
     res = st.prune_f1(CIK, [rec], [rec], dry_run=False)
     assert not res.records and "also keeps" in res.errors[0]["error"]
     assert (config.data_dir / rec.primary_path).exists() and rec.doc_id in st.load_manifest(CIK)
+
+
+# ---- B1 review fixes ----
+
+
+def test_a_record_of_another_issuer_is_refused(config):
+    st = Storage(config)
+    gone, kept = _rec(2019), _rec(2023)
+    _seed(st, gone, kept)
+    res = st.prune_f1("789019", [gone], [kept], dry_run=False)
+    assert not res.records and "789019" in res.errors[0]["context"]
+    assert "cik" in res.errors[0]["error"] and gone.doc_id in st.load_manifest(CIK)
+    assert (config.data_dir / gone.primary_path).exists()
+
+
+def test_a_refused_record_keeps_a_group_it_shares_with_a_pruned_sibling(config):
+    st = Storage(config)
+    bad, good, kept = _rec(2019, "bad"), _rec(2019, "good"), _rec(2023)
+    _seed(st, bad, good, kept)
+    bad.primary_path = f"raw/{CIK}/F1/companyfacts.json"
+    res = st.prune_f1(CIK, [bad, good], [kept], dry_run=False)
+    assert [r.doc_id for r in res.records] == [good.doc_id] and res.table_groups == 0
+    assert {r["period_end"] for r in _table(config)} == {"2019-12-31", "2023-12-31"}
+
+
+def test_a_kept_record_not_yet_in_the_manifest_keeps_its_group(config):
+    st = Storage(config)
+    old = _rec(2023, "old")
+    _seed(st, old)
+    new = _rec(2023, "new")                 # a dry run: the run's record is not saved
+    res = st.prune_f1(CIK, [old], [new], dry_run=True)
+    assert len(res.records) == 1 and res.table_groups == 0
+
+
+def test_a_stale_record_already_gone_from_the_manifest_is_skipped(config):
+    st = Storage(config)
+    gone, kept = _rec(2019), _rec(2023)
+    _seed(st, gone, kept)
+    st.prune_f1(CIK, [gone], [kept], dry_run=False)
+    res = st.prune_f1(CIK, [gone], [kept], dry_run=False)
+    assert not res.records and not res.errors and not res.files and res.table_groups == 0
+    assert len(config.f1_prune_log_path.read_text().splitlines()) == 1
+    assert st.prune_f1(CIK, [gone], [kept], dry_run=True).records == []
+
+
+def test_a_symlink_to_another_of_its_artefacts_goes_with_its_target(config):
+    st = Storage(config)
+    gone, kept = _rec(2019), _rec(2023)
+    _seed(st, gone, kept)
+    link = config.data_dir / gone.text_path
+    target = config.data_dir / gone.primary_path
+    link.unlink()
+    link.symlink_to(target.name)            # <doc_id>.txt -> <doc_id>.primary.html, same dir
+    res = st.prune_f1(CIK, [gone], [kept], dry_run=False)
+    assert [r.doc_id for r in res.records] == [gone.doc_id] and not res.errors
+    assert not link.is_symlink() and not link.exists() and not target.exists()
+    assert sorted(res.files) == sorted([gone.primary_path, gone.text_path])
+
+
+def test_a_symlink_to_a_file_not_named_after_the_record_refuses_it(config):
+    st = Storage(config)
+    gone, kept = _rec(2019), _rec(2023)
+    _seed(st, gone, kept)
+    link = config.data_dir / gone.text_path
+    other = link.parent / "someone-else.txt"
+    other.write_text("keep me")
+    link.unlink()
+    link.symlink_to(other.name)
+    res = st.prune_f1(CIK, [gone], [kept], dry_run=False)
+    assert not res.records and "refusing" in res.errors[0]["error"]
+    assert link.is_symlink() and other.read_text() == "keep me"
+
+
+def test_a_quarterly_record_sharing_an_annual_period_end_drops_its_group_only(config):
+    st = Storage(config)
+    annual, quarterly = _rec(2023), _rec(2023, frequency="quarterly")
+    _seed(st, annual, quarterly)
+    res = st.prune_f1(CIK, [quarterly], [annual], dry_run=False)
+    assert [r.doc_id for r in res.records] == [quarterly.doc_id] and res.table_groups == 1
+    assert {(r["period_end"], r["frequency"]) for r in _table(config)} == {
+        ("2023-12-31", "annual")}
+    assert set(st.load_manifest(CIK)) == {annual.doc_id}
+
+
+def test_a_semi_annual_record_is_pruned_like_any_other(config):
+    st = Storage(config)
+    annual, semi = _rec(2023), _rec(2023, frequency="semi-annual")
+    semi.period_of_report = date(2023, 6, 30)
+    _seed(st, annual, semi)
+    res = st.prune_f1(CIK, [semi], [annual], dry_run=False)
+    assert [r.doc_id for r in res.records] == [semi.doc_id] and res.table_groups == 1
+    assert {(r["period_end"], r["frequency"]) for r in _table(config)} == {
+        ("2023-12-31", "annual")}
+
+
+def test_the_log_line_carries_every_field(config):
+    st = Storage(config)
+    gone, kept = _rec(2019), _rec(2023)
+    _seed(st, gone, kept)
+    st.prune_f1(CIK, [gone], [kept], dry_run=False, run_id="r9")
+    (line,) = [json.loads(x) for x in config.f1_prune_log_path.read_text().splitlines()]
+    ts = line.pop("ts")
+    assert ts.startswith(str(date.today().year)) and "+00:00" in ts
+    assert line == {"run_id": "r9", "cik": CIK, "doc_id": gone.doc_id,
+                    "period_of_report": "2019-12-31", "frequency": "annual",
+                    "accession": gone.accession, "filing_date": gone.filing_date.isoformat(),
+                    "sha256": gone.sha256, "deleted_files": [gone.primary_path, gone.text_path]}
+
+
+def test_a_relative_data_dir_works(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    config = Config(data_dir=Path("data"), contact="test@example.com")
+    st = Storage(config)
+    gone, kept = _rec(2019), _rec(2023)
+    _seed(st, gone, kept)
+    res = st.prune_f1(CIK, [gone], [kept], dry_run=False)
+    assert sorted(res.files) == sorted([gone.primary_path, gone.text_path])
+    assert not (tmp_path / "data" / gone.primary_path).exists()
+    assert set(st.load_manifest(CIK)) == {kept.doc_id}
+
+
+def test_a_data_dir_reached_through_a_symlink_logs_clean_paths(tmp_path):
+    real = tmp_path / "real"
+    real.mkdir()
+    (tmp_path / "via").symlink_to(real)
+    config = Config(data_dir=tmp_path / "via", contact="test@example.com")
+    st = Storage(config)
+    gone, kept = _rec(2019), _rec(2023)
+    _seed(st, gone, kept)
+    res = st.prune_f1(CIK, [gone], [kept], dry_run=False)
+    assert sorted(res.files) == sorted([gone.primary_path, gone.text_path])
+    assert all(f.startswith(f"raw/{CIK}/F1/") for f in res.files)
+    (line,) = [json.loads(x) for x in config.f1_prune_log_path.read_text().splitlines()]
+    assert line["deleted_files"] == [gone.primary_path, gone.text_path]
+    assert not (real / gone.primary_path).exists()
