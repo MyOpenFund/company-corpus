@@ -3,7 +3,8 @@
 ``concepts.json`` defines each concept once: its meaning. ``tags/<table>.json`` says, for one
 taxonomy, which filed tags answer each concept. A new taxonomy is a new tag table: no rule here
 names an issuer, a country or a tag. Tags are identified by their full name ``ns:Tag``: the same
-bare name in two namespaces is two tags.
+bare name in two namespaces is two tags. ``filed_before_period_end`` says, per concept (top-level
+default, per-concept override), whether a fact filed before its period ended is dropped or kept.
 """
 from __future__ import annotations
 
@@ -23,6 +24,19 @@ HELPER_NAMESPACES: tuple[str, ...] = ("dei",)
 #: Tag tables loaded when none are named, in order; a table is ``tags/<name>.json``.
 DEFAULT_TABLES: tuple[str, ...] = ("us_gaap", "ifrs_full")
 _SEMVER = re.compile(r"\d+\.\d+\.\d+")
+#: What the selection does with a fact filed before its period ended (chantier 11): ``drop`` it
+#: (a balance or a flow cannot be known before its period ends: such a fact is a wrong context or
+#: a pro forma figure) or ``keep`` it (a declaration made ahead of its period is a real fact).
+FILED_BEFORE_PERIOD_END = ("drop", "keep")
+#: The keys a concept of ``concepts.json`` may carry: any other is refused, so a misspelt key
+#: cannot silently fall back to a default.
+CONCEPT_KEYS = ("label", "statement", "instant", "kind", "filed_before_period_end")
+#: The same closed sets for the top level of ``concepts.json``, the top level of a tag table and
+#: one entry of a tag table (``filed_before_period_end`` is a concept's meaning: never a table's).
+CONCEPTS_FILE_KEYS = ("version", "conflict_tolerance", "restatement_tolerance",
+                      "filed_before_period_end", "concepts")
+TABLE_KEYS = ("taxonomy", "namespace", "position_version_prefix", "concepts")
+ENTRY_KEYS = ("status", "on_several", "tags", "statement_only_tags", "computed")
 
 
 class DictionaryError(ValueError):
@@ -48,6 +62,7 @@ class ConceptDef:
     statement: str
     instant: bool
     kind: str             # money | money/shares | shares
+    filed_before_period_end: str          # drop | keep
 
 
 @dataclass(frozen=True)
@@ -143,21 +158,40 @@ def _tolerance(raw: dict, name: str) -> float:
     return float(value)
 
 
+def _early_rule(value, where: str) -> str:
+    if value not in FILED_BEFORE_PERIOD_END:
+        raise DictionaryError(f"{where}: filed_before_period_end {value!r} must be one of "
+                              f"{', '.join(FILED_BEFORE_PERIOD_END)}")
+    return value
+
+
+def _known_keys(raw: dict, allowed: Sequence[str], where: str) -> None:
+    unknown = sorted(set(raw) - set(allowed))
+    if unknown:
+        raise DictionaryError(f"{where}: unknown key(s) {', '.join(unknown)}")
+
+
 def _parse_concepts(raw: dict) -> dict[str, ConceptDef]:
+    _known_keys(raw, CONCEPTS_FILE_KEYS, "concepts.json")
+    default = _early_rule(raw.get("filed_before_period_end"), "concepts.json")
     out: dict[str, ConceptDef] = {}
     for key, c in (raw.get("concepts") or {}).items():
+        _known_keys(c, CONCEPT_KEYS, f"concepts: {key}")
         if c.get("statement") not in STATEMENTS:
             raise DictionaryError(f"concepts: {key}: unknown statement {c.get('statement')!r}")
         if not isinstance(c.get("instant"), bool):
             raise DictionaryError(f"concepts: {key}: instant must be true or false")
         if c.get("kind") not in KINDS:
             raise DictionaryError(f"concepts: {key}: kind {c.get('kind')!r} is invalid")
-        out[key] = ConceptDef(key, c.get("label") or key, c["statement"], c["instant"], c["kind"])
+        early = _early_rule(c.get("filed_before_period_end", default), f"concepts: {key}")
+        out[key] = ConceptDef(key, c.get("label") or key, c["statement"], c["instant"], c["kind"],
+                              early)
     return out
 
 
 def _parse_table(name: str, raw: dict, concepts: dict[str, ConceptDef],
                  seen: dict[str, str]) -> TagTable:
+    _known_keys(raw, TABLE_KEYS, name)
     namespace = raw.get("namespace") or ""
     prefix = raw.get("position_version_prefix") or ""
     if not namespace:
@@ -175,6 +209,7 @@ def _parse_table(name: str, raw: dict, concepts: dict[str, ConceptDef],
             continue
         e = raw_entries[key]
         where = f"{name}: {key}"
+        _known_keys(e, ENTRY_KEYS, where)
         if e.get("on_several") not in ON_SEVERAL:
             raise DictionaryError(f"{where}: on_several {e.get('on_several')!r} is invalid")
         if e.get("status") not in STATUSES:

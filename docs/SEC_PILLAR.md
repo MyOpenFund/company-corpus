@@ -85,8 +85,15 @@ submission, then replace the primary/text with a structured summary.
 F1 reads the facts of every taxonomy namespace loaded by the concept dictionary (`us-gaap` and
 `ifrs-full`) plus `dei`; a foreign filer's IFRS facts are kept as filed, in its reporting currency.
 The dictionary is two-level (`concepts/concepts.json` for meanings, `concepts/tags/<table>.json` for
-each taxonomy's tags, version 2.0.0) and a concept and period is answered by one taxonomy only: see
+each taxonomy's tags, version 2.1.0) and a concept and period is answered by one taxonomy only: see
 [`FINANCIALS.md`](FINANCIALS.md#curated-concepts).
+
+Facts filed before their period ended: a fact whose filing day (read in New York) is before its
+period end is dropped, for every concept but `dividends_per_share` (`filed_before_period_end` in
+`concepts.json`); a filing on the period's last day is on time. F1 and the store Recipe
+`fundamentals_concepts` share the rule; near a period end a filing accepted after 17:30 ET can be
+early in the store (acceptance instant) and on time in F1 (`filingDate`, the next business day). See
+[`FINANCIALS.md`](FINANCIALS.md#facts-filed-before-their-period-ended).
 
 #### Stale F1 records
 

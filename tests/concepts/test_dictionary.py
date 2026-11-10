@@ -33,7 +33,7 @@ def _second_table() -> dict:
 
 def test_the_packaged_dictionary_has_the_decided_shape():
     d = load_dictionary(("us_gaap",))
-    assert d.version == "2.0.0" and d.conflict_tolerance == 0.01 and d.restatement_tolerance == 0.5
+    assert d.version == "2.1.0" and d.conflict_tolerance == 0.01 and d.restatement_tolerance == 0.5
     assert len(d.concepts) == 71 and d.namespaces == ("us-gaap",)
     us = d.table("us-gaap")
     assert us.position_version_prefix == "us-gaap/" and len(us.entries) == 71
@@ -128,3 +128,64 @@ def test_an_error_names_the_table():
 def test_load_dictionary_rejects_a_bare_string():
     with pytest.raises(TypeError, match="not a string"):
         load_dictionary("us_gaap")
+
+
+def test_only_declared_dividends_keep_a_fact_filed_before_its_period_ended():
+    d = load_dictionary()
+    assert d.version == "2.1.0"
+    keep = {k for k, c in d.concepts.items() if c.filed_before_period_end == "keep"}
+    assert keep == {"dividends_per_share"}
+    assert d.concepts["short_term_debt"].filed_before_period_end == "drop"
+    assert d.concepts["preferred_dividends"].filed_before_period_end == "drop"
+
+
+def test_the_top_level_rule_is_required():
+    concepts, tables = _raw()
+    del concepts["filed_before_period_end"]
+    with pytest.raises(DictionaryError, match="filed_before_period_end"):
+        parse_dictionary(concepts, tables)
+
+
+@pytest.mark.parametrize("value", ["maybe", None, ["drop"]])
+@pytest.mark.parametrize("where", ["top", "concept"])
+def test_an_unknown_rule_is_refused(where, value):
+    concepts, tables = _raw()
+    if where == "top":
+        concepts["filed_before_period_end"] = value
+    else:
+        concepts["concepts"]["revenue"]["filed_before_period_end"] = value
+    with pytest.raises(DictionaryError, match="filed_before_period_end"):
+        parse_dictionary(concepts, tables)
+
+
+def test_an_unknown_concept_key_is_refused():
+    """A misspelt rule must not silently fall back to the top-level default."""
+    concepts, tables = _raw()
+    concepts["concepts"]["revenue"]["filed_before_period_ends"] = "keep"
+    with pytest.raises(DictionaryError, match="revenue: unknown key.*filed_before_period_ends"):
+        parse_dictionary(concepts, tables)
+
+
+def test_a_concept_overrides_the_top_level_rule():
+    concepts, tables = _raw()
+    concepts["filed_before_period_end"] = "keep"
+    concepts["concepts"]["revenue"]["filed_before_period_end"] = "drop"
+    d = parse_dictionary(concepts, tables)
+    assert d.concepts["revenue"].filed_before_period_end == "drop"
+    assert d.concepts["assets"].filed_before_period_end == "keep"
+
+
+def test_the_rule_on_a_tag_table_entry_is_refused():
+    """The rule is a concept's meaning, so it lives in concepts.json, never in a tag table."""
+    concepts, tables = _raw()
+    tables[0][1]["concepts"]["revenue"]["filed_before_period_end"] = "keep"
+    with pytest.raises(DictionaryError, match="us_gaap: revenue: unknown key.*filed_before_period_end"):
+        parse_dictionary(concepts, tables)
+
+
+@pytest.mark.parametrize("where", ["concepts.json", "us_gaap"])
+def test_a_stray_top_level_key_is_refused(where):
+    concepts, tables = _raw()
+    (concepts if where == "concepts.json" else tables[0][1])["conflict_tolerence"] = 0.02
+    with pytest.raises(DictionaryError, match=f"{where}: unknown key.*conflict_tolerence"):
+        parse_dictionary(concepts, tables)

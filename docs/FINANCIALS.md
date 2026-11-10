@@ -39,9 +39,10 @@ summed or divided as if it were the functional currency.
 
 ## Curated concepts
 
-The curated line items are data, in two levels (dictionary version 2.0.0):
+The curated line items are data, in two levels (dictionary version 2.1.0):
 `company_corpus/concepts/concepts.json` holds the meaning of each concept (label, statement,
-instant, `kind` = `money`, `money/shares` or `shares`, and the global tolerances), and one table per
+instant, `kind` = `money`, `money/shares` or `shares`, `filed_before_period_end`, and the global
+tolerances), and one table per
 taxonomy, `concepts/tags/<table>.json`, holds that taxonomy's tags (its `taxonomy`, `namespace`, its
 `position_version_prefix`, and per concept a `status`, `on_several`, preference-ordered `tags`,
 `statement_only_tags` and `computed`). The loaded tables are `us_gaap` and `ifrs_full`
@@ -120,6 +121,25 @@ filing, then dictionary order. Each result carries:
 | `conflict` | Another candidate differs by more than `conflict_tolerance` (1%), or the value replaced an earlier one of the same tag by more than `restatement_tolerance` (50%). Both are in the dictionary file. |
 | `review_status` | `reviewed` or `not_reviewed` |
 | `dictionary_version` | The dictionary used |
+
+### Facts filed before their period ended
+
+A balance or a flow cannot be known before its period ends: a fact filed before (a wrong context, a
+pro forma figure) is not a candidate. The rule is per concept in `concepts.json`:
+`filed_before_period_end` is `drop` at the top level and `keep` only for `dividends_per_share` (a
+dividend declared ahead of its quarter is a real fact). It applies to computed totals and sums too. A
+fact is early when its filing day, read in New York (`DEFAULT_FILING_TZ`, a parameter of
+`selection_sql`), is before its period end; a filing made on the period's last day is on time. F1 and
+the store Recipe share the rule (one SQL statement), so a dropped fact leaves the concept empty for
+that period unless an on-time candidate exists. One boundary differs: F1 reads the `filingDate`, the
+store the acceptance instant, and EDGAR gives a filing accepted after 17:30 ET the next business
+day's `filingDate`, so a filing accepted late just before a period end can be early in the store and
+on time in F1. The restatement flag works per tag, before the concept rule: a dropped early vintage
+can still set `conflict` on a later value of the same tag. A period whose rows were all early facts
+of `drop` concepts has no row left, hence no summary; and an issuer whose only quarterly rows were
+early has no quarters left, so its summaries switch to semi-annual when it has half-years. The
+selection needs `known_at` as a TIMESTAMPTZ (`run_selection` refuses a naive timestamp), so the
+DuckDB session `TimeZone` never moves the boundary.
 
 Positions come from the SEC Financial Statement Data Sets (`company-corpus statements`). Those files
 come out after the quarter ends, so the newest filings have no positions yet: such a filing borrows

@@ -166,13 +166,15 @@ SAMPLE_FACTS = {
     "cik": 320193,
     "entityName": "Apple Inc.",
     "facts": {"us-gaap": {
+        # The 10-Q is filed after its quarter ended: a fact filed before its period ended is
+        # dropped by the selection (chantier 11).
         "RevenueFromContractWithCustomerExcludingAssessedTax": {"label": "Revenue", "units": {"USD": [
             {"start": "2022-10-01", "end": "2023-09-30", "val": 383285000000,
              "accn": "acc-fy23", "fy": 2023, "fp": "FY", "form": "10-K", "filed": "2023-11-01"},
             {"start": "2023-07-01", "end": "2023-09-30", "val": 89498000000,
-             "accn": "acc-q3-23", "fy": 2023, "fp": "Q3", "form": "10-Q", "filed": "2023-08-04"},
+             "accn": "acc-q3-23", "fy": 2023, "fp": "Q3", "form": "10-Q", "filed": "2023-10-27"},
             {"start": "2023-01-01", "end": "2023-09-30", "val": 270000000000,
-             "accn": "acc-q3-23", "fy": 2023, "fp": "Q3", "form": "10-Q", "filed": "2023-08-04"},
+             "accn": "acc-q3-23", "fy": 2023, "fp": "Q3", "form": "10-Q", "filed": "2023-10-27"},
         ]}},
         "NetIncomeLoss": {"label": "Net income", "units": {"USD": [
             {"start": "2022-10-01", "end": "2023-09-30", "val": 96995000000,
