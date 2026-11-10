@@ -12,7 +12,14 @@ import pytest
 
 from company_corpus.concepts.dictionary import parse_dictionary
 from company_corpus.concepts.selection import DEFAULT_FILING_TZ, run_selection, selection_sql
-from company_corpus.concepts.summaries import FACT_SCHEMA, POSITION_SCHEMA
+from company_corpus.concepts.summaries import (
+    FACT_SCHEMA,
+    POSITION_SCHEMA,
+    build_summaries,
+    select_for_f1,
+)
+
+from .support import fixture, pick
 
 UTC = timezone.utc
 Q1 = date(2014, 3, 31)
@@ -127,3 +134,31 @@ def test_a_computed_total_follows_its_concept_rule(liabilities, expected):
     rows = _select(facts, positions, dictionary=_dictionary("keep", liabilities))
     assert _value(rows, "equity") == Decimal(40)
     assert _value(rows, "liabilities") == expected
+
+
+@pytest.mark.parametrize("name, concept, day, filed_early", [
+    ("lilly_early", "short_term_debt", "2014-03-31", "0000059478-14-000078"),
+    ("echostar_early", "long_term_debt_incl_current", "2024-03-31", "0001558370-24-002209"),
+])
+def test_real_balances_filed_before_their_date_leave_the_quarter(name, concept, day, filed_early):
+    fx = fixture(name)
+    # The early fact is in the input...
+    early = [p for p in select_for_f1(fx["facts"], fx["statements"]).points
+             if p.end.isoformat() == day and p.accn == filed_early and p.filed < p.end]
+    assert early
+    # ...and no longer selected: the concept is absent for that date.
+    assert pick(select_for_f1(fx["facts"], fx["statements"]).rows, concept, day) is None
+    q = {(s.period_end.isoformat(), s.frequency): s
+         for s in build_summaries(fx["facts"], company="x", company_current="x",
+                                  statements=fx["statements"])}[(day, "quarterly")]
+    assert concept not in q.values
+    assert q.publication_date > date.fromisoformat(day)   # still dated by its on-time filing
+
+
+def test_the_rest_of_the_real_quarter_is_unchanged():
+    fx = fixture("lilly_early")
+    q = {(s.period_end, s.frequency): s for s in build_summaries(
+        fx["facts"], company="x", company_current="x", statements=fx["statements"])}
+    s = q[(date(2014, 3, 31), "quarterly")]
+    assert (s.publication_date, s.accession) == (date(2014, 4, 28), "0000059478-14-000102")
+    assert len(s.values) == 40          # 41 before chantier 11, short_term_debt gone
