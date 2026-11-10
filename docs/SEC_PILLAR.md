@@ -87,6 +87,44 @@ The dictionary is two-level (`concepts/concepts.json` for meanings, `concepts/ta
 each taxonomy's tags, version 2.0.0) and a concept and period is answered by one taxonomy only: see
 [`FINANCIALS.md`](FINANCIALS.md#curated-concepts).
 
+#### Stale F1 records
+
+`xbrl --write` removes the F1 records it no longer produces. A record is **stale** when it is an
+F1 row of the issuer's manifest, within the run's year scope (`--years`), whose `doc_id` this run
+did not compute: its accession changed (an amended filing now carries the period), its period
+vanished from `companyfacts`, or the issuer has no summary left at all. Only an issuer **read
+cleanly** is pruned: `companyfacts` fetched and whole (a non-empty `facts` dict, and its own `cik`
+when the payload names one), no error item for it, its statement positions present (unless
+`Config.f1_prune_requires_statements` is off) and no failed statements refresh in the run. Any
+other issuer is counted `skipped` and keeps everything.
+
+A guard refuses an issuer whose stale records exceed `Config.f1_prune_max_fraction` (default
+10%) of its in-scope F1 records **as they stood before the run** (so a dry run and a write
+decide alike): the issuer keeps all its records, the refusal is an error item (`source:
+"f1_prune"`) and is listed in `refused_by_issuer`. `--allow-shrink` lifts the guard (it raises
+the fraction to 1.0). A narrow `--years` scope or an issuer with few records trips the guard
+easily: one stale record out of five in scope is 20%. Read why before forcing it. `--no-prune`
+keeps every stale record (and prints no prune line).
+
+For each pruned record, in this order: its files (`.primary.html`, `.txt`, `.pdf`, only under
+`raw/<cik>/F1/` and named after the record), its table groups in `data/financials/<cik>.jsonl`
+(only those no remaining record holds: an accession change keeps its period), its manifest row,
+then one line in `data/f1_pruned.jsonl` (run id, cik, doc_id, period, frequency, accession,
+filing date, sha256, deleted files). Until the manifest is rewritten the stale row is still
+there, so a run that crashes half-way is finished by the next one (idempotent; a record already
+gone is skipped). `companyfacts.json` is never pruned. A dry run counts `would-prune` and
+changes nothing.
+
+The run prints `prune: pruned=… would-prune=… refused=… skipped=… files=… table-groups=…`, and
+the run report carries the same counters in `details.xbrl.prune` with `by_issuer` and
+`refused_by_issuer`. A prune refusal is the corpus's own decision: it is a local refusal in the
+run report (`local_refusals`, `totals.docs_failed`), not an SEC fetch failure; beside computed
+period summaries the run stays `ok`, without any it is `degraded`.
+
+`data/f1_pruned.jsonl` is the tombstone list for downstream readers (a RAG index, the
+my-open-data store) that copied a pruned `doc_id`: they should drop it. No reader consumes it
+yet.
+
 ### The manifest is the map
 
 `data/manifest/<cik>.jsonl` — one JSON object per filing, carrying the metadata
@@ -242,6 +280,8 @@ python -m company_corpus rag-items  --universe sp_curated --prefer pdf
 python -m company_corpus report --universe sp_curated --years 2015-2025 --csv data/reports/matrix.csv
 
 # structured XBRL financials (F1) — see docs/FINANCIALS.md
+# --write also prunes the F1 records the run no longer produces ("Stale F1 records" above):
+# dry run first, --no-prune to keep them, --allow-shrink past the 10% guard
 python -m company_corpus xbrl --universe sp_curated --years 2015-2025 --write
 
 # statement positions from the SEC Financial Statement Data Sets (used by xbrl and the store)

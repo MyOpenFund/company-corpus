@@ -276,7 +276,7 @@ write) before returning:
 
 A `failed` run also carries a `fatal` field (the exception, capped at 500
 chars). A run in which the corpus refused one of its own writes (the no-shrink
-guard) also carries `local_refusals` — `{"count": n, "samples": [...]}` — and
+guard, or the stale-F1 prune of `xbrl`) also carries `local_refusals` — `{"count": n, "samples": [...]}` — and
 those refusals are included in `totals.docs_failed`: they are failures of the
 run under **no** `source_code`, because no authority was involved (see
 `SOURCE_CODES` below). The key is absent when there were none. The MyOpenFund vault ingests this file **unchanged** — the schema is
@@ -303,7 +303,7 @@ a green "nothing to do":
 | `discover-index` | sec | records added |
 | `download` | sec | files downloaded |
 | `render-pdf` | sec | rendered + would_render |
-| `xbrl` | sec | period summaries |
+| `xbrl` | sec | period summaries (a stale-F1 prune refusal is a local refusal, not a `sec` failure; `details.xbrl.prune` carries the prune counters) |
 | `ownership` | sec | insider + 13F + passthrough filings (+ would-download on a dry run) |
 | `enrich-openfigi` | sec | identifiers mapped (no-match ≠ error) |
 | `eu-financials` | xbrlorg | period summaries |

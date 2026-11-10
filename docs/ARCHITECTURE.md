@@ -249,7 +249,8 @@ and a per-write replacement would have made `--replace` a wall of shrink errors 
 with `--allow-shrink`, a silent "last file wins" that kept one year of the years the
 run had just produced. Replacement then trips a no-shrink guard, which refuses a
 write dropping more than `Config.no_shrink_fraction` (default `0.0`) of a table's
-stored groups; `--allow-shrink` raises that to 1.0. The guard counts *groups*, so a
+stored groups; `--allow-shrink` raises that to 1.0. On `xbrl` it also lifts the stale-F1 prune guard
+(`Config.f1_prune_max_fraction`, see [`SEC_PILLAR.md`](SEC_PILLAR.md#stale-f1-records)). The guard counts *groups*, so a
 period that reports fewer concepts this vintage is not a shrink. A tripped guard is
 one issuer's refused write, not the run's death: like an identity collision, it is
 recorded as a per-issuer error (a `source-error` coverage row and an error item),

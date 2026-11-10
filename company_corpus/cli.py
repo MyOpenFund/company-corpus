@@ -24,6 +24,8 @@ download              sec        downloaded+skipped+empty+err files downloaded  
 render-pdf            sec        rendered+would+skipped+
                                  no_primary+errors            rendered + would_render render errors
 xbrl                  sec        issuers processed            period summaries        companyfacts errors
+                                                                                      (f1_prune: local
+                                                                                      refusals, see below)
 ownership             sec        issuers processed            insider+13F+passthrough ownership errors
                                                               + would_download (dry)
 build-universe        sec        distinct inputs examined     issuers resolved        (none: see below --
@@ -87,6 +89,13 @@ Three deliberate choices:
   authority. A spec that resolves to no LEI reaches no backend and no row; the
   command prints such specs (``unresolved: …``) and fails the run only when
   *every* spec is unresolved (bad inputs, or GLEIF unreachable).
+* **``xbrl``'s stale-F1 prune is the corpus's own decision.** Its error items
+  (``source: "f1_prune"``: an issuer the ``f1_prune_max_fraction`` guard refused,
+  a record path ``prune_f1`` refused, a failed rewrite) are local refusals, not SEC
+  fetch failures: they land in ``local_refusals`` and ``totals.docs_failed``, never
+  on the ``sec`` row. Beside computed period summaries the run stays ``ok`` with
+  the refusal named; with none it is ``degraded``. ``details.xbrl.prune`` carries
+  the counters, ``by_issuer`` and ``refused_by_issuer`` (``None`` with --no-prune).
 """
 
 from __future__ import annotations
@@ -248,8 +257,9 @@ def _feed_local_refusals(report, items) -> None:
     """Fold refusals the corpus made itself into the report, under no source row.
 
     ``items`` carry a :data:`company_corpus.source_codes.LOCAL_SOURCES` tag
-    (``"storage"`` today): the no-shrink guard refused a write, so nothing was
-    asked of any backend and no authority may be charged for it. Counted as
+    (``"storage"``: the no-shrink guard refused a write; ``"f1_prune"``: xbrl's
+    stale-F1 prune refused or failed), so nothing was asked of any backend and no
+    authority may be charged for it. Counted as
     failures of the run (``local_refusals`` + ``totals.docs_failed``), which is
     what the exit-code doctrine reads.
     """
@@ -370,7 +380,9 @@ def _add_table_write_flags(p: argparse.ArgumentParser, *, partial_write: bool = 
                         "Replacement is once per table per run: a table this run writes "
                         "several times is replaced by the first write and merged after")
     p.add_argument("--allow-shrink", action="store_true", dest="allow_shrink",
-                   help="with --replace: accept a write that drops stored record groups")
+                   help="accept a write that drops stored record groups (with --replace), "
+                        "or an xbrl run that prunes more of an issuer's F1 records than "
+                        "f1_prune_max_fraction")
     if partial_write:
         p.add_argument("--allow-partial-write", action="store_true", dest="allow_partial_write",
                        help="accept --limit with --write (a partial run's coverage file "
@@ -422,6 +434,8 @@ def _config(args: argparse.Namespace) -> Config:
         kw["replace_tables"] = True
     if getattr(args, "allow_shrink", False):
         kw["no_shrink_fraction"] = 1.0
+        # xbrl: the stale-F1 prune guard is the same kind of loss, lifted the same way.
+        kw["f1_prune_max_fraction"] = 1.0
     return Config(**kw)
 
 
@@ -895,22 +909,36 @@ def _cmd_xbrl(args: argparse.Namespace) -> int:
     until_year = max(years) if years else None
     dry_run = not args.write
     rep = fetch_financials(ciks, since_year=since_year, until_year=until_year,
-                           dry_run=dry_run, config=cfg, run_id=_run_id(args))
+                           dry_run=dry_run, config=cfg, run_id=_run_id(args),
+                           prune=not args.no_prune)
     mode = "DRY-RUN (nothing written)" if dry_run else "WROTE"
     s = rep.stats
     print(f"xbrl [{mode}] — {rep.issuers} issuers, {rep.periods} period summaries (F1)")
     print(f"  seen={s.seen} added={s.added} updated={s.updated} unchanged={s.unchanged}")
+    prune = None if args.no_prune else getattr(rep, "prune_summary", None)
+    if prune:
+        print(f"  prune: pruned={prune['pruned']} would-prune={prune['would_prune']} "
+              f"refused={prune['refused']} skipped={prune['skipped']} "
+              f"files={prune['files']} table-groups={prune['table_groups']}")
     if rep.errors:
         print(f"  errors: {len(rep.errors)} (see discovery_errors.jsonl)")
     for line in format_coverage(rep.coverage):
         print(f"  {line}")
     report = getattr(args, "report", None)
     if report is not None:
-        report.details = {"xbrl": {"coverage": dict(sorted(rep.coverage.items()))}}
+        report.details = {"xbrl": {"coverage": dict(sorted(rep.coverage.items())),
+                                   "prune": prune}}
     # The unit of work is the period summary (computed in dry-run too), not the
     # manifest record: `rep.stats.added` is 0 on a re-run that still produced them.
-    _feed_report(getattr(args, "report", None), "sec", seen=rep.issuers,
-                 new=rep.periods, failed=len(rep.errors), errors=rep.errors)
+    # An ``f1_prune`` item (the prune guard, a path prune_f1 refused, a failed rewrite) is
+    # the corpus's own refusal, not an SEC fetch failure: it goes to the local-refusal
+    # counter, which still counts as a failure of the run.
+    local = [e for e in rep.errors if isinstance(e, dict) and is_local_source(e.get("source"))]
+    sec = [e for e in rep.errors if not (isinstance(e, dict)
+                                         and is_local_source(e.get("source")))]
+    _feed_report(report, "sec", seen=rep.issuers, new=rep.periods,
+                 failed=len(sec), errors=sec)
+    _feed_local_refusals(report, local)
     return 0
 
 
@@ -1556,6 +1584,9 @@ def build_parser() -> argparse.ArgumentParser:
     xb.add_argument("--years", default=None,
                     help="keep periods whose fiscal year is in this range, e.g. 2015-2025 or 2024")
     xb.add_argument("--write", action="store_true", help="persist summaries+facts (else dry-run)")
+    xb.add_argument("--no-prune", action="store_true", dest="no_prune",
+                    help="keep the F1 records this run no longer produces (default with "
+                         "--write: prune them; a dry run counts them)")
     _add_table_write_flags(xb)
     xb.set_defaults(func=_cmd_xbrl)
 

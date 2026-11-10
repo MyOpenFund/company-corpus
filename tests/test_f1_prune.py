@@ -678,3 +678,109 @@ def test_an_unclean_issuer_then_a_clean_one_in_one_run(config, monkeypatch):
     rep = fetch_financials([CIK, other], config=config, fetcher=object(), dry_run=False)
     assert rep.prune_skipped == 1 and rep.pruned == 1 and rep.prune_by_issuer == {other: 1}
     assert len(_f1_ids(config)) == 10 and len(_f1_ids(config, other)) == 9
+
+
+# ---- B3: CLI ----
+
+from company_corpus import cli  # noqa: E402
+
+
+def _cli(monkeypatch, config, *argv) -> int:
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(config.data_dir))
+    return cli.main(["--data-dir", str(config.data_dir), "--contact", "test@example.com",
+                     *argv])
+
+
+def _run_report(config) -> dict:
+    return json.loads((config.data_dir / "runs.jsonl").read_text().splitlines()[-1])
+
+
+def test_cli_no_prune_and_allow_shrink(config, monkeypatch):
+    captured: dict = {}
+
+    def fake(ciks, **kw):
+        captured.update(kw)
+        return SimpleNamespace(issuers=1, periods=0, errors=[], coverage=Counter(),
+                               stats=SimpleNamespace(seen=0, added=0, updated=0, unchanged=0),
+                               prune_summary={"pruned": 0, "would_prune": 0, "refused": 0,
+                                              "skipped": 0, "files": 0, "table_groups": 0,
+                                              "by_issuer": {}, "refused_by_issuer": {}})
+
+    monkeypatch.setattr("company_corpus.cli.fetch_financials", fake)
+    _cli(monkeypatch, config, "xbrl", "--ciks", "320193", "--no-prune")
+    assert captured["prune"] is False
+    assert _run_report(config)["details"]["xbrl"]["prune"] is None
+    _cli(monkeypatch, config, "xbrl", "--ciks", "320193")
+    assert captured["prune"] is True and captured["config"].f1_prune_max_fraction == 0.10
+    _cli(monkeypatch, config, "xbrl", "--ciks", "320193", "--allow-shrink")
+    assert captured["prune"] is True and captured["config"].f1_prune_max_fraction == 1.0
+
+
+def test_cli_help_names_the_prune_flags(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["xbrl", "--help"])
+    out = " ".join(capsys.readouterr().out.split())
+    assert "--no-prune" in out and "f1_prune_max_fraction" in out
+
+
+def test_cli_prints_and_reports_the_prune(config, monkeypatch, capsys):
+    _run(config, monkeypatch, TEN)
+    _Source.plan = {CIK: (FACTS, TEN[1:], [], {})}
+    rc = _cli(monkeypatch, config, "xbrl", "--ciks", CIK)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert ("prune: pruned=0 would-prune=1 refused=0 skipped=0 files=2 table-groups=1"
+            in out)
+    prune = _run_report(config)["details"]["xbrl"]["prune"]
+    assert prune["by_issuer"] == {CIK: 1} and prune["refused_by_issuer"] == {}
+    assert prune["would_prune"] == 1 and len(_f1_ids(config)) == 10
+
+
+def test_cli_no_prune_prints_no_prune_line(config, monkeypatch, capsys):
+    _run(config, monkeypatch, TEN)
+    _Source.plan = {CIK: (FACTS, TEN[1:], [], {})}
+    _cli(monkeypatch, config, "xbrl", "--ciks", CIK, "--write", "--no-prune")
+    assert "prune:" not in capsys.readouterr().out
+    assert len(_f1_ids(config)) == 10
+
+
+@pytest.mark.parametrize("write", [False, True])
+def test_a_prune_refusal_is_a_local_refusal_not_a_sec_failure(config, monkeypatch, capsys,
+                                                              write):
+    _run(config, monkeypatch, TEN)
+    _Source.plan = {CIK: (FACTS, TEN[2:], [], {})}
+    rc = _cli(monkeypatch, config, "xbrl", "--ciks", CIK, *(["--write"] if write else []))
+    rep = _run_report(config)
+    (sec,) = rep["sources"]
+    assert sec["docs_failed"] == 0 and sec["fetch_errors"] == 0 and sec["docs_new"] == 8
+    assert rep["local_refusals"]["count"] == 1
+    assert "refusing to prune 2 of 10" in rep["local_refusals"]["samples"][0]
+    assert rep["totals"]["docs_failed"] == 1
+    assert rep["details"]["xbrl"]["prune"]["refused_by_issuer"] == {CIK: 2}
+    # useful work was done (8 period summaries): the doctrine keeps the run ok, the
+    # refusal is named in local_refusals
+    assert rc == 0 and rep["outcome"] == "ok"
+    assert "prune: pruned=0 would-prune=0 refused=1" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("write", [False, True])
+def test_a_prune_refusal_with_no_summary_degrades_the_run(config, monkeypatch, write):
+    _run(config, monkeypatch, TEN)
+    _Source.plan = {CIK: (FACTS, [], [], {})}
+    rc = _cli(monkeypatch, config, "xbrl", "--ciks", CIK, *(["--write"] if write else []))
+    rep = _run_report(config)
+    assert rep["sources"][0]["docs_failed"] == 0 and rep["local_refusals"]["count"] == 1
+    assert rc == 3 and rep["outcome"] == "degraded"
+
+
+def test_a_sec_error_beside_a_prune_refusal_stays_a_sec_failure(config, monkeypatch):
+    other = normalize_cik("789019")
+    _run(config, monkeypatch, TEN)
+    _Source.plan = {CIK: (FACTS, TEN[2:], [], {}),
+                    other: (None, [], [{"source": "edgar_xbrl", "context": other,
+                                        "error": "companyfacts 500"}], {})}
+    _cli(monkeypatch, config, "xbrl", "--ciks", f"{CIK},{other}")
+    rep = _run_report(config)
+    (sec,) = rep["sources"]
+    assert sec["docs_failed"] == 1 and sec["fetch_errors"] == 1
+    assert rep["local_refusals"]["count"] == 1 and rep["totals"]["docs_failed"] == 2
