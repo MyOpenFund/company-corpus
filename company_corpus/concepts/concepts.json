@@ -1,7 +1,8 @@
 {
- "version": "2.0.0",
+ "version": "2.1.0",
  "conflict_tolerance": 0.01,
  "restatement_tolerance": 0.5,
+ "filed_before_period_end": "drop",
  "concepts": {
   "revenue": {
    "label": "Revenue",
@@ -121,7 +122,8 @@
    "label": "Dividends declared per share",
    "statement": "IS",
    "instant": false,
-   "kind": "money/shares"
+   "kind": "money/shares",
+   "filed_before_period_end": "keep"
   },
   "cfo": {
    "label": "Cash from operations",

@@ -3,7 +3,8 @@
 ``concepts.json`` defines each concept once: its meaning. ``tags/<table>.json`` says, for one
 taxonomy, which filed tags answer each concept. A new taxonomy is a new tag table: no rule here
 names an issuer, a country or a tag. Tags are identified by their full name ``ns:Tag``: the same
-bare name in two namespaces is two tags.
+bare name in two namespaces is two tags. ``filed_before_period_end`` says, per concept (top-level
+default, per-concept override), whether a fact filed before its period ended is dropped or kept.
 """
 from __future__ import annotations
 
@@ -23,6 +24,10 @@ HELPER_NAMESPACES: tuple[str, ...] = ("dei",)
 #: Tag tables loaded when none are named, in order; a table is ``tags/<name>.json``.
 DEFAULT_TABLES: tuple[str, ...] = ("us_gaap", "ifrs_full")
 _SEMVER = re.compile(r"\d+\.\d+\.\d+")
+#: What the selection does with a fact filed before its period ended (chantier 11): ``drop`` it
+#: (a balance or a flow cannot be known before its period ends: such a fact is a wrong context or
+#: a pro forma figure) or ``keep`` it (a declaration made ahead of its period is a real fact).
+FILED_BEFORE_PERIOD_END = ("drop", "keep")
 
 
 class DictionaryError(ValueError):
@@ -48,6 +53,7 @@ class ConceptDef:
     statement: str
     instant: bool
     kind: str             # money | money/shares | shares
+    filed_before_period_end: str = "drop"   # drop | keep; parse_dictionary always sets it
 
 
 @dataclass(frozen=True)
@@ -143,7 +149,15 @@ def _tolerance(raw: dict, name: str) -> float:
     return float(value)
 
 
+def _early_rule(value, where: str) -> str:
+    if value not in FILED_BEFORE_PERIOD_END:
+        raise DictionaryError(f"{where}: filed_before_period_end {value!r} must be one of "
+                              f"{', '.join(FILED_BEFORE_PERIOD_END)}")
+    return value
+
+
 def _parse_concepts(raw: dict) -> dict[str, ConceptDef]:
+    default = _early_rule(raw.get("filed_before_period_end"), "concepts.json")
     out: dict[str, ConceptDef] = {}
     for key, c in (raw.get("concepts") or {}).items():
         if c.get("statement") not in STATEMENTS:
@@ -152,7 +166,9 @@ def _parse_concepts(raw: dict) -> dict[str, ConceptDef]:
             raise DictionaryError(f"concepts: {key}: instant must be true or false")
         if c.get("kind") not in KINDS:
             raise DictionaryError(f"concepts: {key}: kind {c.get('kind')!r} is invalid")
-        out[key] = ConceptDef(key, c.get("label") or key, c["statement"], c["instant"], c["kind"])
+        early = _early_rule(c.get("filed_before_period_end", default), f"concepts: {key}")
+        out[key] = ConceptDef(key, c.get("label") or key, c["statement"], c["instant"], c["kind"],
+                              early)
     return out
 
 

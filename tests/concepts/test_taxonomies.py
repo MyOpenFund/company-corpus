@@ -102,7 +102,7 @@ def test_in_one_filing_the_taxonomy_on_the_statement_answers():
 def test_review_status_comes_from_the_answering_table():
     facts = [_fact("ifrs-full:Assets", 50, "A", OLD)]
     r = _concept(_run(facts, [_pos("Assets", "A", OLD, "ifrs/2022")]), "assets")
-    assert r["review_status"] == "reviewed" and r["dictionary_version"] == "2.0.0"
+    assert r["review_status"] == "reviewed" and r["dictionary_version"] == "2.1.0"
 
 
 def test_one_filing_with_two_versions_of_a_tag_counts_the_fact_once():

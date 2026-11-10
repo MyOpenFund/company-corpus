@@ -33,7 +33,7 @@ def _second_table() -> dict:
 
 def test_the_packaged_dictionary_has_the_decided_shape():
     d = load_dictionary(("us_gaap",))
-    assert d.version == "2.0.0" and d.conflict_tolerance == 0.01 and d.restatement_tolerance == 0.5
+    assert d.version == "2.1.0" and d.conflict_tolerance == 0.01 and d.restatement_tolerance == 0.5
     assert len(d.concepts) == 71 and d.namespaces == ("us-gaap",)
     us = d.table("us-gaap")
     assert us.position_version_prefix == "us-gaap/" and len(us.entries) == 71
@@ -128,3 +128,39 @@ def test_an_error_names_the_table():
 def test_load_dictionary_rejects_a_bare_string():
     with pytest.raises(TypeError, match="not a string"):
         load_dictionary("us_gaap")
+
+
+def test_only_declared_dividends_keep_a_fact_filed_before_its_period_ended():
+    d = load_dictionary()
+    assert d.version == "2.1.0"
+    keep = {k for k, c in d.concepts.items() if c.filed_before_period_end == "keep"}
+    assert keep == {"dividends_per_share"}
+    assert d.concepts["short_term_debt"].filed_before_period_end == "drop"
+    assert d.concepts["preferred_dividends"].filed_before_period_end == "drop"
+
+
+def test_the_top_level_rule_is_required():
+    concepts, tables = _raw()
+    del concepts["filed_before_period_end"]
+    with pytest.raises(DictionaryError, match="filed_before_period_end"):
+        parse_dictionary(concepts, tables)
+
+
+@pytest.mark.parametrize("where", ["top", "concept"])
+def test_an_unknown_rule_is_refused(where):
+    concepts, tables = _raw()
+    if where == "top":
+        concepts["filed_before_period_end"] = "maybe"
+    else:
+        concepts["concepts"]["revenue"]["filed_before_period_end"] = "maybe"
+    with pytest.raises(DictionaryError, match="filed_before_period_end"):
+        parse_dictionary(concepts, tables)
+
+
+def test_a_concept_overrides_the_top_level_rule():
+    concepts, tables = _raw()
+    concepts["filed_before_period_end"] = "keep"
+    concepts["concepts"]["revenue"]["filed_before_period_end"] = "drop"
+    d = parse_dictionary(concepts, tables)
+    assert d.concepts["revenue"].filed_before_period_end == "drop"
+    assert d.concepts["assets"].filed_before_period_end == "keep"
