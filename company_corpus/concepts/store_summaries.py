@@ -48,13 +48,15 @@ from ..financials import (
     _TTM_FLOW_KEYS,
 )
 from .dictionary import Dictionary, load_dictionary
+from .selection import DEFAULT_FILING_TZ
 from .summaries import _F1_LABEL, _flow_series, _value, group_periods
 
 __all__ = ["DEFAULT_PUBLICATION_TZ", "concept_catalog", "group_periods", "metric_catalog",
            "summaries_from_rows"]
 
-#: EDGAR's zone: a filing's date is its acceptance instant read there.
-DEFAULT_PUBLICATION_TZ = "America/New_York"
+#: EDGAR's zone: a filing's date is its acceptance instant read there. The same zone as the
+#: selection's ``DEFAULT_FILING_TZ`` (one zone, two names).
+DEFAULT_PUBLICATION_TZ = DEFAULT_FILING_TZ
 
 
 def summaries_from_rows(rows: Iterable[dict], *, company: str, company_current: str | None = None,

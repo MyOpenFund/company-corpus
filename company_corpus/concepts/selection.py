@@ -18,12 +18,25 @@ the latest filing with a candidate answers (on the same filing: the one on the s
 order), so a filer that changed taxonomy gets one row, never one per taxonomy. A sum concept's
 candidates are its statement lines (only those can be summed), so only they decide which taxonomy
 answers. A computed total reads the base concept in its own table's taxonomy only.
+
+A fact filed before its period ended (its ``known_at``, read as a date in the filing zone, before
+its ``valid_date``) is dropped for a concept whose ``filed_before_period_end`` rule is ``drop``,
+computed totals included, and kept for a ``keep`` concept (a dividend declared ahead of its
+quarter). The filing zone is EDGAR's (``DEFAULT_FILING_TZ``), a parameter; a filing made on the
+period's last day is on time. Known limit: ``facts_in`` and the restatement flag work per tag,
+before the concept is known, so an early vintage can still be the ``replaced`` value of a later one.
 """
 from __future__ import annotations
+
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .dictionary import Dictionary, load_dictionary
 
 RECIPE_NAME = "fundamentals_concepts"
+#: EDGAR's zone. A fact is filed before its period ended when its known_at, read as a date in
+#: this zone, is before its valid_date: the boundary of F1's publication date (a filing made on
+#: the period's last day counts as on time).
+DEFAULT_FILING_TZ = "America/New_York"
 
 _PERIOD = "entity_scheme, entity_value, valid_date, frequency, basis, source_code"
 _OUT = ("concept, entity_scheme, entity_value, valid_date, frequency, basis, source_code, "
@@ -43,20 +56,37 @@ def _values(rows) -> str:
     return ", ".join("(" + ", ".join(_lit(x) for x in r) + ")" for r in rows)
 
 
+def _zone(filing_tz: str) -> str:
+    try:
+        ZoneInfo(filing_tz)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError(f"filing_tz: unknown time zone {filing_tz!r}") from exc
+    return filing_tz
+
+
+def _early(alias: str, filing_tz: str) -> str:
+    """SQL: the fact was filed before its period ended. ``known_at`` is a TIMESTAMPTZ on both
+    paths (F1: 23:59:59 UTC on the filing date; store: the acceptance instant), and the zone is
+    explicit so the session ``TimeZone`` never matters (DuckDB ICU)."""
+    return f"timezone({_lit(filing_tz)}, {alias}.known_at)::DATE < {alias}.valid_date"
+
+
 def _on_position(prefix: str) -> str:
     return ("JOIN pos p ON p.entity_scheme = f.entity_scheme AND p.entity_value = f.entity_value "
             "AND p.filing_ref = f.filing_ref AND p.tag = split_part(f.original_tag, ':', 2) "
             f"AND p.version_prefix = {_lit(prefix)}")
 
 
-def _computed_ctes(i: int, c, e, prefix: str, namespace: str) -> tuple[str, str]:
+def _computed_ctes(i: int, c, e, prefix: str, namespace: str,
+                   filing_tz: str) -> tuple[str, str]:
     m, statement, on_position = e.computed, c.statement, _on_position(prefix)
+    on_time = "" if c.filed_before_period_end == "keep" else f" AND NOT {_early('f', filing_tz)}"
     first = _values((k, n) for n, k in enumerate(m.minus_first_of))
     minus = _values((t, n) for n, t in enumerate(m.minus_first_tag_of))
     cte = f""",
 total_{i} AS (
   SELECT f.* FROM facts_in f {on_position}
-  WHERE f.original_tag = {_lit(m.total_tag)} AND list_contains(p.statements, {_lit(statement)})
+  WHERE f.original_tag = {_lit(m.total_tag)} AND list_contains(p.statements, {_lit(statement)}){on_time}
 ),
 base_{i} AS (
   SELECT {_PERIOD}, filing_ref, arg_min(value, r.n) AS value
@@ -67,7 +97,7 @@ minus_{i} AS (
   SELECT f.entity_scheme, f.entity_value, f.valid_date, f.frequency, f.basis, f.source_code,
          f.filing_ref, arg_min(f.value, r.n) AS value
   FROM facts_in f JOIN (VALUES {minus}) r(original_tag, n) USING (original_tag) {on_position}
-  WHERE list_contains(p.statements, {_lit(statement)})
+  WHERE list_contains(p.statements, {_lit(statement)}){on_time}
   GROUP BY f.entity_scheme, f.entity_value, f.valid_date, f.frequency, f.basis, f.source_code,
            f.filing_ref
 ),
@@ -88,8 +118,10 @@ computed_{i} AS (
 
 
 def selection_sql(dictionary: Dictionary | None = None, *, facts: str = "facts",
-                  positions: str = "positions") -> str:
-    """One DuckDB statement over the views ``facts`` and ``positions``."""
+                  positions: str = "positions", filing_tz: str = DEFAULT_FILING_TZ) -> str:
+    """One DuckDB statement over the views ``facts`` and ``positions``; ``filing_tz`` is the zone
+    a filing's ``known_at`` is read in to tell whether it came before its period ended."""
+    filing_tz = _zone(filing_tz)
     d = dictionary or load_dictionary()
     tags = []
     for rank_t, t in enumerate(d.tables):
@@ -98,19 +130,20 @@ def selection_sql(dictionary: Dictionary | None = None, *, facts: str = "facts",
             tags.extend((e.concept, x, rank, only, e.on_several, e.status, t.namespace, rank_t,
                          t.position_version_prefix)
                         for rank, (x, only) in enumerate(chain))
-    concepts = [(c.key, c.statement) for c in d.concepts.values()]
+    concepts = [(c.key, c.statement, c.filed_before_period_end == "keep")
+                for c in d.concepts.values()]
     extra, selects = [], [f"SELECT {_OUT} FROM picked", f"SELECT {_OUT} FROM summed"]
     computed = [(t, e) for t in d.tables for e in t.entries.values() if e.computed]
     for i, (t, e) in enumerate(computed):
         cte, select = _computed_ctes(i, d.concepts[e.concept], e, t.position_version_prefix,
-                                   t.namespace)
+                                   t.namespace, filing_tz)
         extra.append(cte)
         selects.append(select)
     tol, restated = repr(d.conflict_tolerance), repr(d.restatement_tolerance)
     key = "entity_scheme, entity_value, original_tag, valid_date, frequency, basis, source_code"
     return f"""WITH dict_tags(concept, original_tag, tag_rank, statement_only, on_several, review_status,
                taxonomy, taxonomy_rank, version_prefix) AS (VALUES {_values(tags)}),
-dict_concepts(concept, statement) AS (VALUES {_values(concepts)}),
+dict_concepts(concept, statement, keep_early) AS (VALUES {_values(concepts)}),
 vintages AS (
   SELECT entity_scheme, entity_value, original_tag, period_start, frequency, basis, value, unit,
          filing_ref, source_doc_id, known_at, valid_date, source_code,
@@ -142,7 +175,7 @@ placed AS (
   SELECT f.entity_scheme, f.entity_value, f.valid_date, f.frequency, f.basis, f.source_code,
          f.period_start, f.value, f.unit, f.original_tag, f.filing_ref, f.source_doc_id, f.known_at,
          f.replaced, t.concept, t.tag_rank, t.statement_only, t.on_several, t.review_status,
-         t.taxonomy, t.taxonomy_rank,
+         t.taxonomy, t.taxonomy_rank, c.keep_early, {_early('f', filing_tz)} AS early,
          CASE WHEN k.filing_ref IS NOT NULL
               THEN (CASE WHEN p.statements IS NULL THEN 'note' ELSE 'statement' END)
               WHEN b.from_filing IS NOT NULL THEN 'inferred' ELSE 'unknown' END AS location,
@@ -161,7 +194,8 @@ placed AS (
        AND p.tag = split_part(f.original_tag, ':', 2)
        AND p.version_prefix = t.version_prefix
 ),
-eligible AS (SELECT * FROM placed WHERE CASE WHEN on_several = 'sum' THEN tier = 0
+eligible AS (SELECT * FROM placed WHERE (keep_early OR NOT early)
+                  AND CASE WHEN on_several = 'sum' THEN tier = 0
                   ELSE NOT statement_only OR tier = 0 END),
 cands AS (
   SELECT * EXCLUDE (answering) FROM (
@@ -205,16 +239,17 @@ summed AS (
 SELECT *, {_lit(d.version)} AS dictionary_version FROM ({' UNION ALL '.join(selects)})"""
 
 
-def recipe(dictionary: Dictionary | None = None):
+def recipe(dictionary: Dictionary | None = None, *, filing_tz: str = DEFAULT_FILING_TZ):
     """The ``fundamentals_concepts`` Recipe; needs my-open-data's reader."""
     from myopendata.reader import Recipe
 
     d = dictionary or load_dictionary()
     return Recipe(RECIPE_NAME, d.version, {"facts": "fundamentals:vintages", "positions": "filing_statements"},
-                  selection_sql(d))
+                  selection_sql(d, filing_tz=filing_tz))
 
 
-def run_selection(facts, positions, dictionary: Dictionary | None = None) -> list[dict]:
+def run_selection(facts, positions, dictionary: Dictionary | None = None, *,
+                  filing_tz: str = DEFAULT_FILING_TZ) -> list[dict]:
     """The Recipe's SQL on in-memory Arrow tables."""
     import duckdb
 
@@ -222,6 +257,6 @@ def run_selection(facts, positions, dictionary: Dictionary | None = None) -> lis
     try:
         con.register("facts", facts)
         con.register("positions", positions)
-        return con.sql(selection_sql(dictionary)).to_arrow_table().to_pylist()
+        return con.sql(selection_sql(dictionary, filing_tz=filing_tz)).to_arrow_table().to_pylist()
     finally:
         con.close()
