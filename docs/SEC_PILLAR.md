@@ -29,6 +29,7 @@ data/
 ├── financials/<cik>.jsonl      # normalized XBRL metrics, one row per metric (committed)
 ├── ownership/<cik>.jsonl       # normalized insider/13F rows (committed)
 ├── discovery_errors.jsonl      # append-only audit trail
+├── f1_pruned.jsonl             # append-only tombstones of the F1 records `xbrl --write` pruned
 ├── reports/                    # completeness matrices, CSV exports
 ├── raw/<cik>/<code>/<year>/    # the actual documents (git-ignored, regenerable)
 ├── raw/<cik>/statements/statements.jsonl  # which tag is on which statement, per issuer (`statements`)
@@ -93,10 +94,20 @@ each taxonomy's tags, version 2.0.0) and a concept and period is answered by one
 F1 row of the issuer's manifest, within the run's year scope (`--years`), whose `doc_id` this run
 did not compute: its accession changed (an amended filing now carries the period), its period
 vanished from `companyfacts`, or the issuer has no summary left at all. Only an issuer **read
-cleanly** is pruned: `companyfacts` fetched and whole (a non-empty `facts` dict, and its own `cik`
-when the payload names one), no error item for it, its statement positions present (unless
-`Config.f1_prune_requires_statements` is off) and no failed statements refresh in the run. Any
-other issuer is counted `skipped` and keeps everything.
+cleanly** is pruned: `companyfacts` fetched, naming the issuer's own `cik` when the payload names
+one (with or without summaries) and, for an issuer with no summary left, whole (a non-empty
+`facts` dict); no error item for it; its statement positions present and non-empty (a missing
+`statements.jsonl` and an empty one, coverage keys `statements_missing` and `statements_empty`,
+both block the prune unless `Config.f1_prune_requires_statements` is off); and no failed
+statements refresh in the run. Any other issuer is counted `skipped` and keeps everything.
+A companyfacts document naming another (or an unreadable) cik is never filed under the requested
+one: that issuer is skipped with an `edgar_xbrl` error item, nothing written, nothing pruned. An
+issuer absent from the SEC bulk files gets an empty positions file and so is never pruned by
+default.
+
+A dry run does not refresh the statements archive (only `--write` does), so it reads the
+positions as they are on disk: a write that then refreshes them may find positions the dry run
+did not (an issuer skipped in the dry run pruned by the write, or the other way round).
 
 A guard refuses an issuer whose stale records exceed `Config.f1_prune_max_fraction` (default
 10%) of its in-scope F1 records **as they stood before the run** (so a dry run and a write
@@ -112,11 +123,23 @@ For each pruned record, in this order: its files (`.primary.html`, `.txt`, `.pdf
 then one line in `data/f1_pruned.jsonl` (run id, cik, doc_id, period, frequency, accession,
 filing date, sha256, deleted files). Until the manifest is rewritten the stale row is still
 there, so a run that crashes half-way is finished by the next one (idempotent; a record already
-gone is skipped). `companyfacts.json` is never pruned. A dry run counts `would-prune` and
-changes nothing.
+gone is skipped). **Tombstones are lost** if a crash falls between the manifest rewrite and the
+log append: the records are pruned, but no later run finds them again to log them. A log append
+that fails with an `OSError` keeps the prune (the records are counted pruned) and adds an error
+item naming the doc_ids whose tombstones may be lost; add them to downstream readers by hand.
+`companyfacts.json` is never pruned. A dry run counts `would-prune` and changes nothing. A
+legacy table row without `frequency` and a record without one name the same group.
 
-The run prints `prune: pruned=… would-prune=… refused=… skipped=… files=… table-groups=…`, and
-the run report carries the same counters in `details.xbrl.prune` with `by_issuer` and
+Inside an issuer it prunes, a record can still be refused: a path outside `raw/<cik>/F1/` or not
+named after it, another issuer's `cik`, a record the run also keeps, a file that cannot be
+deleted. It keeps its row, gets an error item, and is counted in `records-refused` (the issuer-level `refused` counts the guard
+only). **Legacy rows whose files carry another doc_id are refused on every run**: the manifest
+loader recomputes `doc_id` from the row, so files named after an older doc_id fail the name
+check. Clean them by hand (delete the files and the manifest row, then re-run `xbrl --write`).
+
+The run prints `prune: pruned=… would-prune=… refused=… skipped=… files=… table-groups=…
+records-refused=…`, and the run report carries the same counters in `details.xbrl.prune`
+(`records_refused` included) with `by_issuer` and
 `refused_by_issuer`. A prune refusal is the corpus's own decision: it is a local refusal in the
 run report (`local_refusals`, `totals.docs_failed`), not an SEC fetch failure; beside computed
 period summaries the run stays `ok`, without any it is `degraded`.

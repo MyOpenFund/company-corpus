@@ -91,11 +91,13 @@ Three deliberate choices:
   *every* spec is unresolved (bad inputs, or GLEIF unreachable).
 * **``xbrl``'s stale-F1 prune is the corpus's own decision.** Its error items
   (``source: "f1_prune"``: an issuer the ``f1_prune_max_fraction`` guard refused,
-  a record path ``prune_f1`` refused, a failed rewrite) are local refusals, not SEC
+  a record ``prune_f1`` refused, a failed rewrite, tombstones a failed log append
+  lost) are local refusals, not SEC
   fetch failures: they land in ``local_refusals`` and ``totals.docs_failed``, never
   on the ``sec`` row. Beside computed period summaries the run stays ``ok`` with
   the refusal named; with none it is ``degraded``. ``details.xbrl.prune`` carries
-  the counters, ``by_issuer`` and ``refused_by_issuer`` (``None`` with --no-prune).
+  the counters (``records_refused``: records refused inside a pruned issuer),
+  ``by_issuer`` and ``refused_by_issuer`` (``None`` with --no-prune).
 """
 
 from __future__ import annotations
@@ -919,7 +921,8 @@ def _cmd_xbrl(args: argparse.Namespace) -> int:
     if prune:
         print(f"  prune: pruned={prune['pruned']} would-prune={prune['would_prune']} "
               f"refused={prune['refused']} skipped={prune['skipped']} "
-              f"files={prune['files']} table-groups={prune['table_groups']}")
+              f"files={prune['files']} table-groups={prune['table_groups']} "
+              f"records-refused={prune['records_refused']}")
     if rep.errors:
         print(f"  errors: {len(rep.errors)} (see discovery_errors.jsonl)")
     for line in format_coverage(rep.coverage):
@@ -930,7 +933,8 @@ def _cmd_xbrl(args: argparse.Namespace) -> int:
                                    "prune": prune}}
     # The unit of work is the period summary (computed in dry-run too), not the
     # manifest record: `rep.stats.added` is 0 on a re-run that still produced them.
-    # An ``f1_prune`` item (the prune guard, a path prune_f1 refused, a failed rewrite) is
+    # An ``f1_prune`` item (the prune guard, a path prune_f1 refused, a failed rewrite, lost
+    # tombstones after a failed log append) is
     # the corpus's own refusal, not an SEC fetch failure: it goes to the local-refusal
     # counter, which still counts as a failure of the run.
     local = [e for e in rep.errors if isinstance(e, dict) and is_local_source(e.get("source"))]

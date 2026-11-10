@@ -68,6 +68,10 @@ class EdgarXBRL(Source):
         if statements is None:
             self.coverage["statements_missing"] += 1
             statements = []
+        elif not statements:
+            # A file with no position (an issuer absent from the bulk files): read like a
+            # missing one, but counted apart so the F1 prune can tell it from a real read.
+            self.coverage["statements_empty"] += 1
         summaries = build_period_summaries(
             facts, company=current, company_current=current,
             name_for_date=name_for_date, since_year=since_year, until_year=until_year,

@@ -330,6 +330,9 @@ class FinancialsReport:
     would_prune: int = 0
     prune_refused: int = 0
     prune_skipped: int = 0
+    # Records prune_f1 refused inside an issuer it did prune (a path or name check, another
+    # cik, a failed delete): each keeps its manifest row and has an error item.
+    records_refused: int = 0
     pruned_files: int = 0
     pruned_table_groups: int = 0
     prune_by_issuer: dict[str, int] = field(default_factory=dict)
@@ -339,6 +342,7 @@ class FinancialsReport:
     def prune_summary(self) -> dict:
         return {"pruned": self.pruned, "would_prune": self.would_prune,
                 "refused": self.prune_refused, "skipped": self.prune_skipped,
+                "records_refused": self.records_refused,
                 "files": self.pruned_files, "table_groups": self.pruned_table_groups,
                 "by_issuer": dict(sorted(self.prune_by_issuer.items())),
                 "refused_by_issuer": dict(sorted(self.prune_refused_by_issuer.items()))}
@@ -375,18 +379,20 @@ def fetch_financials(
     under ``--replace``) is handled the same way: that issuer's remaining writes
     are skipped and reported, the run goes on.
 
+    A companyfacts document naming another cik is never filed under the requested one:
+    the issuer is skipped with an error item, nothing written, nothing pruned.
+
     With ``prune`` (the default), an issuer read cleanly -- companyfacts fetched, no error
-    item for it, statement positions present (unless ``f1_prune_requires_statements`` is
-    off) and no ``sec_statements`` error for the run -- loses the F1 records within the
-    run's year scope that this run no longer produces (an accession change, a vanished
+    item for it, statement positions present and non-empty (unless
+    ``f1_prune_requires_statements`` is off) and no ``sec_statements`` error for the run --
+    loses the F1 records within the run's year scope that this run no longer produces (an accession change, a vanished
     period, no summary left at all): their table groups, files and manifest rows, each
     logged to ``f1_pruned.jsonl``. A dry run only counts them (``would_prune``). An issuer
     whose stale share exceeds ``f1_prune_max_fraction`` is refused with an error item
     (``--allow-shrink`` lifts it); one not read cleanly is counted ``prune_skipped``. An
     issuer whose companyfacts hold no summary is still read (nothing is written for it)
     so that its leftovers can be pruned -- but only if the payload is a real companyfacts
-    document (a non-empty ``facts`` dict, and its own ``cik`` when it carries one): an
-    error body or another issuer's document is not a clean read.
+    document (a non-empty ``facts`` dict): an error body is not a clean read.
 
     The guard's base is the issuer's in-scope F1 records BEFORE this run saves its own, so
     a dry run and a write of the same data decide alike; the stale set is taken at the same
@@ -409,14 +415,25 @@ def fetch_financials(
         facts, summaries = source.period_summaries(
             cik, since_year=since_year, until_year=until_year)
         report.errors.extend(source.errors)
+        if facts and not _companyfacts_is_own(cik, facts):
+            # Another issuer's document (or an unreadable cik) must not be filed under this
+            # one: nothing is written, nothing is pruned, its coverage is not counted.
+            report.errors.append({"source": "edgar_xbrl", "context": cik,
+                                  "error": _foreign_companyfacts(cik, facts)})
+            if prune:
+                report.prune_skipped += 1
+            continue
         report.coverage.update(source.coverage)
         if not facts:
             if prune:
                 report.prune_skipped += 1
             continue
+        # ``source.coverage`` is this issuer's alone (a fresh EdgarXBRL per issuer). An empty
+        # statements file reads like a missing one: no positions, a degraded selection.
         clean = statements_ok and not source.errors and (
             not config.f1_prune_requires_statements
-            or not source.coverage.get("statements_missing")) and (
+            or not (source.coverage.get("statements_missing")
+                    or source.coverage.get("statements_empty"))) and (
             bool(summaries) or _companyfacts_is_whole(cik, facts))
 
         records: list[FilingRecord] = []
@@ -488,19 +505,32 @@ def fetch_financials(
     return report
 
 
-def _companyfacts_is_whole(cik: str, facts) -> bool:
-    """Whether a companyfacts payload is a real document of ``cik``: a non-empty ``facts``
-    dict, and the issuer's own ``cik`` when the payload names one. An issuer with no summary
-    is a clean read only on such a payload (an error body would otherwise prune it whole)."""
-    if not isinstance(facts, dict) or not isinstance(facts.get("facts"), dict) \
-            or not facts["facts"]:
-        return False
-    if "cik" not in facts:
+def _companyfacts_is_own(cik: str, facts) -> bool:
+    """Whether a companyfacts payload is ``cik``'s: it names that cik, or none. A payload
+    naming another (or an unreadable) cik is never a clean read, summaries or not."""
+    if not isinstance(facts, dict) or "cik" not in facts:
         return True
     try:
         return normalize_cik(facts["cik"]) == normalize_cik(cik)
     except ValueError:
         return False
+
+
+def _foreign_companyfacts(cik: str, facts: dict) -> str:
+    """The error of a companyfacts payload that is not ``cik``'s."""
+    try:
+        named = normalize_cik(facts["cik"])
+    except ValueError:
+        return f"{cik}: companyfacts carries an unreadable cik {facts['cik']!r}; nothing written"
+    return f"{cik}: companyfacts names cik {named}, not this issuer; nothing written"
+
+
+def _companyfacts_is_whole(cik: str, facts) -> bool:
+    """Whether a companyfacts payload is a real document: a non-empty ``facts`` dict (its cik
+    is checked before, by :func:`_companyfacts_is_own`). An issuer with no summary is a clean
+    read only on such a payload (an error body would otherwise prune it whole)."""
+    return (isinstance(facts, dict) and isinstance(facts.get("facts"), dict)
+            and bool(facts["facts"]))
 
 
 def _prune_stale_f1(storage: Storage, cik: str, records: Sequence[FilingRecord],
@@ -531,6 +561,7 @@ def _prune_stale_f1(storage: Storage, cik: str, records: Sequence[FilingRecord],
                               "error": f"{type(exc).__name__}: {exc}"})
         return
     report.errors.extend(res.errors)
+    report.records_refused += len(res.refused)
     if dry_run:
         report.would_prune += len(res.records)
     else:
