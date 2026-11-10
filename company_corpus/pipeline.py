@@ -379,9 +379,12 @@ def fetch_financials(
     under ``--replace``) is handled the same way: that issuer's remaining writes
     are skipped and reported, the run goes on.
 
+    A companyfacts document naming another cik is never filed under the requested one:
+    the issuer is skipped with an error item, nothing written, nothing pruned.
+
     With ``prune`` (the default), an issuer read cleanly -- companyfacts fetched, no error
-    item for it, statement positions present (unless ``f1_prune_requires_statements`` is
-    off) and no ``sec_statements`` error for the run -- loses the F1 records within the
+    item for it, statement positions present and non-empty (unless
+    ``f1_prune_requires_statements`` is off) and no ``sec_statements`` error for the run -- loses the F1 records within the
     run's year scope that this run no longer produces (an accession change, a vanished
     period, no summary left at all): their table groups, files and manifest rows, each
     logged to ``f1_pruned.jsonl``. A dry run only counts them (``would_prune``). An issuer
@@ -389,8 +392,7 @@ def fetch_financials(
     (``--allow-shrink`` lifts it); one not read cleanly is counted ``prune_skipped``. An
     issuer whose companyfacts hold no summary is still read (nothing is written for it)
     so that its leftovers can be pruned -- but only if the payload is a real companyfacts
-    document (a non-empty ``facts`` dict, and its own ``cik`` when it carries one): an
-    error body or another issuer's document is not a clean read.
+    document (a non-empty ``facts`` dict): an error body is not a clean read.
 
     The guard's base is the issuer's in-scope F1 records BEFORE this run saves its own, so
     a dry run and a write of the same data decide alike; the stale set is taken at the same
@@ -418,13 +420,21 @@ def fetch_financials(
             if prune:
                 report.prune_skipped += 1
             continue
+        if not _companyfacts_is_own(cik, facts):
+            # Another issuer's document (or an unreadable cik) must not be filed under this
+            # one: nothing is written, nothing is pruned, the run says so.
+            report.errors.append({"source": "edgar_xbrl", "context": cik,
+                                  "error": f"{cik}: companyfacts names cik {facts.get('cik')!r}, "
+                                           "not this issuer; nothing written"})
+            if prune:
+                report.prune_skipped += 1
+            continue
         # ``source.coverage`` is this issuer's alone (a fresh EdgarXBRL per issuer). An empty
         # statements file reads like a missing one: no positions, a degraded selection.
         clean = statements_ok and not source.errors and (
             not config.f1_prune_requires_statements
             or not (source.coverage.get("statements_missing")
                     or source.coverage.get("statements_empty"))) and (
-            _companyfacts_is_own(cik, facts)) and (
             bool(summaries) or _companyfacts_is_whole(cik, facts))
 
         records: list[FilingRecord] = []

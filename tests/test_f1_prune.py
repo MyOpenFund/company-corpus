@@ -514,7 +514,7 @@ def test_no_prune_leaves_everything(config, monkeypatch):
 def test_one_refused_issuer_does_not_stop_the_others(config, monkeypatch):
     other = normalize_cik("789019")
     _run(config, monkeypatch, TEN)
-    _run(config, monkeypatch, TEN, cik=other)
+    _run(config, monkeypatch, TEN, cik=other, facts=OTHER_FACTS)
     _Source.plan = {CIK: (FACTS, [], [], {}), other: (OTHER_FACTS, TEN[1:], [], {})}
     monkeypatch.setattr("company_corpus.pipeline.EdgarXBRL", _Source)
     rep = fetch_financials([CIK, other], config=config, fetcher=object(), dry_run=False)
@@ -524,7 +524,7 @@ def test_one_refused_issuer_does_not_stop_the_others(config, monkeypatch):
 def test_an_os_error_from_prune_f1_is_one_issuer_s_error(config, monkeypatch):
     other = normalize_cik("789019")
     _run(config, monkeypatch, TEN)
-    _run(config, monkeypatch, TEN, cik=other)
+    _run(config, monkeypatch, TEN, cik=other, facts=OTHER_FACTS)
     real = Storage.prune_f1
 
     def failing(self, cik, *a, **kw):
@@ -672,7 +672,7 @@ def test_a_fresh_issuer_with_facts_and_no_summary_writes_nothing(config, monkeyp
 def test_an_unclean_issuer_then_a_clean_one_in_one_run(config, monkeypatch):
     other = normalize_cik("789019")
     _run(config, monkeypatch, TEN)
-    _run(config, monkeypatch, TEN, cik=other)
+    _run(config, monkeypatch, TEN, cik=other, facts=OTHER_FACTS)
     error = {"source": "edgar_xbrl", "context": CIK, "error": "boom"}
     _Source.plan = {CIK: (FACTS, TEN[1:], [error], {}), other: (OTHER_FACTS, TEN[1:], [], {})}
     monkeypatch.setattr("company_corpus.pipeline.EdgarXBRL", _Source)
@@ -870,6 +870,16 @@ def test_a_companyfacts_of_another_cik_is_not_a_clean_read_even_with_summaries(c
     _run(config, monkeypatch, TEN)
     rep = _run(config, monkeypatch, TEN[1:], facts={"cik": 789019, "facts": {"us-gaap": {}}})
     assert rep.prune_skipped == 1 and rep.pruned == 0 and len(_f1_ids(config)) == 10
+
+
+def test_a_companyfacts_of_another_cik_writes_nothing_and_is_an_error(config, monkeypatch):
+    """Another issuer's document must not be filed under this cik: no summary, no table row,
+    no companyfacts.json, one error item."""
+    rep = _run(config, monkeypatch, TEN, facts=OTHER_FACTS)
+    assert rep.periods == 0 and rep.prune_skipped == 1
+    assert [e["source"] for e in rep.errors] == ["edgar_xbrl"] and "789019" in rep.errors[0]["error"]
+    assert not (config.raw_dir / CIK).exists() and not (config.financials_dir / f"{CIK}.jsonl").exists()
+    assert _f1_ids(config) == set()
 
 
 def test_a_legacy_table_row_without_frequency_is_dropped_with_its_record(config):

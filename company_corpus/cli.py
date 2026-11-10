@@ -933,7 +933,8 @@ def _cmd_xbrl(args: argparse.Namespace) -> int:
                                    "prune": prune}}
     # The unit of work is the period summary (computed in dry-run too), not the
     # manifest record: `rep.stats.added` is 0 on a re-run that still produced them.
-    # An ``f1_prune`` item (the prune guard, a path prune_f1 refused, a failed rewrite) is
+    # An ``f1_prune`` item (the prune guard, a path prune_f1 refused, a failed rewrite, lost
+    # tombstones after a failed log append) is
     # the corpus's own refusal, not an SEC fetch failure: it goes to the local-refusal
     # counter, which still counts as a failure of the run.
     local = [e for e in rep.errors if isinstance(e, dict) and is_local_source(e.get("source"))]
