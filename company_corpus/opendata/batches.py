@@ -74,8 +74,9 @@ def _myopendata() -> SimpleNamespace:
     except ImportError as exc:
         raise StoreUnavailable(
             "store-batches needs my-open-data: pip install 'company-corpus[store]'") from exc
-    if FUNDAMENTALS.major != 3:
-        raise StoreUnavailable(f"store-batches needs fundamentals 3.x, found {FUNDAMENTALS.version}")
+    if FUNDAMENTALS.major != 3 or "ytd9" not in (FUNDAMENTALS.column("frequency").allowed or ()):
+        raise StoreUnavailable(
+            f"store-batches needs fundamentals 3.1 or later (frequency ytd9), found {FUNDAMENTALS.version}")
     return SimpleNamespace(pa=pa, BatchInvalid=BatchInvalid, conform=conform,
                            ENTITY_OBSERVATIONS=ENTITY_OBSERVATIONS, FUNDAMENTALS=FUNDAMENTALS,
                            FILING_STATEMENTS=FILING_STATEMENTS, FILINGS=FILINGS,

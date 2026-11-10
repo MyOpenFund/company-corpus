@@ -85,8 +85,7 @@ def test_recipe_equals_f1_on_real_filings(published):
     assert set(by_issuer) == {c for c, _ in loaded.values()}
     for name, (cik, fx) in loaded.items():
         f1 = {(r["concept"], r["valid_date"], r["frequency"]): r
-              for r in select_for_f1(fx["facts"], fx["statements"]).rows
-              if r["frequency"] != "ytd9"}
+              for r in select_for_f1(fx["facts"], fx["statements"]).rows}
         common = set(f1) & set(by_issuer[cik])
         assert len(common) > 30, name
         differ = [k for k in common if (f1[k]["value"], f1[k]["original_tag"], f1[k]["location"], f1[k]["conflict"])

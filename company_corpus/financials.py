@@ -877,7 +877,7 @@ def _build_flow_series(flat, currency, *, concepts_by_key=CONCEPTS_BY_KEY, ttm_k
 
 #: How an unreported fiscal-year-end quarter is rebuilt. ``ytd9`` (F1): FY - 9-month YTD.
 #: ``sum_of_quarters``: FY - the three standalone quarters before it, for data without a 9-month
-#: YTD band (the my-open-data store keeps quarterly, semiannual, annual, instant only). Chantier
+#: YTD band (the my-open-data store now carries ytd9 too, fundamentals 3.1.0). Chantier
 #: MCP-2 Q6: an off-spec rule, so a parameter. When both bands exist, it differs from ``ytd9``
 #: only when a quarter was restated without its YTD, or by the rounding of the three quarters
 #: (each rounded on its own, their sum can miss the reported YTD by a unit); it also gives a

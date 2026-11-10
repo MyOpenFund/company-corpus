@@ -28,7 +28,7 @@ be = ["curl_cffi>=0.7"]
 eu-financials = ["arelle-release"]
 # my-open-data producer side (``store-batches``, chantier 8): the writer only, pinned to a
 # reviewed commit. The CI job "store" also installs the publisher (requirements-store.txt).
-store = ["my-open-data[writer] @ git+https://github.com/MyOpenFund/my-open-data@f47fe3c5211cd2d3444637507a6b4305fd128a51"]
+store = ["my-open-data[writer] @ git+https://github.com/MyOpenFund/my-open-data@3252e97dd6808290895cc4e117685388e6d4e354"]
 
 [project.scripts]
 company-corpus = "company_corpus.cli:main"

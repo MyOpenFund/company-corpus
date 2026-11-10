@@ -52,16 +52,17 @@ def _same(a, b, rel) -> bool:
                                        and a == pytest.approx(b, rel=rel))
 
 
+@pytest.mark.parametrize("q4_rule", ["ytd9", "sum_of_quarters"])
 @pytest.mark.parametrize("name", FIXTURE_NAMES)
-def test_store_summaries_equal_f1(name):
+def test_store_summaries_equal_f1(name, q4_rule):
     """Spec MCP-2 Q5: same periods, values, ratios (point-in-time and TTM), publication date,
-    accession and currency as F1 under the same Q4 rule. (F1's default ytd9 rule differs on
-    quarterly TTM only by rounding: see the oracle test below; annual TTM does not use it.)"""
+    accession and currency as F1 under the same Q4 rule, for both rules (annual TTM does not use
+    the Q4 rule)."""
     fx = fixture(name)
     f1_list = build_summaries(fx["facts"], company="x", company_current="x",
                               statements=fx["statements"])
-    attach_ttm(fx["facts"], f1_list, statements=fx["statements"], q4_rule="sum_of_quarters")
-    f1, store = by_period(f1_list), by_period(store_summaries(name))
+    attach_ttm(fx["facts"], f1_list, statements=fx["statements"], q4_rule=q4_rule)
+    f1, store = by_period(f1_list), by_period(store_summaries(name, q4_rule=q4_rule))
     assert store.keys() == f1.keys() and f1, name
     for k, s in store.items():
         f = f1[k]
@@ -82,40 +83,36 @@ def _quarterly_ttm(summaries) -> dict:
             for m, v in x.ttm.items() if v["value"] is not None}
 
 
-def test_quarterly_ttm_needs_sum_of_quarters_on_store_rows():
-    """oracle (May year-end): its FY2022 Q4 net income is not reported standalone; the store has
-    no 9-month band, so only sum_of_quarters rebuilds it and gives the quarterly net margin."""
-    rows = store_rows("oracle")
-
-    def margins(rule):
-        return {k for k in _quarterly_ttm(summaries_from_rows(rows, company="x", q4_rule=rule))
-                if k[1] == "net_margin_ttm"}
-    assert len(margins("sum_of_quarters")) == 4
-    assert not margins("ytd9")
+def _f1_quarterly_ttm(name, rule) -> dict:
+    fx = fixture(name)
+    f1 = build_summaries(fx["facts"], company="x", company_current="x",
+                         statements=fx["statements"])
+    attach_ttm(fx["facts"], f1, statements=fx["statements"], q4_rule=rule)
+    return _quarterly_ttm(f1)
 
 
-def test_quarterly_ttm_matches_f1_under_the_same_q4_rule():
-    """Same Q4 rule, same numbers. Against F1's own ytd9 rule the quarterly TTM of the windows
-    holding FY2022 Q4 differs by Oracle's rounding: Q1-Q3 FY2022 are each rounded to $1M and sum
-    to $1M more than the reported 9-month YTD (revenue 30,601 vs 30,600; net income 3,529 vs
-    3,528), so Q4 = FY - YTD9 and Q4 = FY - (Q1+Q2+Q3) differ by $1M (relative ~1e-4)."""
-    fx = fixture("oracle")
+def test_quarterly_ttm_equals_f1_under_ytd9_on_store_rows():
+    """The store carries the 9-month YTD band (fundamentals 3.1.0), so the default Q4 rule is F1's
+    ytd9 and store-row quarterly TTM equals F1's exactly, including the windows holding oracle's
+    FY2022 Q4 (not reported standalone). The store must carry ytd9 because the two rules can
+    really differ when the quarterly and the year-to-date lines come from different statements
+    (seen on real data, not in these fixtures)."""
     store = _quarterly_ttm(summaries_from_rows(store_rows("oracle"), company="x"))
-    by_rule = {}
-    for rule in ("sum_of_quarters", "ytd9"):
-        f1 = build_summaries(fx["facts"], company="x", company_current="x",
-                             statements=fx["statements"])
-        attach_ttm(fx["facts"], f1, statements=fx["statements"], q4_rule=rule)
-        by_rule[rule] = _quarterly_ttm(f1)
-    assert store and store.keys() <= by_rule["sum_of_quarters"].keys()
+    f1 = _f1_quarterly_ttm("oracle", "ytd9")
+    assert store and store.keys() == f1.keys()
+    assert any(e == date(2022, 5, 31) and m == "net_margin_ttm" for e, m in store)
     for k, v in store.items():
-        assert v == pytest.approx(by_rule["sum_of_quarters"][k], rel=1e-9), k
-    # The expected, explained divergence from F1's ytd9 rule: rounding only, never more.
-    differ = {k for k, v in store.items() if v != pytest.approx(by_rule["ytd9"][k], rel=1e-9)}
-    assert differ and {e for e, _ in differ} <= {date(2022, 5, 31), date(2022, 8, 31),
-                                                  date(2022, 11, 30), date(2023, 2, 28)}
-    for k in differ:
-        assert store[k] == pytest.approx(by_rule["ytd9"][k], rel=5e-4), k
+        assert v == pytest.approx(f1[k], rel=1e-9), k
+
+
+def test_quarterly_ttm_equals_f1_under_sum_of_quarters_on_store_rows():
+    """sum_of_quarters stays a parameter: store rows under it equal F1 run with the same rule."""
+    store = _quarterly_ttm(summaries_from_rows(store_rows("oracle"), company="x",
+                                               q4_rule="sum_of_quarters"))
+    f1 = _f1_quarterly_ttm("oracle", "sum_of_quarters")
+    assert store and store.keys() == f1.keys()
+    for k, v in store.items():
+        assert v == pytest.approx(f1[k], rel=1e-9), k
 
 
 def _row(concept, end, frequency, known_at, value=1):
