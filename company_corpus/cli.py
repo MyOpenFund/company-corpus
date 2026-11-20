@@ -1367,9 +1367,14 @@ def _cmd_migrate_contract(args: argparse.Namespace) -> int:
         print("  (dry run: primary_hashed counts the primary documents a write would hash)")
     for err in rep.errors:
         print(f"  refused: {err['error']}", file=sys.stderr)
+    if rep.unknown_provenances:
+        values = " ".join(f"{k}={v}" for k, v in sorted(rep.unknown_provenances.items()))
+        print(f"  provenance outside the vocabulary: {values} (the vault would refuse these "
+              "rows: unknown_provenance)", file=sys.stderr)
     report = getattr(args, "report", None)
     if report is not None:
-        report.details = {"migrate_contract": dict(c)}
+        report.details = {"migrate_contract": {**c,
+                                               "unknown_provenances": rep.unknown_provenances}}
     # The unit of work is a row rewritten or moved; a refused issuer is the corpus's own
     # decision (its files are left as they are), counted as a local refusal.
     _feed_report(report, "sec", seen=c["rows"], new=rep.useful_work)

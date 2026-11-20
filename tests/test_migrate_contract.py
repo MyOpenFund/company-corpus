@@ -167,7 +167,7 @@ def test_the_dry_run_writes_nothing_and_counts_what_it_would_do(old_corpus):
         "issuers": 3, "issuers_refused": 0, "rows": 11, "rows_rewritten": 6, "unchanged": 0,
         "f1_moved": 5, "f1_already_indexed": 0, "f1_dropped_tombstoned": 0,
         "primary_hashed": 3, "primary_unhashable": 0,
-        "no_primary": 3, "no_rag_artifact": 3,
+        "no_primary": 3, "no_rag_artifact": 3, "provenance_unknown": 0,
     }
     assert rep.errors == []
 
@@ -420,3 +420,16 @@ def test_a_tombstoned_f1_whose_files_are_still_there_is_moved(old_corpus):
     rep = migrate_contract(old_corpus, dry_run=False)
     assert rep.counts["f1_dropped_tombstoned"] == 0
     assert gone.doc_id in {r["doc_id"] for r in _rows(old_corpus, APPLE, f1=True)}
+
+
+def test_a_provenance_outside_the_vocabulary_is_reported(old_corpus, capsys, monkeypatch):
+    # The vault would refuse the row (unknown_provenance): say so before the NAS copy.
+    rows = _rows(old_corpus, MSFT)
+    rows[0]["provenance"] = "manual"
+    old_corpus.manifest_file(MSFT).write_text("".join(json.dumps(r) + "\n" for r in rows))
+    rep = migrate_contract(old_corpus, dry_run=True)
+    assert rep.counts["provenance_unknown"] == 1
+    assert rep.unknown_provenances == {"manual": 1}
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(old_corpus.data_dir))
+    cli.main(["--data-dir", str(old_corpus.data_dir), "migrate-contract"])
+    assert "provenance outside the vocabulary: manual=1" in capsys.readouterr().err

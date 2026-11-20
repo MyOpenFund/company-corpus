@@ -33,13 +33,13 @@ from .config import Config, normalize_cik
 from .models import FilingRecord, artifact_for_vault
 from .storage import Storage, primary_document, read_submission, text_sha256
 from .taxonomy import FormType
-from .vocabulary import write_vocabulary
+from .vocabulary import SEC_PROVENANCES, write_vocabulary
 
 #: The counters of a run, in report order.
 COUNTERS: tuple[str, ...] = (
     "issuers", "issuers_refused", "rows", "rows_rewritten", "unchanged", "f1_moved",
     "f1_already_indexed", "f1_dropped_tombstoned", "primary_hashed", "primary_unhashable", "no_primary",
-    "no_rag_artifact",
+    "no_rag_artifact", "provenance_unknown",
 )
 
 
@@ -53,11 +53,16 @@ class MigrationReport:
     tombstoned in ``f1_pruned.jsonl``, files gone -- and are not restored). ``primary_hashed``: primary hashes computed; ``primary_unhashable``:
     rows with a primary pointer and no bytes left to hash. ``no_primary``: vault rows without a
     primary document; ``no_rag_artifact``: vault rows without a ``local_path`` (the RAG cannot
-    ingest them; they stay as inventory). ``errors``: one item per refused issuer.
+    ingest them; they stay as inventory). ``provenance_unknown``: vault rows whose provenance
+    the vocabulary does not declare (must be 0 before the vault ingests the manifests).
+    ``errors``: one item per refused issuer.
     """
 
     counts: dict[str, int] = field(default_factory=lambda: dict.fromkeys(COUNTERS, 0))
     errors: list[dict] = field(default_factory=list)
+    #: provenance value -> vault rows carrying it, for values ``vocabulary.json`` does not
+    #: declare: the vault would refuse those rows (``unknown_provenance``).
+    unknown_provenances: dict[str, int] = field(default_factory=dict)
 
     @property
     def useful_work(self) -> int:
@@ -85,7 +90,12 @@ def migrate_contract(config: Config, *, ciks: Sequence[str] | None = None,
                                   "error": str(exc)})
             continue
         for key, n in counts.items():
-            report.counts[key] += n
+            if key.startswith("provenance:"):
+                value = key.split(":", 1)[1]
+                report.unknown_provenances[value] = report.unknown_provenances.get(value, 0) + n
+                report.counts["provenance_unknown"] += n
+            else:
+                report.counts[key] += n
     if not dry_run:
         write_vocabulary(config)
     return report
@@ -198,6 +208,8 @@ def _migrate_issuer(storage: Storage, path: Path, counts: Counter,
             counts["no_primary"] += 1
         if artifact_for_vault(rec, preference)[0] is None:
             counts["no_rag_artifact"] += 1
+        if rec.provenance not in SEC_PROVENANCES:
+            counts[f"provenance:{rec.provenance}"] += 1
         new = rec.to_row(artifact_preference=preference)
         if would_hash:
             # The hash a write would compute is unknown here: the row changes.
