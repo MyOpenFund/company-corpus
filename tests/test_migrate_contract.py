@@ -433,3 +433,11 @@ def test_a_provenance_outside_the_vocabulary_is_reported(old_corpus, capsys, mon
     monkeypatch.setenv("COMPANY_DATA_DIR", str(old_corpus.data_dir))
     cli.main(["--data-dir", str(old_corpus.data_dir), "migrate-contract"])
     assert "provenance outside the vocabulary: manual=1" in capsys.readouterr().err
+
+
+def test_a_cik_without_a_manifest_is_reported(old_corpus, capsys, monkeypatch):
+    rep = migrate_contract(old_corpus, ciks=[MSFT, "1234"], dry_run=True)
+    assert rep.counts["issuers"] == 1 and rep.ciks_without_manifest == ["0000001234"]
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(old_corpus.data_dir))
+    cli.main(["--data-dir", str(old_corpus.data_dir), "migrate-contract", "--ciks", "1234"])
+    assert "no manifest for: 0000001234" in capsys.readouterr().err

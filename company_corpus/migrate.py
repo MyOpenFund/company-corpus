@@ -63,6 +63,8 @@ class MigrationReport:
     #: provenance value -> vault rows carrying it, for values ``vocabulary.json`` does not
     #: declare: the vault would refuse those rows (``unknown_provenance``).
     unknown_provenances: dict[str, int] = field(default_factory=dict)
+    #: ``--ciks`` entries with no ``manifest/<cik>.jsonl`` (nothing to migrate there).
+    ciks_without_manifest: list[str] = field(default_factory=list)
 
     @property
     def useful_work(self) -> int:
@@ -79,6 +81,10 @@ def migrate_contract(config: Config, *, ciks: Sequence[str] | None = None,
     storage = Storage(config)
     report = MigrationReport()
     tombstones = _tombstones(config)
+    if ciks:
+        report.ciks_without_manifest = [
+            c for c in dict.fromkeys(normalize_cik(c) for c in ciks)
+            if not config.manifest_file(c).is_file()]
     for path in _manifest_paths(config, ciks):
         report.counts["issuers"] += 1
         counts = Counter()

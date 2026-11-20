@@ -1367,6 +1367,8 @@ def _cmd_migrate_contract(args: argparse.Namespace) -> int:
         print("  (dry run: primary_hashed counts the primary documents a write would hash)")
     for err in rep.errors:
         print(f"  refused: {err['error']}", file=sys.stderr)
+    if rep.ciks_without_manifest:
+        print(f"  no manifest for: {', '.join(rep.ciks_without_manifest)}", file=sys.stderr)
     if rep.unknown_provenances:
         values = " ".join(f"{k}={v}" for k, v in sorted(rep.unknown_provenances.items()))
         print(f"  provenance outside the vocabulary: {values} (the vault would refuse these "
