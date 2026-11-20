@@ -407,13 +407,15 @@ class _Scan:
             # primary's hash is the only one, and it is stamped last.
             self._add("incomplete-record", where,
                       "an artefact is stored but no hash is set (half-processed)")
-        elif record.primary_path and not record.primary_sha256:
-            # The vault contract's sha256: a row written before chantier 4.
-            self._add("missing-primary-hash", where,
-                      "primary_path is set but sha256 (the primary document's hash) is not; "
-                      "`migrate-contract --write` computes it from the files on disk")
-        elif self.check_hashes:
-            self._check_hashes(where, record)
+        else:
+            if record.primary_path and not record.primary_sha256:
+                # The vault contract's sha256: a row written before chantier 4. Its
+                # submission hash is still checked below.
+                self._add("missing-primary-hash", where,
+                          "primary_path is set but sha256 (the primary document's hash) is "
+                          "not; `migrate-contract --write` computes it from the files on disk")
+            if self.check_hashes:
+                self._check_hashes(where, record)
 
     def _check_hashes(self, where: str, record: FilingRecord) -> None:
         """Re-hash what each hash covers (``--hash``).

@@ -716,3 +716,14 @@ def test_a_pre_contract_row_is_verified_by_its_old_names(corpus):
            "text_path": rec.text_path, "pdf_path": None, "doc_id": rec.doc_id}
     _write_manifest_rows(corpus, [old])
     assert _kinds(verify(corpus, check_hashes=True)) == ["missing-primary-hash"]
+
+
+def test_a_pre_contract_row_still_has_its_submission_hash_checked(corpus):
+    # missing-primary-hash must not hide a rotted submission (before the migration, and
+    # forever for a row whose primary cannot be hashed).
+    rows = _manifest_rows(corpus)
+    rows[0]["sha256"] = None
+    _write_manifest_rows(corpus, rows)
+    (corpus.data_dir / rows[0]["submission_path"]).write_text("rotted")
+    assert sorted(_kinds(verify(corpus, check_hashes=True))) == [
+        "missing-primary-hash", "submission-hash-mismatch"]
