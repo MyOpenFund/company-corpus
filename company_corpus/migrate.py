@@ -10,7 +10,8 @@ One pass per issuer manifest (``manifest/<cik>.jsonl``), keyed by ``doc_id``, lo
    nothing of it is written, an error item names the line, and the operator settles it
    (``verify`` reports the same rows);
 2. F1 rows move to the F1 index (``derived/f1/<cik>.jsonl``); a ``doc_id`` the index already
-   holds keeps the index's row (written by the new code, so newer). The index is read as
+   holds keeps the index's row (written by the new code, so newer; a pre-contract index row
+   has no released writer, so the rule is not re-examined for it). The index is read as
    strictly as the manifest (not ``Storage.load_f1``): an unparseable line, a duplicate or a
    row of another family refuses the issuer, naming the index line; a pre-contract index row
    is renamed like a manifest row and the index rewritten in the contract;

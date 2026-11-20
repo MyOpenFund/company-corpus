@@ -42,7 +42,7 @@ from .eu.documents import Document
 from .models import FilingRecord, ManifestNeedsMigration
 from .paths import UnsafeIdentifier, safe_component
 from .storage import primary_document, read_submission, text_sha256
-from .taxonomy import FormType
+from .taxonomy import FormType, code_article
 
 #: The manifest pointers that name bytes on disk, in the order a reader falls
 #: back through them. ``Config.sticky_manifest_fields`` is the same set minus
@@ -361,7 +361,7 @@ class _Scan:
                           "(`migrate-contract --write` moves it)")
             elif f1_index and not is_f1:
                 self._add("not-f1-in-f1-index", f"{rel}:{stored_id or lineno}",
-                          f"a {record.form_type.code} row in the F1 index; its place is "
+                          f"{code_article(record.form_type.code)} {record.form_type.code} row in the F1 index; its place is "
                           "manifest/")
             if stored_id != record.doc_id:
                 self._add(

@@ -388,7 +388,7 @@ takes **no corpus lock**, so it is safe to run beside a nightly crawl.
 | `foreign-row` | a row filed under an entity other than the one naming its file |
 | `invalid-identifier` | a filename or row id that is not a usable CIK / LEI / path component |
 | `incomplete-record` | a submission is stored but `submission_sha256` is unset, or (no submission: an F1 summary) an artefact is stored and no hash is (half-processed; `download` repairs it from disk) |
-| `pre-contract-row` | a manifest row in the pre-contract form; `migrate-contract --write` rewrites it, every other command refuses the manifest until then (the orphan check is dropped: what the row points at is not read) |
+| `pre-contract-row` | a manifest row in the pre-contract form; `migrate-contract --write` rewrites it, every other command that reads the manifest refuses it until then (the orphan check is dropped: what the row points at is not read) |
 | `missing-primary-hash` | a row with a primary document but no `sha256` (its hash); `migrate-contract --write` computes it from the files on disk |
 | `f1-in-manifest` | an F1 row in `manifest/` (its place is `derived/f1/`; `migrate-contract --write` moves it); the other commands refuse that manifest |
 | `not-f1-in-f1-index` | a row of another family in `derived/f1/` |
