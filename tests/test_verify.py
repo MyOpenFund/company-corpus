@@ -158,12 +158,12 @@ def test_a_pointer_escaping_the_data_dir_is_reported(corpus):
 
 def test_a_stale_hash_is_found_only_when_hashing_is_asked_for(corpus):
     rows = _manifest_rows(corpus)
-    (corpus.data_dir / rows[0]["local_path"]).write_text("truncated by something")
+    (corpus.data_dir / rows[0]["submission_path"]).write_text("truncated by something")
 
     assert verify(corpus) == []  # a metadata pass must not re-read 9 GB
     findings = verify(corpus, check_hashes=True)
     assert _kinds(findings) == ["hash-mismatch"]
-    assert rows[0]["sha256"][:12] in findings[0].detail
+    assert rows[0]["submission_sha256"][:12] in findings[0].detail
 
 
 def test_two_rows_sharing_a_doc_id_are_reported(corpus):
@@ -289,8 +289,8 @@ def test_an_old_scheme_f1_doc_id_is_reported_as_stale(corpus):
     row = rec.to_row()
     old_basis = f"{rec.cik}|{rec.form_type.code}|{rec.accession}"
     row["doc_id"] = hashlib.sha1(old_basis.encode()).hexdigest()[:16]
-    row["local_path"] = row["primary_path"] = row["text_path"] = None
-    row["sha256"] = None
+    row["submission_path"] = row["primary_path"] = row["text_path"] = None
+    row["local_path"] = row["mime_type"] = row["sha256"] = None
     _write_manifest_rows(corpus, _manifest_rows(corpus) + [row])
 
     findings = verify(corpus)
@@ -309,7 +309,7 @@ def test_an_f1_summary_left_by_the_old_scheme_is_an_orphan(corpus):
 
 def test_a_record_with_an_artefact_but_no_hash_is_incomplete(corpus):
     rows = _manifest_rows(corpus)
-    rows[0]["sha256"] = None
+    rows[0]["submission_sha256"] = rows[0]["sha256"] = None
     _write_manifest_rows(corpus, rows)
 
     findings = verify(corpus)
@@ -551,7 +551,7 @@ def test_cli_verify_takes_no_lock_and_writes_no_run_report(corpus, monkeypatch):
 
 def test_cli_hash_flag_reaches_the_check(corpus, capsys):
     rows = _manifest_rows(corpus)
-    (corpus.data_dir / rows[0]["local_path"]).write_text("tampered")
+    (corpus.data_dir / rows[0]["submission_path"]).write_text("tampered")
 
     assert cli.main(["--data-dir", str(corpus.data_dir), "verify"]) == 0
     capsys.readouterr()

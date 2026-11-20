@@ -13,12 +13,61 @@ synthetic pseudo-filings that share one accession across several periods.
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import date
 
-from .config import normalize_cik
+from .config import DEFAULT_VAULT_ARTIFACT_PREFERENCE, normalize_cik
 from .taxonomy import FormType, by_code
+
+#: The vault ``documents`` contract (vault repo, ``contract/``) this module writes: every
+#: manifest row is one contract row of corpus ``company``. The runtime never imports the
+#: contract package; tests check the rows against it.
+CORPUS = "company"
+#: The authority of every FilingRecord (``source_codes.SOURCE_CODES``): SEC EDGAR.
+SEC_SOURCE_CODE = "sec"
+#: An EDGAR filing date is a day, and it is the day the document was published.
+SEC_DATE_PRECISION = "day"
+SEC_DATE_KIND = "publication"
+#: The identifier scheme of ``entity_value``: the issuer's 10-digit CIK.
+SEC_ENTITY_SCHEME = "cik"
+
+#: A vault artefact kind -> (the record attribute pointing at it, the file's media type).
+VAULT_ARTIFACTS: dict[str, tuple[str, str]] = {
+    "pdf": ("pdf_path", "application/pdf"),
+    "text": ("text_path", "text/plain"),
+}
+
+EDGAR_ARCHIVES = "https://www.sec.gov/Archives/edgar/data"
+_ACCESSION = re.compile(r"\A[0-9]{10}-[0-9]{2}-[0-9]{6}\Z")
+
+
+def index_url(cik: str, accession: str) -> str | None:
+    """The EDGAR filing index page of a filing, or None for a non-EDGAR accession.
+
+    ``.../edgar/data/<cik without zeros>/<accession without dashes>/<accession>-index.htm``.
+    """
+    if not isinstance(accession, str) or not _ACCESSION.match(accession):
+        return None
+    return (f"{EDGAR_ARCHIVES}/{int(normalize_cik(cik))}/{accession.replace('-', '')}/"
+            f"{accession}-index.htm")
+
+
+def artifact_for_vault(record: "FilingRecord",
+                       preference: Sequence[str]) -> tuple[str | None, str | None]:
+    """``(local_path, mime_type)``: the first artefact of ``preference`` the record points at.
+
+    Decided by the pointer being set, never by a disk read, so the row is the same on every
+    host. ``(None, None)`` when the record has none of them (not yet downloaded, or a filing
+    with no primary document): the row stays in the manifest as inventory.
+    """
+    for kind in preference:
+        attr, mime = VAULT_ARTIFACTS[kind]
+        path = getattr(record, attr)
+        if path:
+            return path, mime
+    return None, None
 
 #: Taxonomy families whose ``doc_id`` also keys on the reported period, i.e. on
 #: the pair ``period_of_report | frequency``.
@@ -74,9 +123,13 @@ class FilingRecord:
     submission_url: str = ""              # the complete-submission .txt
 
     provenance: str = "edgar_index"       # edgar_index | edgar_fts | edgar_submissions | wayback
-    sha256: str | None = None             # hash of stored submission (integrity/dedup)
+    submission_sha256: str | None = None  # hash of the stored submission (integrity/dedup)
+    #: Hash of the primary document as the authority served it (the bytes decomposed out of
+    #: the submission; family F: the summary HTML). The contract row's ``sha256``. It stays
+    #: when an ownership summary later supersedes the file at ``primary_path``.
+    primary_sha256: str | None = None
 
-    local_path: str | None = None         # stored full submission (rel. to data/)
+    submission_path: str | None = None    # stored full submission (rel. to the data dir)
     primary_path: str | None = None       # decomposed primary document
     text_path: str | None = None          # cleaned extracted text
     pdf_path: str | None = None           # populated by the separate render-pdf batch
@@ -107,28 +160,88 @@ class FilingRecord:
     def year(self) -> int | None:
         return self.filing_date.year if self.filing_date else None
 
-    def to_row(self) -> dict:
-        """Serialize to a JSON-ready dict (one manifest line)."""
-        row = asdict(self)
-        row["form_type"] = self.form_type.code
-        row["family"] = self.form_type.family
-        row["filing_date"] = self.filing_date.isoformat() if self.filing_date else None
-        row["period_of_report"] = (
-            self.period_of_report.isoformat() if self.period_of_report else None
-        )
-        row["doc_id"] = self.doc_id
-        row["year"] = self.year
-        return row
+    def to_row(self, *, artifact_preference: Sequence[str] = DEFAULT_VAULT_ARTIFACT_PREFERENCE
+               ) -> dict:
+        """Serialize to one manifest line: a row of the vault ``documents`` contract.
+
+        The 18 contract fields first (in the contract's order), then this corpus's extras.
+        ``artifact_preference`` is ``Config.vault_artifact_preference`` (see
+        :func:`artifact_for_vault`).
+        """
+        dated = self.filing_date is not None
+        local_path, mime_type = artifact_for_vault(self, artifact_preference)
+        return {
+            "doc_id": self.doc_id,
+            "corpus": CORPUS,
+            "source_code": SEC_SOURCE_CODE,
+            "doc_type": self.form_type.code,
+            "title": self.title,
+            "date": self.filing_date.isoformat() if dated else None,
+            "year": self.year,
+            "date_precision": SEC_DATE_PRECISION if dated else None,
+            "date_kind": SEC_DATE_KIND if dated else None,
+            "language": self.language,
+            "provenance": self.provenance,
+            "document_url": self.primary_doc_url or None,
+            "source_url": index_url(self.cik, self.accession),
+            "mime_type": mime_type,
+            "sha256": self.primary_sha256,
+            "local_path": local_path,
+            "entity_scheme": SEC_ENTITY_SCHEME,
+            "entity_value": self.cik,
+            # extras
+            "cik": self.cik,
+            "family": self.form_type.family,
+            "sec_form": self.sec_form,
+            "accession": self.accession,
+            "period_of_report": (
+                self.period_of_report.isoformat() if self.period_of_report else None),
+            "company": self.company,
+            "company_current": self.company_current,
+            "ticker": self.ticker,
+            "entity_id": self.entity_id,
+            "primary_path": self.primary_path,
+            "text_path": self.text_path,
+            "pdf_path": self.pdf_path,
+            "submission_path": self.submission_path,
+            "submission_sha256": self.submission_sha256,
+            "submission_url": self.submission_url,
+            "alt_urls": list(self.alt_urls),
+            "frequency": self.frequency,
+        }
 
     @classmethod
     def from_row(cls, row: dict) -> "FilingRecord":
-        """Reconstruct a record from a manifest line (inverse of :meth:`to_row`)."""
+        """Reconstruct a record from a manifest line: a contract row (:meth:`to_row`) or a
+        pre-contract one (transition, chantier 4).
+
+        A row is in the contract form when it has ``doc_type``, which the pre-contract
+        writer never wrote. The old form named the type ``form_type``, the date
+        ``filing_date``, the primary's URL ``primary_doc_url``, the submission ``local_path``
+        and its hash ``sha256`` -- except on a row with no submission (family F summaries),
+        whose ``sha256`` hashed the primary it pointed at.
+        """
         def _parse_date(value: str | None) -> date | None:
             return date.fromisoformat(value) if value else None
 
+        if "doc_type" in row:
+            code, filed = row["doc_type"], row.get("date")
+            primary_doc_url = row.get("document_url") or ""
+            submission_path = row.get("submission_path")
+            submission_sha256 = row.get("submission_sha256")
+            primary_sha256 = row.get("sha256")
+        else:
+            code, filed = row["form_type"], row.get("filing_date")
+            primary_doc_url = row.get("primary_doc_url") or ""
+            submission_path = row.get("local_path")
+            if submission_path:
+                submission_sha256, primary_sha256 = row.get("sha256"), None
+            else:
+                submission_sha256, primary_sha256 = None, row.get("sha256")
+
         return cls(
             cik=row["cik"],
-            form_type=by_code(row["form_type"]),
+            form_type=by_code(code),
             sec_form=row["sec_form"],
             accession=row["accession"],
             title=row.get("title", ""),
@@ -136,14 +249,15 @@ class FilingRecord:
             company_current=row.get("company_current", ""),
             ticker=row.get("ticker", ""),
             entity_id=row.get("entity_id", ""),
-            filing_date=_parse_date(row.get("filing_date")),
+            filing_date=_parse_date(filed),
             period_of_report=_parse_date(row.get("period_of_report")),
             frequency=row.get("frequency") or "",
-            primary_doc_url=row.get("primary_doc_url", ""),
+            primary_doc_url=primary_doc_url,
             submission_url=row.get("submission_url", ""),
             provenance=row.get("provenance", "edgar_index"),
-            sha256=row.get("sha256"),
-            local_path=row.get("local_path"),
+            submission_sha256=submission_sha256,
+            primary_sha256=primary_sha256,
+            submission_path=submission_path,
             primary_path=row.get("primary_path"),
             text_path=row.get("text_path"),
             pdf_path=row.get("pdf_path"),

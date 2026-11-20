@@ -696,10 +696,10 @@ def process_ownership(
                 report.repaired += 1
             elif res.status == "would-repair":
                 report.would_repair += 1
-            if dry_run or not rec.local_path:
+            if dry_run or not rec.submission_path:
                 continue
 
-            raw = (config.data_dir / rec.local_path).read_text(encoding="utf-8", errors="replace")
+            raw = (config.data_dir / rec.submission_path).read_text(encoding="utf-8", errors="replace")
             if rec.form_type is FormType.E1:
                 xml = find_ownership_doc(raw, "E1")
                 filing = parse_form345(xml) if xml else None

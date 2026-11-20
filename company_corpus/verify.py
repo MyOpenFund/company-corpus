@@ -48,7 +48,7 @@ from .paths import UnsafeIdentifier, safe_component
 #: an operator who narrows the sticky set must not thereby narrow what is
 #: CHECKED -- the pointers a record carries are a fact of the schema.
 ARTEFACT_POINTERS: tuple[str, ...] = (
-    "local_path", "primary_path", "text_path", "pdf_path",
+    "submission_path", "primary_path", "text_path", "pdf_path",
 )
 
 #: Raw files that legitimately exist with no manifest row pointing at them.
@@ -370,14 +370,14 @@ class _Scan:
             if not self._exists(rel):
                 self._add("missing-artefact", where, f"{name} is not on disk: {rel}")
 
-        if any(pointers.values()) and not record.sha256:
+        if any(pointers.values()) and not (record.submission_sha256 or record.primary_sha256):
             # Storage._needs_repair's own marker: a record with bytes on disk
             # and no hash was interrupted between writing and stamping, and is
             # invisible to every consumer that trusts the hash chain.
             self._add("incomplete-record", where,
                       "an artefact is stored but sha256 is unset "
                       "(half-processed; `download` repairs it from disk)")
-        elif self.check_hashes and record.sha256:
+        elif self.check_hashes:
             self._check_hash(where, record)
 
     def _check_hash(self, where: str, record: FilingRecord) -> None:
@@ -388,13 +388,16 @@ class _Scan:
         (``local_path``), while ``write_financial_summary`` -- family F, which
         has no submission -- hashes the HTML it rendered (``primary_path``).
         """
-        rel = record.local_path or record.primary_path
+        rel = record.submission_path or record.primary_path
+        expected = record.submission_sha256 if record.submission_path else record.primary_sha256
+        if not expected:
+            return
         if not rel or not self._inside_data_dir(rel) or not self._exists(rel):
             return  # already reported as a missing artefact
         actual = self._sha256_file(where, self.data_dir / rel)
-        if actual is not None and actual != record.sha256:
+        if actual is not None and actual != expected:
             self._add("hash-mismatch", where,
-                      f"stored sha256 {record.sha256[:12]}… but {rel} hashes "
+                      f"stored sha256 {expected[:12]}… but {rel} hashes "
                       f"to {actual[:12]}…")
 
     def _inside_data_dir(self, rel: str) -> bool:

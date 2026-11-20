@@ -72,7 +72,7 @@ def _payload(record: FilingRecord, path: Path, data_dir: Path) -> dict:
         "title": record.title,
         "url": record.primary_doc_url,
         "accession": record.accession,
-        "sha256": record.sha256 or "",
+        "sha256": record.primary_sha256 or "",
         "provenance": record.provenance,
         "ext": path.suffix.lstrip("."),
         "rel_path": str(path.relative_to(data_dir)),

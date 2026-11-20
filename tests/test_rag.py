@@ -14,7 +14,7 @@ def _seed(config, *, pdf=True, accession="acc1"):
         cik="320193", form_type=FormType.A1, sec_form="10-K", accession=accession,
         company="Apple Inc.", company_current="Apple Inc.", ticker="AAPL",
         filing_date=date(2024, 11, 1), primary_doc_url="https://sec.gov/x/aapl.htm",
-        sha256="abc123", entity_id="",
+        primary_sha256="abc123", entity_id="",
     )
     dest = st.raw_dir_for(rec)
     dest.mkdir(parents=True, exist_ok=True)

@@ -340,7 +340,8 @@ class Storage:
         """Fill the incoming record's empty artefact pointers from the stored one.
 
         ``EdgarSubmissions.discover`` builds a fresh record on every run with
-        ``local_path``/``sha256``/``primary_path``/``text_path``/``pdf_path``
+        ``submission_path``/``submission_sha256``/``primary_sha256``/``primary_path``/
+        ``text_path``/``pdf_path``
         unset -- those are only ever written by ``fetch_and_store`` and
         ``render_record``. The merge used to REPLACE the stored record with that
         fresh one, so a second ``discover --write`` orphaned every downloaded
@@ -387,7 +388,9 @@ class Storage:
             records,
             key=lambda r: (r.filing_date or date.min, r.accession),
         )
-        _atomic_write_text(path, _jsonl(rec.to_row() for rec in ordered))
+        preference = self.config.vault_artifact_preference
+        _atomic_write_text(path, _jsonl(rec.to_row(artifact_preference=preference)
+                                        for rec in ordered))
 
     # ---- download + decomposition (Phase 2) ----
     def raw_dir_for(self, record: FilingRecord) -> Path:
@@ -405,7 +408,7 @@ class Storage:
         manifest left the document permanently stuck: no primary, no cleaned
         text, no hash, invisible to ``rag.iter_items`` forever, recoverable only
         by re-downloading every byte with ``--overwrite`` (Rob-C4). A missing
-        ``sha256`` is the marker: it is set by every complete pass, and it is
+        ``submission_sha256`` is the marker: it is set by every complete pass, and it is
         also what a wiped record (DI-C1) or a legacy row lacks (DI-M10). A
         pointer aimed at bytes that are no longer on disk counts too -- since
         DI-C1 made the pointers sticky, a dangling one can never clear itself.
@@ -418,11 +421,11 @@ class Storage:
         file cannot come from the tool, and re-hashing every stored submission
         would turn a metadata check into a full corpus re-read.
 
-        ``record.local_path`` is not checked: the only caller sets it from a
+        ``record.submission_path`` is not checked: the only caller sets it from a
         ``sub_path`` it has just seen on disk, so that pointer is live by
         construction.
         """
-        if not record.sha256:
+        if not record.submission_sha256:
             return True
         for rel in (record.primary_path, record.text_path):
             if rel and not (self.config.data_dir / rel).exists():
@@ -439,7 +442,7 @@ class Storage:
         (Rob-C4).
 
         The record is mutated only once every byte is parsed and written. The
-        old inline version stamped ``sha256`` before parsing, so a parse that
+        old inline version stamped the hash before parsing, so a parse that
         blew up left a record that ``_needs_repair`` would call complete --
         stuck forever, because DI-C1 made the pointers sticky and a later save
         can no longer clear them.
@@ -451,7 +454,7 @@ class Storage:
                 "stored submission is empty (re-download with --overwrite)"
             )
 
-        sha256 = hashlib.sha256(raw.encode("utf-8", "replace")).hexdigest()
+        submission_sha256 = hashlib.sha256(raw.encode("utf-8", "replace")).hexdigest()
         primary = select_primary(
             parse_submission(raw),
             primary_filename=filename_from_url(record.primary_doc_url),
@@ -483,7 +486,7 @@ class Storage:
                         f"points at missing {rel}; re-download with --overwrite"
                     )
 
-        record.sha256 = sha256
+        record.submission_sha256 = submission_sha256
         if primary_rel:
             record.primary_path = primary_rel
             record.text_path = text_rel
@@ -501,7 +504,7 @@ class Storage:
         Writes three layered artifacts under ``data/raw/<cik>/<form>/<year>/``:
         the full submission (``.submission.txt``), the decomposed primary
         document (``.primary<ext>``), and cleaned text (``.txt``). Mutates
-        ``record`` with the resulting paths + sha256.
+        ``record`` with the resulting paths and hashes.
 
         Idempotent *and* convergent: an existing submission is skipped only when
         the derived artefacts are actually there, otherwise it is repaired from
@@ -516,7 +519,7 @@ class Storage:
         sub_path = dest_dir / f"{record.doc_id}.submission.txt"
 
         if sub_path.exists() and not overwrite:
-            record.local_path = self._rel(sub_path)
+            record.submission_path = self._rel(sub_path)
             if not self._needs_repair(record):
                 return DownloadResult(record.doc_id, "skipped")
             if dry_run:
@@ -538,7 +541,7 @@ class Storage:
             raw = fetcher.get_text(record.submission_url)
             data = raw.encode("utf-8", "replace")
             _atomic_write_text(sub_path, raw)
-            record.local_path = self._rel(sub_path)
+            record.submission_path = self._rel(sub_path)
             self._decompose(record, raw, dest_dir)
         except Exception as exc:  # noqa: BLE001
             return DownloadResult(record.doc_id, "error", error=str(exc))
@@ -695,7 +698,7 @@ class Storage:
         primary = dest_dir / f"{record.doc_id}.primary.html"
         _atomic_write_text(primary, html)
         record.primary_path = self._rel(primary)
-        record.sha256 = hashlib.sha256(html.encode("utf-8")).hexdigest()
+        record.primary_sha256 = hashlib.sha256(html.encode("utf-8")).hexdigest()
         txt = dest_dir / f"{record.doc_id}.txt"
         _atomic_write_text(txt, text)
         record.text_path = self._rel(txt)
@@ -888,7 +891,7 @@ class Storage:
             log.append({"cik": cik, "doc_id": rec.doc_id,
                         "period_of_report": _iso(rec.period_of_report), "frequency": rec.frequency,
                         "accession": rec.accession, "filing_date": _iso(rec.filing_date),
-                        "sha256": rec.sha256, "deleted_files": deleted})
+                        "sha256": rec.primary_sha256, "deleted_files": deleted})
         if not result.records:
             return result
         rows, drop = self._f1_groups_to_drop(table, manifest, result.records, kept)

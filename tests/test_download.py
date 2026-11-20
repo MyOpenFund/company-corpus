@@ -25,9 +25,9 @@ def test_fetch_and_store_writes_three_artifacts(apple_fetcher, config):
     rec = _apple_10k()
     res = st.fetch_and_store(rec, apple_fetcher, dry_run=False)
     assert res.status == "downloaded"
-    assert rec.local_path and rec.primary_path and rec.text_path and rec.sha256
+    assert rec.submission_path and rec.primary_path and rec.text_path and rec.submission_sha256
 
-    full = config.data_dir / rec.local_path
+    full = config.data_dir / rec.submission_path
     primary = config.data_dir / rec.primary_path
     text = config.data_dir / rec.text_path
     assert full.exists() and primary.exists() and text.exists()
@@ -61,7 +61,7 @@ def test_download_universe_updates_manifest(apple_fetcher, config):
                                config=config, fetcher=apple_fetcher, storage=st)
     assert report.downloaded == 1 and report.bytes > 0
     rec = next(iter(st.load_manifest("320193").values()))
-    assert rec.text_path and rec.sha256  # persisted back to manifest
+    assert rec.text_path and rec.submission_sha256  # persisted back to manifest
 
 
 def test_download_universe_limit(apple_fetcher, config):
@@ -129,11 +129,11 @@ def test_interrupted_download_is_repaired_without_network(apple_fetcher, config)
     st.fetch_and_store(_apple_10k(), apple_fetcher, dry_run=False)
     # Simulate the interrupt: bytes on disk, manifest never saved.
     stuck = _apple_10k()
-    assert stuck.local_path is None
+    assert stuck.submission_path is None
 
     res = st.fetch_and_store(stuck, _Boom(), dry_run=False)
     assert res.status == "repaired"
-    assert stuck.sha256 and stuck.local_path and stuck.primary_path and stuck.text_path
+    assert stuck.submission_sha256 and stuck.submission_path and stuck.primary_path and stuck.text_path
 
 
 def test_complete_record_is_skipped_with_no_work(apple_fetcher, config):
@@ -147,9 +147,9 @@ def test_missing_sha256_is_backfilled_from_disk(apple_fetcher, config):
     st = Storage(config)
     rec = _apple_10k()
     st.fetch_and_store(rec, apple_fetcher, dry_run=False)
-    rec.sha256 = None
+    rec.submission_sha256 = None
     assert st.fetch_and_store(rec, _Boom(), dry_run=False).status == "repaired"
-    assert rec.sha256
+    assert rec.submission_sha256
 
 
 def test_a_deleted_derived_artefact_is_re_derived(apple_fetcher, config):
@@ -169,7 +169,7 @@ def test_repair_is_announced_but_not_performed_in_a_dry_run(apple_fetcher, confi
     st.fetch_and_store(rec, apple_fetcher, dry_run=False)
     stuck = _apple_10k()
     assert st.fetch_and_store(stuck, _Boom(), dry_run=True).status == "would-repair"
-    assert stuck.sha256 is None and stuck.primary_path is None
+    assert stuck.submission_sha256 is None and stuck.primary_path is None
 
 
 def test_a_zero_byte_stored_submission_is_an_error_not_a_silent_adoption(config):
@@ -187,7 +187,7 @@ def test_a_zero_byte_stored_submission_is_an_error_not_a_silent_adoption(config)
 
     res = st.fetch_and_store(rec, _Boom(), dry_run=False)
     assert res.status == "error" and "empty" in res.error
-    assert rec.sha256 is None
+    assert rec.submission_sha256 is None
 
 
 def test_a_malformed_submission_is_one_error_not_an_aborted_run(make_fetcher, config, monkeypatch):
@@ -210,8 +210,8 @@ def test_a_decomposition_failure_writes_no_half_record(make_fetcher, config, mon
     st = Storage(config)
     rec = _apple_10k()
     st.fetch_and_store(rec, make_fetcher({SUB_URL: "garbage"}), dry_run=False)
-    assert rec.local_path  # the bytes are on disk and pointed at
-    assert rec.sha256 is None and rec.primary_path is None and rec.text_path is None
+    assert rec.submission_path  # the bytes are on disk and pointed at
+    assert rec.submission_sha256 is None and rec.primary_path is None and rec.text_path is None
     # And the next pass still sees work to do rather than skipping forever.
     assert st.fetch_and_store(rec, _Boom(), dry_run=False).status == "error"
 
@@ -232,14 +232,14 @@ def test_a_primary_less_submission_is_an_error_not_a_repeating_repair(
     st.fetch_and_store(rec, apple_fetcher, dry_run=False)
     (config.data_dir / rec.primary_path).unlink()
     monkeypatch.setattr("company_corpus.storage.select_primary", lambda *a, **k: None)
-    rec.sha256 = "stale"  # a re-stamp would overwrite this sentinel
+    rec.submission_sha256 = "stale"  # a re-stamp would overwrite this sentinel
 
     for _ in range(2):  # the second pass must not have "fixed" anything
         res = st.fetch_and_store(rec, _Boom(), dry_run=False)
         assert res.status == "error"
         assert "no primary document" in res.error
         assert "re-download with --overwrite" in res.error
-        assert rec.sha256 == "stale"
+        assert rec.submission_sha256 == "stale"
 
 
 def test_download_universe_counts_a_repair(apple_fetcher, config):
@@ -250,13 +250,13 @@ def test_download_universe_counts_a_repair(apple_fetcher, config):
     # Wipe the derived pointers the way an interrupt would have left them.
     manifest = st.load_manifest("320193")
     for rec in manifest.values():
-        rec.sha256 = None
+        rec.submission_sha256 = None
     st._write_manifest("320193", manifest.values())
 
     report = download_universe(["320193"], scope=FULL_SCOPE, dry_run=False,
                                config=config, fetcher=_Boom(), storage=st)
     assert report.repaired == 1 and report.downloaded == 0 and report.errors == 0
-    assert next(iter(st.load_manifest("320193").values())).sha256
+    assert next(iter(st.load_manifest("320193").values())).submission_sha256
 
 
 # ---- --limit caps NEW DOWNLOADS, never repairs ----
@@ -278,7 +278,7 @@ def _half_processed(st: Storage, fetcher, accession: str, day: int) -> FilingRec
     """
     rec = _new_record(accession, day)
     st.fetch_and_store(rec, fetcher, dry_run=False)
-    rec.sha256 = None
+    rec.submission_sha256 = None
     return rec
 
 
@@ -319,9 +319,9 @@ def test_download_limit_caps_downloads_but_not_repairs(apple_fetcher, config):
     assert report.errors == 0
     manifest = st.load_manifest("320193")
     by_acc = {r.accession: r for r in manifest.values()}
-    assert all(by_acc[f"0000320193-24-00000{n}"].sha256 for n in (1, 2, 4)), \
+    assert all(by_acc[f"0000320193-24-00000{n}"].submission_sha256 for n in (1, 2, 4)), \
         "every half-processed document behind the cap is converged"
-    assert not by_acc["0000320193-24-000003"].sha256, \
+    assert not by_acc["0000320193-24-000003"].submission_sha256, \
         "the second NEW download is still capped: it would cost network"
 
 
@@ -344,5 +344,5 @@ def test_download_limit_zero_dry_run_reports_the_repairs(apple_fetcher, config):
                                limit=0, config=config, fetcher=_Boom(), storage=st)
 
     assert report.would_repair == 3 and report.repaired == 0 and report.downloaded == 0
-    assert not any(r.sha256 for r in st.load_manifest("320193").values()
+    assert not any(r.submission_sha256 for r in st.load_manifest("320193").values()
                    if r.accession.endswith(("1", "2", "4"))), "a dry run writes nothing"

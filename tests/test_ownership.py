@@ -231,7 +231,7 @@ def _ownership_corpus(st: Storage, fetcher) -> None:
     for accession, day in (("acc-f4-2", 2), ("acc-f4-1", 1)):
         rec = _e1(accession, day)
         st.fetch_and_store(rec, fetcher, dry_run=False)
-        rec.sha256 = None  # the interrupt marker: bytes on disk, nothing stamped
+        rec.submission_sha256 = None  # the interrupt marker: bytes on disk, nothing stamped
         recs.append(rec)
     st.save_records(recs, dry_run=False)
 
@@ -253,8 +253,8 @@ def test_ownership_limit_caps_downloads_but_not_repairs(make_fetcher, config):
     assert rep.downloaded == 0 and rep.repaired == 2
     assert rep.parsed_insider == 2, "a repaired filing is parsed like any other"
     by_acc = {r.accession: r for r in st.load_manifest("320193").values()}
-    assert by_acc["acc-f4-2"].sha256 and by_acc["acc-f4-1"].sha256
-    assert not by_acc["acc-f4-3"].sha256, "the new download stays capped"
+    assert by_acc["acc-f4-2"].submission_sha256 and by_acc["acc-f4-1"].submission_sha256
+    assert not by_acc["acc-f4-3"].submission_sha256, "the new download stays capped"
 
 
 def test_ownership_limit_leaves_complete_unparsed_filings_behind_the_cap(
@@ -270,7 +270,7 @@ def test_ownership_limit_leaves_complete_unparsed_filings_behind_the_cap(
     rec = _e1("acc-f4-9", 9)
     st.fetch_and_store(rec, fetcher, dry_run=False)  # complete: bytes + sha256
     st.save_records([rec], dry_run=False)
-    assert rec.sha256, "the filing is complete on disk, so no repair is due"
+    assert rec.submission_sha256, "the filing is complete on disk, so no repair is due"
 
     capped = process_ownership(["320193"], dry_run=False, limit=0, config=config,
                                fetcher=fetcher, storage=st)

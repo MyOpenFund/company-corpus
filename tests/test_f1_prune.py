@@ -343,7 +343,7 @@ def test_the_log_line_carries_every_field(config):
     assert line == {"run_id": "r9", "cik": CIK, "doc_id": gone.doc_id,
                     "period_of_report": "2019-12-31", "frequency": "annual",
                     "accession": gone.accession, "filing_date": gone.filing_date.isoformat(),
-                    "sha256": gone.sha256, "deleted_files": [gone.primary_path, gone.text_path]}
+                    "sha256": gone.primary_sha256, "deleted_files": [gone.primary_path, gone.text_path]}
 
 
 def test_a_relative_data_dir_works(tmp_path, monkeypatch):

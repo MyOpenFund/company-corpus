@@ -50,7 +50,7 @@ def test_discover_download_discover_keeps_rag_items(config, sample_submission):
     st.save_records([_discovery_record()], dry_run=False)  # the second discovery
 
     kept = next(iter(st.load_manifest("320193").values()))
-    assert kept.sha256 and kept.local_path and kept.primary_path and kept.text_path
+    assert kept.submission_sha256 and kept.submission_path and kept.primary_path and kept.text_path
     assert list(rag.iter_items(ciks=["320193"], config=config))
 
 
