@@ -111,25 +111,59 @@ pinned package.
 
 ## Migrating a corpus written before the contract
 
+**One-way door.** Code from before this change cannot read the migrated rows: it fails on
+`form_type`, skips every row, and its next write rewrites the manifest from what it read
+(reproduced: a pre-contract `save_records` took a migrated manifest from 5 rows to 1). So:
+
+1. **Back up first**: an APFS snapshot of the volume (`tmutil localsnapshot`), or a copy of
+   `manifest/` and `derived/` (`cp -Rp data/manifest data/derived <backup>/`; `derived/` may
+   not exist yet).
+2. **No `xbrl --write` between the code update and a completed migration** (it writes and
+   prunes the F1 index while the old F1 rows still sit in the manifest; the migration copes --
+   a pruned F1 row, tombstoned in `f1_pruned.jsonl` with its files gone, is dropped and counted
+   `f1_dropped_tombstoned` -- but do not rely on it). Every other writing command stops before
+   any work while a manifest still holds F1 rows (`ManifestNeedsMigration`).
+3. Run the migration:
+
 ```bash
 python -m company_corpus migrate-contract                 # dry run: counts only
 python -m company_corpus migrate-contract --write         # corpus lock, run report
 python -m company_corpus migrate-contract --write         # re-run: rows_rewritten=0 f1_moved=0
 python -m company_corpus verify --hash                    # 0 findings expected
+pip install -r requirements-dev.txt                       # vault-contract, for the checker
+python -m vault_contract.check data/manifest --corpus company --vocabulary data/vocabulary.json \
+    --no-transition --strict                              # exit 0
 ```
 
-Per issuer, keyed by `doc_id`, local reads only: every row rewritten in the contract, F1 rows
-moved to `derived/f1/` (a `doc_id` the index already holds keeps the index's row), the primary
-document of each row hashed (from the stored submission, else the primary file),
-`vocabulary.json` written. An unreadable line, a stored `doc_id` the identity rule does not
-reproduce or a duplicated `doc_id` refuses that whole issuer (its files untouched, an error
-names the line). Counts: `rows_rewritten`, `unchanged`, `f1_moved`, `f1_already_indexed`,
-`primary_hashed` (a dry run counts the ones a write would hash), `primary_unhashable` (a
-pointer and no bytes left), `no_primary`, `no_rag_artifact`, `issuers_refused`.
+4. **After `--write`, only code at or after this change may run with `--write`** on that
+   corpus. **Rollback = restore the backup**, never check out older code over the migrated
+   files.
 
-Until it has run, `verify` reports `f1-in-manifest` and `missing-primary-hash`, and every
-command that writes a manifest still holding F1 rows stops (`ManifestNeedsMigration`) rather
-than drop them.
+Per issuer, keyed by `doc_id`, local reads only: every row rewritten in the contract, F1 rows
+moved to `derived/f1/` (a `doc_id` the index already holds keeps the index's row; a tombstoned
+one whose files are gone is dropped), the primary document of each row hashed (from the stored
+submission, else the primary file), `vocabulary.json` written. An unreadable line, a stored
+`doc_id` the identity rule does not reproduce or a duplicated `doc_id` refuses that whole
+issuer (its files untouched, an error names the line). Counts: `rows_rewritten`, `unchanged`,
+`f1_moved`, `f1_already_indexed`, `f1_dropped_tombstoned`, `primary_hashed` (a dry run counts
+the ones a write would hash), `primary_unhashable` (a pointer and no bytes left),
+`no_primary`, `no_rag_artifact`, `provenance_unknown`, `issuers_refused`. A `provenance`
+outside the vocabulary (only `edgar_index`, `edgar_fts`, `edgar_submissions`, `wayback`) is
+listed on stderr (`provenance outside the vocabulary: …`): the vault would refuse those rows,
+so it must be 0 before the manifests are copied to the vault. A `--ciks` entry without a
+manifest is listed too.
+
+**Expected on the real corpus** (Mac, if nothing ran since 2026-11-11):
+
+| step | expected |
+|---|---|
+| dry run | `673 manifest(s), 234002 row(s)`; `rows_rewritten=185041 f1_moved=48961 unchanged=0 issuers_refused=0 f1_already_indexed=0 f1_dropped_tombstoned=0 provenance_unknown=0`; `primary_hashed + primary_unhashable + no_primary = 185041` (`primary_hashed` small, about 1,600; `no_rag_artifact` most of the rest) |
+| `--write` | the same counts, `primary_unhashable` 0 or the rows whose files are gone |
+| re-run | `rows_rewritten=0 f1_moved=0 primary_hashed=0` |
+| `verify --hash` | 673 manifest(s) + 672 F1 index(es) / 234,002 row(s), 0 findings |
+
+Until it has run, `verify` reports `f1-in-manifest` and `missing-primary-hash` (submission
+hashes are still checked under `--hash`).
 
 ## Using the documents
 

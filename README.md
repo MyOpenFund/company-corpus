@@ -83,13 +83,23 @@ vault's `documents` contract 1.0.0 (`corpus: company`, `source_code: sec`, `doc_
 form code, `sha256` = the primary document as the SEC served it, `local_path` = the rendered
 PDF else the cleaned text, `entity_scheme: cik`), and `data/vocabulary.json` declares its
 codes; the vault ingests both as they are. F1 summaries are not vault documents: they live in
-`data/derived/f1/<cik>.jsonl`. A corpus written before the contract is migrated once:
+`data/derived/f1/<cik>.jsonl`. A corpus written before the contract is migrated once, and
+the migration is a **one-way door**: code from before it cannot read the new rows and its next
+write would rewrite a manifest from almost nothing.
 
 ```bash
+# 0. back up: APFS snapshot (tmutil localsnapshot) or a copy of data/manifest and data/derived
+# no `xbrl --write` between the code update and the end of the migration
 python -m company_corpus migrate-contract            # dry run: read the counts
 python -m company_corpus migrate-contract --write    # then: re-run -> rows_rewritten=0 f1_moved=0
 python -m company_corpus verify --hash               # 0 findings
+pip install -r requirements-dev.txt                  # then the vault's checker, exit 0:
+python -m vault_contract.check data/manifest --corpus company --vocabulary data/vocabulary.json --no-transition --strict
 ```
+
+After `--write`, only code at or after this change may run with `--write` on that corpus;
+rollback = restore the backup, never check out older code. Expected counts on the real corpus
+and the provenance check: [`docs/INGESTION_RAG.md`](docs/INGESTION_RAG.md#migrating-a-corpus-written-before-the-contract).
 
 Details, the artefact rule and the checks: [`docs/INGESTION_RAG.md`](docs/INGESTION_RAG.md).
 
