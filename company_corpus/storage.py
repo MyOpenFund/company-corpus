@@ -25,6 +25,7 @@ from .models import FilingRecord
 from .paths import safe_component
 from .submission import filename_from_url, parse_submission, select_primary
 from .taxonomy import FormType
+from .vocabulary import write_vocabulary
 
 
 def _read_umask() -> int:
@@ -391,6 +392,8 @@ class Storage:
         preference = self.config.vault_artifact_preference
         _atomic_write_text(path, _jsonl(rec.to_row(artifact_preference=preference)
                                         for rec in ordered))
+        # The vault checks these rows against the corpus vocabulary: it travels with them.
+        write_vocabulary(self.config)
 
     # ---- download + decomposition (Phase 2) ----
     def raw_dir_for(self, record: FilingRecord) -> Path:

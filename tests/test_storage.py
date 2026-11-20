@@ -190,3 +190,20 @@ def test_a_non_sticky_field_is_still_clearable(config):
     assert kept.period_of_report is None and kept.company == ""
     assert (kept.submission_path, kept.submission_sha256) == ("raw/a.txt", "abc"), \
         "the pointers, and only the pointers, survive"
+
+
+def test_a_manifest_write_writes_the_vocabulary_beside_it(config):
+    from company_corpus.vocabulary import build_vocabulary
+    st = Storage(config)
+    st.save_records([_rec()], dry_run=True)
+    assert not config.vocabulary_path.exists(), "a dry run writes nothing"
+    st.save_records([_rec()], dry_run=False)
+    assert json.loads(config.vocabulary_path.read_text()) == build_vocabulary(config)
+
+
+def test_manifest_rows_follow_the_configured_artefact_preference(tmp_path):
+    config = Config(data_dir=tmp_path, vault_artifact_preference=("text", "pdf"))
+    Storage(config).save_records([_rec(text_path="raw/a.txt", pdf_path="raw/a.pdf")],
+                                 dry_run=False)
+    row = json.loads(config.manifest_file("320193").read_text())
+    assert (row["local_path"], row["mime_type"]) == ("raw/a.txt", "text/plain")
