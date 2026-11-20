@@ -5,12 +5,15 @@ One pass per issuer manifest (``manifest/<cik>.jsonl``), keyed by ``doc_id``, lo
 
 1. every row is read in either form: a pre-contract row is renamed by :func:`contract_names`
    (raw JSON, this module's own reading of the old form; no other reader knows it), then
-   read by ``FilingRecord.from_row``; a line that is not a record,
-   a stored ``doc_id`` the identity rule does not reproduce, or a ``doc_id`` on two lines
-   refuses the WHOLE issuer: nothing of it is written, an error item names the line, and the
-   operator settles it (``verify`` reports the same rows);
+   read by ``FilingRecord.from_row``; a line that is not a record, a stored ``doc_id`` the
+   identity rule does not reproduce, or a ``doc_id`` on two lines refuses the WHOLE issuer:
+   nothing of it is written, an error item names the line, and the operator settles it
+   (``verify`` reports the same rows);
 2. F1 rows move to the F1 index (``derived/f1/<cik>.jsonl``); a ``doc_id`` the index already
-   holds keeps the index's row (written by the new code, so newer);
+   holds keeps the index's row (written by the new code, so newer). The index is read as
+   strictly as the manifest (not ``Storage.load_f1``): an unparseable line, a duplicate or a
+   row of another family refuses the issuer, naming the index line; a pre-contract index row
+   is renamed like a manifest row and the index rewritten in the contract;
 3. a vault row with a primary document and no primary hash gets one: from the submission when
    it is on disk (the document as the SEC served it, even where an ownership summary has
    superseded the decomposed file), else from the file at ``primary_path``;
@@ -20,7 +23,8 @@ One pass per issuer manifest (``manifest/<cik>.jsonl``), keyed by ``doc_id``, lo
 
 A dry run reads the manifests only: it counts the primary documents it WOULD hash from the
 pointers and the presence of their files, without reading them. A re-run after ``--write``
-changes nothing (``rows_rewritten`` 0, ``f1_moved`` 0, ``primary_hashed`` 0).
+changes nothing (``rows_rewritten`` 0, ``f1_moved`` 0, ``f1_index_renamed`` 0,
+``primary_hashed`` 0).
 """
 from __future__ import annotations
 
@@ -40,7 +44,8 @@ from .vocabulary import SEC_PROVENANCES, write_vocabulary
 #: The counters of a run, in report order.
 COUNTERS: tuple[str, ...] = (
     "issuers", "issuers_refused", "rows", "rows_rewritten", "unchanged", "f1_moved",
-    "f1_already_indexed", "f1_dropped_tombstoned", "primary_hashed", "primary_unhashable", "no_primary",
+    "f1_already_indexed", "f1_dropped_tombstoned", "f1_index_renamed", "primary_hashed",
+    "primary_unhashable", "no_primary",
     "no_rag_artifact", "provenance_unknown",
 )
 
@@ -52,8 +57,10 @@ class MigrationReport:
     ``rows_rewritten``/``unchanged``: vault rows whose manifest line changes or not.
     ``f1_moved``: F1 rows leaving ``manifest/`` (``f1_already_indexed`` of them were in the
     index already; ``f1_dropped_tombstoned`` of them were pruned by ``xbrl --write`` since --
-    tombstoned in ``f1_pruned.jsonl``, files gone -- and are not restored). ``primary_hashed``: primary hashes computed; ``primary_unhashable``:
-    rows with a primary pointer and no bytes left to hash. ``no_primary``: vault rows without a
+    tombstoned in ``f1_pruned.jsonl``, files gone -- and are not restored).
+    ``f1_index_renamed``: F1 indexes holding a pre-contract row, rewritten in the contract.
+    ``primary_hashed``: primary hashes computed; ``primary_unhashable``: rows with a primary
+    pointer and no bytes left to hash. ``no_primary``: vault rows without a
     primary document; ``no_rag_artifact``: vault rows without a ``local_path`` (the RAG cannot
     ingest them; they stay as inventory). ``provenance_unknown``: vault rows whose provenance
     the vocabulary does not declare (must be 0 before the vault ingests the manifests).
@@ -70,7 +77,8 @@ class MigrationReport:
 
     @property
     def useful_work(self) -> int:
-        return self.counts["rows_rewritten"] + self.counts["f1_moved"]
+        return (self.counts["rows_rewritten"] + self.counts["f1_moved"]
+                + self.counts["f1_index_renamed"])
 
 
 #: The pre-contract writer's names (company-corpus before #16) for the contract's.
@@ -143,24 +151,27 @@ def _manifest_paths(config: Config, ciks: Sequence[str] | None) -> list[Path]:
     return sorted(p for p in d.glob("*.jsonl") if p.is_file()) if d.is_dir() else []
 
 
-def _read(path: Path) -> list[tuple[dict, FilingRecord]]:
-    """Every row of one manifest with its record; :class:`_Refused` on anything unsafe."""
+def _read(path: Path, *, label: str | None = None) -> list[tuple[int, dict, FilingRecord]]:
+    """Every row of one manifest (or F1 index) with its line number and record;
+    :class:`_Refused` on anything unsafe. ``label`` names the file in the messages (default:
+    its name)."""
+    label = label or path.name
     try:
         cik = normalize_cik(path.stem)
     except ValueError:
-        raise _Refused(f"{path.name}: the file name is not a CIK") from None
+        raise _Refused(f"{label}: the file name is not a CIK") from None
     if path.stem != cik:
-        raise _Refused(f"{path.name}: the file name is not the canonical CIK {cik}")
+        raise _Refused(f"{label}: the file name is not the canonical CIK {cik}")
     try:
         lines = path.read_text(encoding="utf-8").split("\n")
     except (OSError, UnicodeDecodeError) as exc:
-        raise _Refused(f"{path.name}: cannot be read ({exc})") from exc
-    out: list[tuple[dict, FilingRecord]] = []
+        raise _Refused(f"{label}: cannot be read ({exc})") from exc
+    out: list[tuple[int, dict, FilingRecord]] = []
     seen: dict[str, int] = {}
     for lineno, line in enumerate(lines, 1):
         if not line.strip():
             continue
-        where = f"{path.name}:{lineno}"
+        where = f"{label}:{lineno}"
         try:
             row = json.loads(line)
             rec = FilingRecord.from_row(contract_names(row))
@@ -173,13 +184,45 @@ def _read(path: Path) -> list[tuple[dict, FilingRecord]]:
                            f"{rec.doc_id} ({rec.form_type.code} {rec.accession}); the "
                            "migration never changes an identity (see `verify`)")
         if normalize_cik(rec.cik) != cik:
-            raise _Refused(f"{where}: a row of cik {rec.cik} in {cik}'s manifest")
+            raise _Refused(f"{where}: a row of cik {rec.cik} in {cik}'s file")
         if rec.doc_id in seen:
             raise _Refused(f"{where}: duplicate doc_id {rec.doc_id} (also line "
                            f"{seen[rec.doc_id]}); keep one line, then re-run")
         seen[rec.doc_id] = lineno
-        out.append((row, rec))
+        out.append((lineno, row, rec))
     return out
+
+
+def _read_f1_index(config: Config, cik: str) -> tuple[dict[str, FilingRecord], bool]:
+    """The issuer's F1 index read as strictly as its manifest, and whether a row of it is in
+    the pre-contract form.
+
+    Not ``Storage.load_f1``: that reader skips an unparseable line (the index rewrite below
+    would then drop it) and fails on a pre-contract row with a hint to run this very
+    migration. Here an unparseable line, a duplicate or a row of another family refuses the
+    issuer with a message naming the line and the fix; a pre-contract row (no released
+    writer produced one: the index came with the contract) is read through
+    :func:`contract_names`, like a manifest row, and the index is rewritten in the contract.
+    """
+    path = config.f1_index_file(cik)
+    if not path.exists():
+        return {}, False
+    label = path.relative_to(config.data_dir).as_posix()
+    index: dict[str, FilingRecord] = {}
+    renamed = False
+    for lineno, row, rec in _read(path, label=label):
+        if rec.form_type is not FormType.F1:
+            raise _Refused(f"{label}:{lineno}: {_article(rec.form_type.code)} {rec.form_type.code} row "
+                           f"({rec.doc_id}) in the F1 index, which holds F1 only; move the "
+                           f"line to manifest/{cik}.jsonl or remove it, then re-run")
+        renamed = renamed or "doc_type" not in row
+        index[rec.doc_id] = rec
+    return index, renamed
+
+
+def _article(code: str) -> str:
+    """``a``/``an`` before a form code read letter by letter (an A1, an F1, a B1)."""
+    return "an" if code[:1].upper() in "AEFHILMNORSX" else "a"
 
 
 def _tombstones(config: Config) -> frozenset[str]:
@@ -217,15 +260,17 @@ def _migrate_issuer(storage: Storage, path: Path, counts: Counter,
     allowed = set(config.vault_families)
     vault: list[tuple[dict, FilingRecord]] = []
     f1: list[FilingRecord] = []
-    for row, rec in rows:
+    for _, row, rec in rows:
         if rec.form_type is FormType.F1:
             f1.append(rec)
         elif rec.form_type.family in allowed:
             vault.append((row, rec))
         else:
-            raise _Refused(f"{path.name}: a {rec.form_type.code} row ({rec.doc_id}) is outside "
+            raise _Refused(f"{path.name}: {_article(rec.form_type.code)} {rec.form_type.code} "
+                           f"row ({rec.doc_id}) is outside "
                            f"Config.vault_families {config.vault_families}")
 
+    indexed, index_renamed = _read_f1_index(config, cik)
     counts["rows"] += len(rows)
     preference = config.vault_artifact_preference
     changed = bool(f1)
@@ -254,21 +299,22 @@ def _migrate_issuer(storage: Storage, path: Path, counts: Counter,
             counts["rows_rewritten"] += 1
             changed = True
 
-    indexed = storage.load_f1(cik) if f1 else {}
     counts["f1_moved"] += len(f1)
+    counts["f1_index_renamed"] += int(index_renamed)
     counts["f1_already_indexed"] += sum(1 for r in f1 if r.doc_id in indexed)
     dropped = {r.doc_id for r in f1
                if r.doc_id not in indexed and _pruned_since(config, r, tombstones)}
     counts["f1_dropped_tombstoned"] += len(dropped)
-    if dry_run or not changed:
+    if dry_run or not (changed or index_renamed):
         return
-    if f1:
+    if f1 or index_renamed:
         # The index first: a crash between the two writes leaves F1 rows in both places,
         # which a re-run settles (the index's row wins), never in neither.
         merged = {r.doc_id: r for r in f1 if r.doc_id not in dropped}
         merged.update(indexed)
         storage._write_f1(cik, merged.values())
-    storage._write_manifest(cik, [rec for _, rec in vault])
+    if changed:
+        storage._write_manifest(cik, [rec for _, rec in vault])
 
 
 def _hash_source_exists(config: Config, rec: FilingRecord) -> bool:
