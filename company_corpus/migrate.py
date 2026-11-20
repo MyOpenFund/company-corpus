@@ -38,7 +38,7 @@ from pathlib import Path
 from .config import Config, normalize_cik
 from .models import FilingRecord, artifact_for_vault
 from .storage import Storage, primary_document, read_submission, text_sha256
-from .taxonomy import FormType
+from .taxonomy import FormType, code_article
 from .vocabulary import SEC_PROVENANCES, write_vocabulary
 
 #: The counters of a run, in report order.
@@ -212,17 +212,13 @@ def _read_f1_index(config: Config, cik: str) -> tuple[dict[str, FilingRecord], b
     renamed = False
     for lineno, row, rec in _read(path, label=label):
         if rec.form_type is not FormType.F1:
-            raise _Refused(f"{label}:{lineno}: {_article(rec.form_type.code)} {rec.form_type.code} row "
-                           f"({rec.doc_id}) in the F1 index, which holds F1 only; move the "
-                           f"line to manifest/{cik}.jsonl or remove it, then re-run")
+            code = rec.form_type.code
+            raise _Refused(f"{label}:{lineno}: {code_article(code)} {code} row ({rec.doc_id}) "
+                           "in the F1 index, which holds F1 only; move the line to "
+                           f"manifest/{cik}.jsonl or remove it, then re-run")
         renamed = renamed or "doc_type" not in row
         index[rec.doc_id] = rec
     return index, renamed
-
-
-def _article(code: str) -> str:
-    """``a``/``an`` before a form code read letter by letter (an A1, an F1, a B1)."""
-    return "an" if code[:1].upper() in "AEFHILMNORSX" else "a"
 
 
 def _tombstones(config: Config) -> frozenset[str]:
@@ -266,9 +262,9 @@ def _migrate_issuer(storage: Storage, path: Path, counts: Counter,
         elif rec.form_type.family in allowed:
             vault.append((row, rec))
         else:
-            raise _Refused(f"{path.name}: {_article(rec.form_type.code)} {rec.form_type.code} "
-                           f"row ({rec.doc_id}) is outside "
-                           f"Config.vault_families {config.vault_families}")
+            code = rec.form_type.code
+            raise _Refused(f"{path.name}: {code_article(code)} {code} row ({rec.doc_id}) is "
+                           f"outside Config.vault_families {config.vault_families}")
 
     indexed, index_renamed = _read_f1_index(config, cik)
     counts["rows"] += len(rows)

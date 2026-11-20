@@ -99,12 +99,15 @@ class IdentityCollisionError(RuntimeError):
 
 
 class ManifestNeedsMigration(RuntimeError):
-    """A manifest row in the pre-contract form (written before chantier 4).
+    """A manifest row in the pre-contract form (written before chantier 4): ``form_type``
+    and no ``doc_type``.
 
     Only ``migrate-contract`` reads that form (``migrate.contract_names``). Every other reader
     fails on it, never skips it: a skipped row would be dropped by the next write of its
     manifest. Not a ``ValueError``/``KeyError``/``TypeError``, so the corrupt-line tolerance of
-    the manifest reader cannot swallow it.
+    the manifest reader cannot swallow it. A line with neither name is not recognized as an
+    old row: it is not a record, and the manifest reader skips it with a warning like any
+    unparseable line (``verify`` reports it as ``unreadable-row``).
     """
 
 
@@ -225,7 +228,8 @@ class FilingRecord:
         """Reconstruct a record from a manifest line in the contract form (:meth:`to_row`).
 
         A pre-contract row (no ``doc_type``, the type under ``form_type``) raises
-        :class:`ManifestNeedsMigration`: run ``migrate-contract --write`` first.
+        :class:`ManifestNeedsMigration`: run ``migrate-contract --write`` first. A row with
+        neither raises ``KeyError`` (not a record).
         """
         def _parse_date(value: str | None) -> date | None:
             return date.fromisoformat(value) if value else None

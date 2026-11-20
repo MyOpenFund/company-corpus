@@ -24,7 +24,7 @@ from .extract import clean_text
 from .models import FilingRecord, ManifestNeedsMigration
 from .paths import safe_component
 from .submission import filename_from_url, parse_submission, select_primary
-from .taxonomy import FormType
+from .taxonomy import FormType, code_article
 from .vocabulary import write_vocabulary
 
 
@@ -347,9 +347,10 @@ class Storage:
     def _read_records(self, path: Path, *, f1: bool) -> dict[str, FilingRecord]:
         """``{doc_id: record}`` of one JSONL file: the F1 index (``f1``) or a manifest.
 
-        A row of the other kind raises :class:`MisplacedRecord`, a pre-contract row
-        :class:`ManifestNeedsMigration`: both name the line. Only an unparseable line is
-        skipped (with a warning)."""
+        A row of the other kind raises :class:`MisplacedRecord`, a pre-contract row (``form_type``,
+        no ``doc_type``) :class:`ManifestNeedsMigration`: both name the line. Only a line that
+        is not a record is skipped (with a warning): unparseable JSON, or a row missing a
+        required field -- a row with neither ``doc_type`` nor ``form_type`` among them."""
         records: dict[str, FilingRecord] = {}
         if not path.exists():
             return records
@@ -370,8 +371,9 @@ class Storage:
             if (rec.form_type is FormType.F1) != f1:
                 where = "the F1 index; its place is manifest/" if f1 else \
                     "manifest/; F1 lives in derived/f1/ (`verify` reports it)"
+                code = rec.form_type.code
                 raise MisplacedRecord(
-                    f"{path}:{lineno}: a {rec.form_type.code} row ({rec.doc_id}) in {where}")
+                    f"{path}:{lineno}: {code_article(code)} {code} row ({rec.doc_id}) in {where}")
             records[rec.doc_id] = rec
         return records
 

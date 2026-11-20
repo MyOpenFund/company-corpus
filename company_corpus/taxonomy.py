@@ -74,6 +74,12 @@ _EDGAR_FORM_INDEX: dict[str, FormType] = {
 }
 
 
+def code_article(code: str) -> str:
+    """``a``/``an`` before a family code read letter by letter in a message: an A1, a B1,
+    an F1."""
+    return "an" if code[:1].upper() in "AEFHILMNORSX" else "a"
+
+
 def by_code(code: str) -> FormType:
     """Return the :class:`FormType` for a taxonomy code (e.g. ``"A1"``)."""
     try:

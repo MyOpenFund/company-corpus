@@ -56,10 +56,12 @@ Extras (stored by the vault in `extra`): `cik`, `family`, `sec_form`, `accession
   `A1` (rate decision) share a code, not a meaning.
 - **Old rows.** Only `migrate-contract` reads the pre-contract names (`form_type`,
   `filing_date`, `primary_doc_url`, `local_path` = submission, `sha256` = submission hash, or
-  the primary's hash on a row with no submission). Every other reader fails on such a row with
-  `ManifestNeedsMigration`, naming `migrate-contract`, and never skips it (a skipped row would be
-  dropped by the next write of its manifest); `verify` reports it as `pre-contract-row`. The
-  vault refuses those rows too.
+  the primary's hash on a row with no submission). Every other reader fails on such a row
+  (`form_type`, no `doc_type`) with `ManifestNeedsMigration`, naming `migrate-contract`, and
+  never skips it (a skipped row would be dropped by the next write of its manifest); `verify`
+  reports it as `pre-contract-row`. A line with neither name is not a record: skipped with a
+  warning like any unparseable line, reported by `verify` as `unreadable-row`. The vault
+  refuses those rows too.
 
 ### The artefact rule (`local_path`)
 

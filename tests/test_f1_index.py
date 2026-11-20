@@ -136,7 +136,7 @@ def test_an_f1_row_in_a_manifest_fails_loudly(config):
     st.save_records([_a1()], dry_run=False)
     path = config.manifest_file(CIK)
     path.write_text(path.read_text() + json.dumps(_f1(2023).to_row()) + "\n")
-    with pytest.raises(RuntimeError, match="F1"):
+    with pytest.raises(RuntimeError, match="an F1 row"):
         st.load_manifest(CIK)
     with pytest.raises(RuntimeError, match="F1"):
         st.save_records([_a1(2)], dry_run=False)

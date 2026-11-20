@@ -55,3 +55,9 @@ def test_parse_scope_variants():
     assert parse_scope("all") == tuple(FormType)
     assert parse_scope("A") == (FormType.A1, FormType.A2, FormType.A3, FormType.A4)
     assert parse_scope("A1,B1,A1") == (FormType.A1, FormType.B1)  # de-duplicated, ordered
+
+
+def test_code_article_reads_the_code_letter_by_letter():
+    from company_corpus.taxonomy import code_article
+    assert [code_article(c) for c in ("A1", "B1", "C2", "D1", "E1", "F1")] == \
+        ["an", "a", "a", "a", "an", "an"]
