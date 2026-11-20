@@ -389,3 +389,21 @@ def test_a_render_does_not_change_the_primary_hash(apple_fetcher, config):
     assert st.render_record(rec, renderer).status == "rendered"
     assert rec.primary_sha256 == before
     assert rec.to_row()["mime_type"] == "application/pdf"
+
+
+def test_a_repair_hashes_a_crlf_submission_like_the_download(config, sample_submission):
+    # The repair re-reads the stored submission without newline translation: the primary it
+    # re-derives (and its hash) is the one the download cut from the fetched text.
+    class _Fetcher:
+        def get_text(self, url, **_):
+            return sample_submission.replace("\n", "\r\n")
+
+    st = Storage(config)
+    rec = _apple_10k()
+    st.fetch_and_store(rec, _Fetcher(), dry_run=False)
+    first = rec.primary_sha256
+    assert first == _sha256_file(config.data_dir / rec.primary_path)
+    rec.submission_sha256 = rec.primary_sha256 = None       # an interrupted pass
+    assert st.fetch_and_store(rec, _Fetcher(), dry_run=False).status == "repaired"
+    assert rec.primary_sha256 == first
+    assert rec.submission_sha256 == _sha256_file(config.data_dir / rec.submission_path)

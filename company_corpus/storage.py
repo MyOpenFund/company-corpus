@@ -610,7 +610,7 @@ class Storage:
             if dry_run:
                 return DownloadResult(record.doc_id, "would-repair")
             try:
-                raw = sub_path.read_text(encoding="utf-8")
+                raw = read_submission(sub_path)
                 self._decompose(record, raw, dest_dir)
             except Exception as exc:  # noqa: BLE001
                 return DownloadResult(record.doc_id, "error",
