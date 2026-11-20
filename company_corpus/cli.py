@@ -161,7 +161,8 @@ from .sources.cik_lookup import fetch_cik_lookup, parse_cik_lookup
 from .sources.edgar_fts import EdgarFTS
 from .sources.edgar_index import EdgarFullIndex
 from .storage import (
-    Storage, _atomic_write_text, _jsonl as _jsonl_text,
+    ManifestNeedsMigration, MisplacedRecord, Storage, _atomic_write_text,
+    _jsonl as _jsonl_text,
 )
 from .taxonomy import FULL_SCOPE, parse_scope
 from .verify import (
@@ -1765,7 +1766,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.cmd not in REPORTING_CMDS:
-        return args.func(args)
+        try:
+            return args.func(args)
+        except (ManifestNeedsMigration, MisplacedRecord) as exc:
+            # A manifest or F1 index the readers refuse (pre-contract row, row of the other
+            # kind): the message names the file, the line and the remedy -- no traceback.
+            # The reporting commands get the same through their generic handler below.
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
 
     if not logging.getLogger().handlers:
         logging.basicConfig(

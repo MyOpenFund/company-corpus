@@ -236,3 +236,28 @@ def test_render_pdf_says_f1_is_no_longer_rendered(config, capsys, monkeypatch):
     cli.main(["--data-dir", str(config.data_dir), "render-pdf", "--ciks", "320193",
               "--forms", "F1"])
     assert "F1 is no longer rendered" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("bad", ["pre-contract", "f1-in-manifest"])
+def test_report_on_a_manifest_it_cannot_read_is_an_error_not_a_traceback(
+        config, bad, capsys, monkeypatch):
+    # `report` is not a reporting command: main() itself turns the reader's refusal into
+    # `error: ...` and exit code 1.
+    import company_corpus.cli as cli
+    if bad == "pre-contract":
+        _pre_migration_manifest(config)
+    else:
+        st = Storage(config)
+        st.save_records([_a1()], dry_run=False)
+        path = config.manifest_file(CIK)
+        path.write_text(path.read_text() + json.dumps(_f1(2023).to_row()) + "\n")
+    before = config.manifest_file(CIK).read_bytes()
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(config.data_dir))
+    rc = cli.main(["--data-dir", str(config.data_dir), "report", "--ciks", "320193",
+                   "--years", "2024"])
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert err.startswith("error: ") and CIK in err and "Traceback" not in err
+    assert ("migrate-contract" if bad == "pre-contract" else "F1") in err
+    assert config.manifest_file(CIK).read_bytes() == before
+
