@@ -54,9 +54,12 @@ Extras (stored by the vault in `extra`): `cik`, `family`, `sec_form`, `accession
   manifest is filed by an officer and is about Apple (`cik` / `0000320193`).
 - **Identity in the vault is (`corpus`, `doc_id`)**: a company `A1` (10-K) and a central-bank
   `A1` (rate decision) share a code, not a meaning.
-- **Old rows.** `from_row()` also reads the pre-contract names (`form_type`, `filing_date`,
-  `primary_doc_url`, `local_path` = submission, `sha256` = submission hash, or the primary's
-  hash on a row with no submission). The vault refuses those rows: run `migrate-contract`.
+- **Old rows.** Only `migrate-contract` reads the pre-contract names (`form_type`,
+  `filing_date`, `primary_doc_url`, `local_path` = submission, `sha256` = submission hash, or
+  the primary's hash on a row with no submission). Every other reader fails on such a row with
+  `ManifestNeedsMigration`, naming `migrate-contract`, and never skips it (a skipped row would be
+  dropped by the next write of its manifest); `verify` reports it as `pre-contract-row`. The
+  vault refuses those rows too.
 
 ### The artefact rule (`local_path`)
 
@@ -111,7 +114,10 @@ pinned package.
 
 ## Migrating a corpus written before the contract
 
-**One-way door.** Code from before this change cannot read the migrated rows: it fails on
+For a clone whose data predates the contract (company-corpus before #16). Until it has run,
+every command but `migrate-contract` stops on the first pre-contract manifest it reads.
+
+**One-way door.** Code from before the contract cannot read the migrated rows: it fails on
 `form_type`, skips every row, and its next write rewrites the manifest from what it read
 (reproduced: a pre-contract `save_records` took a migrated manifest from 5 rows to 1). So:
 
@@ -121,8 +127,8 @@ pinned package.
 2. **No `xbrl --write` between the code update and a completed migration** (it writes and
    prunes the F1 index while the old F1 rows still sit in the manifest; the migration copes --
    a pruned F1 row, tombstoned in `f1_pruned.jsonl` with its files gone, is dropped and counted
-   `f1_dropped_tombstoned` -- but do not rely on it). Every other writing command stops before
-   any work while a manifest still holds F1 rows (`ManifestNeedsMigration`).
+   `f1_dropped_tombstoned` -- but do not rely on it). Every other command fails on the first
+   pre-contract manifest it reads (`ManifestNeedsMigration`) and writes nothing to it.
 3. Run the migration:
 
 ```bash
@@ -135,7 +141,7 @@ python -m vault_contract.check data/manifest --corpus company --vocabulary data/
     --no-transition --strict                              # exit 0
 ```
 
-4. **After `--write`, only code at or after this change may run with `--write`** on that
+4. **After `--write`, only code that knows the contract may run with `--write`** on that
    corpus. **Rollback = restore the backup**, never check out older code over the migrated
    files.
 
@@ -153,17 +159,9 @@ listed on stderr (`provenance outside the vocabulary: …`): the vault would ref
 so it must be 0 before the manifests are copied to the vault. A `--ciks` entry without a
 manifest is listed too.
 
-**Expected on the real corpus** (Mac, if nothing ran since 2026-11-11):
-
-| step | expected |
-|---|---|
-| dry run | `673 manifest(s), 234002 row(s)`; `rows_rewritten=185041 f1_moved=48961 unchanged=0 issuers_refused=0 f1_already_indexed=0 f1_dropped_tombstoned=0 provenance_unknown=0`; `primary_hashed + primary_unhashable + no_primary = 185041` (`primary_hashed` small, about 1,600; `no_rag_artifact` most of the rest) |
-| `--write` | the same counts, `primary_unhashable` 0 or the rows whose files are gone |
-| re-run | `rows_rewritten=0 f1_moved=0 primary_hashed=0` |
-| `verify --hash` | 673 manifest(s) + 672 F1 index(es) / 234,002 row(s), 0 findings |
-
-Until it has run, `verify` reports `f1-in-manifest` and `missing-primary-hash` (submission
-hashes are still checked under `--hash`).
+A re-run after `--write` reports `rows_rewritten=0 f1_moved=0 primary_hashed=0`, and
+`verify --hash` then finds nothing. Before the migration, `verify` reports each old row as
+`pre-contract-row`.
 
 ## Using the documents
 

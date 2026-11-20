@@ -83,9 +83,11 @@ vault's `documents` contract 1.0.0 (`corpus: company`, `source_code: sec`, `doc_
 form code, `sha256` = the primary document as the SEC served it, `local_path` = the rendered
 PDF else the cleaned text, `entity_scheme: cik`), and `data/vocabulary.json` declares its
 codes; the vault ingests both as they are. F1 summaries are not vault documents: they live in
-`data/derived/f1/<cik>.jsonl`. A corpus written before the contract is migrated once, and
-the migration is a **one-way door**: code from before it cannot read the new rows and its next
-write would rewrite a manifest from almost nothing.
+`data/derived/f1/<cik>.jsonl`. Every command reads the contract form only: a manifest row in
+the pre-contract form (a clone whose data predates the contract) stops the command with
+`ManifestNeedsMigration`, naming `migrate-contract`. Such a corpus is migrated once, and the
+migration is a **one-way door**: code from before the contract cannot read the new rows and its
+next write would rewrite a manifest from almost nothing.
 
 ```bash
 # 0. back up: APFS snapshot (tmutil localsnapshot) or a copy of data/manifest and data/derived
@@ -97,9 +99,9 @@ pip install -r requirements-dev.txt                  # then the vault's checker,
 python -m vault_contract.check data/manifest --corpus company --vocabulary data/vocabulary.json --no-transition --strict
 ```
 
-After `--write`, only code at or after this change may run with `--write` on that corpus;
-rollback = restore the backup, never check out older code. Expected counts on the real corpus
-and the provenance check: [`docs/INGESTION_RAG.md`](docs/INGESTION_RAG.md#migrating-a-corpus-written-before-the-contract).
+After `--write`, only code that knows the contract may run with `--write` on that corpus;
+rollback = restore the backup, never check out older code. The counters and the provenance
+check: [`docs/INGESTION_RAG.md`](docs/INGESTION_RAG.md#migrating-a-corpus-written-before-the-contract).
 
 Details, the artefact rule and the checks: [`docs/INGESTION_RAG.md`](docs/INGESTION_RAG.md).
 
@@ -386,8 +388,9 @@ takes **no corpus lock**, so it is safe to run beside a nightly crawl.
 | `foreign-row` | a row filed under an entity other than the one naming its file |
 | `invalid-identifier` | a filename or row id that is not a usable CIK / LEI / path component |
 | `incomplete-record` | a submission is stored but `submission_sha256` is unset, or (no submission: an F1 summary) an artefact is stored and no hash is (half-processed; `download` repairs it from disk) |
-| `missing-primary-hash` | a row with a primary document but no `sha256` (its hash): written before the vault contract; `migrate-contract --write` computes it |
-| `f1-in-manifest` | an F1 row still in `manifest/` (written before the vault contract); `migrate-contract --write` moves it to `derived/f1/` |
+| `pre-contract-row` | a manifest row in the pre-contract form; `migrate-contract --write` rewrites it, every other command refuses the manifest until then (the orphan check is dropped: what the row points at is not read) |
+| `missing-primary-hash` | a row with a primary document but no `sha256` (its hash); `migrate-contract --write` computes it from the files on disk |
+| `f1-in-manifest` | an F1 row in `manifest/` (its place is `derived/f1/`; `migrate-contract --write` moves it); the other commands refuse that manifest |
 | `not-f1-in-f1-index` | a row of another family in `derived/f1/` |
 | `submission-hash-mismatch` | `--hash` only: the stored submission no longer hashes to `submission_sha256` |
 | `primary-hash-mismatch` | `--hash` only: the primary document hashes neither on disk nor re-derived from the submission to `sha256` (the file at `primary_path` may legitimately be an ownership summary that superseded the filed XML: the submission then decides) |
