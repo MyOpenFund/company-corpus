@@ -41,7 +41,7 @@ from .config import Config, normalize_cik, normalize_lei
 from .eu.documents import Document
 from .models import FilingRecord
 from .paths import UnsafeIdentifier, safe_component
-from .storage import primary_document, text_sha256
+from .storage import primary_document, read_submission, text_sha256
 from .taxonomy import FormType
 
 #: The manifest pointers that name bytes on disk, in the order a reader falls
@@ -452,7 +452,7 @@ class _Scan:
     def _primary_from_submission(self, where: str, record: FilingRecord) -> str | None:
         path = self.data_dir / record.submission_path
         try:
-            raw = path.read_text(encoding="utf-8")
+            raw = read_submission(path)
         except (OSError, UnicodeDecodeError) as exc:
             self._add("unreadable-file", self._rel(path), f"cannot read it: {exc}")
             return None

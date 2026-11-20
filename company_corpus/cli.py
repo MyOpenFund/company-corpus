@@ -44,6 +44,9 @@ store-batches         sec        issuers examined             issuers emitted   
 statements            sec        issuers examined             issuers written         bulk files failed
                                                               (dry-run: 0)            (any failure
                                                                                       degrades: truncated)
+migrate-contract      sec        manifest rows read           rows rewritten + F1     (none: a refused
+                                                              rows moved (dry-run:    issuer is a local
+                                                              what would be)          refusal, see below)
 ===================== ========== ============================ ======================= ==================
 
 Three deliberate choices:
@@ -98,6 +101,11 @@ Three deliberate choices:
   the refusal named; with none it is ``degraded``. ``details.xbrl.prune`` carries
   the counters (``records_refused``: records refused inside a pruned issuer),
   ``by_issuer`` and ``refused_by_issuer`` (``None`` with --no-prune).
+* **``migrate-contract`` refuses an issuer rather than guess.** An unreadable line, a stored
+  ``doc_id`` the identity rule does not reproduce or a duplicated ``doc_id`` leaves that
+  issuer's files untouched and is a local refusal (``local_refusals``), never an SEC failure.
+  ``details.migrate_contract`` carries the counters. A re-run after ``--write`` reports
+  ``rows_rewritten=0 f1_moved=0`` and exits 0.
 """
 
 from __future__ import annotations
@@ -121,6 +129,7 @@ from .config import Config, normalize_cik
 from .entity import EntityRegistry
 from .http import Fetcher
 from .lock import CorpusLocked, corpus_lock
+from .migrate import migrate_contract
 from .pipeline import (
     discover_universe,
     download_universe,
@@ -184,7 +193,7 @@ from .universe import (
 REPORTING_CMDS = {
     "discover", "discover-index", "download", "render-pdf", "xbrl",
     "ownership", "enrich-openfigi", "eu-financials", "register-financials",
-    "eu-acquire", "build-universe", "store-batches", "statements",
+    "eu-acquire", "build-universe", "store-batches", "statements", "migrate-contract",
 }
 
 
@@ -1345,6 +1354,30 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     return 3 if result.findings else 0
 
 
+def _cmd_migrate_contract(args: argparse.Namespace) -> int:
+    """Rewrite the manifests in the vault contract (chantier 4). Dry-run unless --write."""
+    cfg = _config(args)
+    ciks = [normalize_cik(c) for c in args.ciks.split(",") if c.strip()] if args.ciks else None
+    dry_run = not args.write
+    rep = migrate_contract(cfg, ciks=ciks, dry_run=dry_run)
+    mode = "DRY-RUN (nothing written)" if dry_run else "WROTE"
+    c = rep.counts
+    print(f"migrate-contract [{mode}] — {c['issuers']} manifest(s), {c['rows']} row(s)")
+    print("  " + " ".join(f"{k}={v}" for k, v in c.items() if k not in ("issuers", "rows")))
+    if dry_run:
+        print("  (dry run: primary_hashed counts the primary documents a write would hash)")
+    for err in rep.errors:
+        print(f"  refused: {err['error']}", file=sys.stderr)
+    report = getattr(args, "report", None)
+    if report is not None:
+        report.details = {"migrate_contract": dict(c)}
+    # The unit of work is a row rewritten or moved; a refused issuer is the corpus's own
+    # decision (its files are left as they are), counted as a local refusal.
+    _feed_report(report, "sec", seen=c["rows"], new=rep.useful_work)
+    _feed_local_refusals(report, rep.errors)
+    return 0
+
+
 def _cmd_rag_items(args: argparse.Namespace) -> int:
     cfg = _config(args)
     ciks = None
@@ -1722,6 +1755,15 @@ def build_parser() -> argparse.ArgumentParser:
     vf.add_argument("--json", action="store_true", dest="as_json",
                     help="emit findings as JSON")
     vf.set_defaults(func=_cmd_verify)
+
+    mc = sub.add_parser(
+        "migrate-contract",
+        help="rewrite manifest rows in the vault documents contract, move F1 rows to "
+             "derived/f1/, hash primary documents, write vocabulary.json (dry-run by default)")
+    mc.add_argument("--ciks", help="comma-separated CIKs (default: every manifest)")
+    mc.add_argument("--write", action="store_true",
+                    help="rewrite the files (else dry-run: counts only, reads the manifests)")
+    mc.set_defaults(func=_cmd_migrate_contract)
 
     ri = sub.add_parser("rag-items", help="preview SourceItems the RAG would ingest")
     risrc = ri.add_mutually_exclusive_group(required=False)

@@ -95,6 +95,13 @@ def text_sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def read_submission(path: Path) -> str:
+    """A stored submission's text exactly as written: no newline translation, so a primary
+    re-derived from it hashes like the one the download decomposed from the fetched text."""
+    with path.open(encoding="utf-8", newline="") as fh:
+        return fh.read()
+
+
 def primary_document(record: FilingRecord, raw: str):
     """The primary document of ``record`` within its complete submission ``raw`` (or None).
 
