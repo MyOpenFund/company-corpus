@@ -3,7 +3,9 @@
 One pass per issuer manifest (``manifest/<cik>.jsonl``), keyed by ``doc_id``, local reads only
 (no network):
 
-1. every row is read in either form (``FilingRecord.from_row``); a line that is not a record,
+1. every row is read in either form: a pre-contract row is renamed by :func:`contract_names`
+   (raw JSON, this module's own reading of the old form; no other reader knows it), then
+   read by ``FilingRecord.from_row``; a line that is not a record,
    a stored ``doc_id`` the identity rule does not reproduce, or a ``doc_id`` on two lines
    refuses the WHOLE issuer: nothing of it is written, an error item names the line, and the
    operator settles it (``verify`` reports the same rows);
@@ -71,6 +73,32 @@ class MigrationReport:
         return self.counts["rows_rewritten"] + self.counts["f1_moved"]
 
 
+#: The pre-contract writer's names (company-corpus before #16) for the contract's.
+_OLD_NAMES: dict[str, str] = {
+    "form_type": "doc_type", "filing_date": "date", "primary_doc_url": "document_url",
+}
+
+
+def contract_names(row: dict) -> dict:
+    """A manifest row with the contract's names: a pre-contract row renamed, any other row
+    returned as is.
+
+    A row is pre-contract when it has no ``doc_type`` (the pre-contract writer never wrote
+    it). That writer named the type ``form_type``, the date ``filing_date``, the primary's URL
+    ``primary_doc_url``, the submission ``local_path`` and its hash ``sha256`` -- except on a
+    row with no submission (family F summaries), whose ``sha256`` hashed the primary it
+    pointed at. The input row is not modified.
+    """
+    if "doc_type" in row:
+        return row
+    new = {_OLD_NAMES.get(k, k): v for k, v in row.items() if k not in ("local_path", "sha256")}
+    submission = row.get("local_path")
+    new["submission_path"] = submission
+    new["submission_sha256"] = row.get("sha256") if submission else None
+    new["sha256"] = None if submission else row.get("sha256")
+    return new
+
+
 class _Refused(Exception):
     """An issuer the migration must not touch."""
 
@@ -135,7 +163,7 @@ def _read(path: Path) -> list[tuple[dict, FilingRecord]]:
         where = f"{path.name}:{lineno}"
         try:
             row = json.loads(line)
-            rec = FilingRecord.from_row(row)
+            rec = FilingRecord.from_row(contract_names(row))
         except (ValueError, KeyError, TypeError, AttributeError) as exc:
             raise _Refused(f"{where}: not a filing record ({type(exc).__name__}: {exc}); "
                            "fix or remove the line, then re-run") from exc

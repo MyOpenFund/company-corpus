@@ -441,3 +441,42 @@ def test_a_cik_without_a_manifest_is_reported(old_corpus, capsys, monkeypatch):
     monkeypatch.setenv("COMPANY_DATA_DIR", str(old_corpus.data_dir))
     cli.main(["--data-dir", str(old_corpus.data_dir), "migrate-contract", "--ciks", "1234"])
     assert "no manifest for: 0000001234" in capsys.readouterr().err
+
+
+# ---- the migration reads the pre-contract form on its own ----
+
+FIXTURES = Path(__file__).parent / "fixtures" / "contract"
+
+
+def _fixture_rows() -> list[dict]:
+    return [json.loads(x) for x in
+            (FIXTURES / "pre_contract_rows.jsonl").read_text(encoding="utf-8").splitlines()]
+
+
+def test_contract_names_renames_a_pre_contract_row_with_a_submission():
+    from company_corpus.migrate import contract_names
+    old = _fixture_rows()[0]
+    new = contract_names(old)
+    assert (new["doc_type"], new["date"], new["document_url"]) == (
+        old["form_type"], old["filing_date"], old["primary_doc_url"])
+    assert (new["submission_path"], new["submission_sha256"]) == (old["local_path"], old["sha256"])
+    assert new["sha256"] is None, "the old sha256 hashed the submission, not the primary"
+    assert not {"form_type", "filing_date", "primary_doc_url", "local_path"} & set(new)
+    rec = FilingRecord.from_row(new)
+    assert rec.doc_id == old["doc_id"] and rec.submission_path == old["local_path"]
+    assert old["form_type"] == "A1", "the input row is not modified"
+
+
+def test_contract_names_keeps_the_primary_hash_of_a_row_without_submission():
+    from company_corpus.migrate import contract_names
+    old = _fixture_rows()[1]
+    assert old["local_path"] is None and old["sha256"]
+    rec = FilingRecord.from_row(contract_names(old))
+    assert (rec.primary_sha256, rec.submission_sha256, rec.submission_path) == \
+        (old["sha256"], None, None)
+
+
+def test_contract_names_leaves_a_contract_row_alone():
+    from company_corpus.migrate import contract_names
+    row = _rec(APPLE, FormType.A1, "10-K", "0000320193-24-000123").to_row()
+    assert contract_names(row) == row
