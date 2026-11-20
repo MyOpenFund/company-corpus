@@ -33,7 +33,6 @@ from .pipeline import (
     process_ownership,
     render_universe,
 )
-from .rag import SourceItem, iter_items
 from .render import find_chrome, make_chrome_renderer
 from .storage import Storage
 from .submission import parse_submission, select_primary
@@ -88,8 +87,6 @@ __all__ = [
     "DERIVED",
     "make_chrome_renderer",
     "find_chrome",
-    "iter_items",
-    "SourceItem",
     "build_matrix",
     "parse_submission",
     "select_primary",

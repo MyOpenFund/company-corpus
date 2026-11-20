@@ -365,9 +365,10 @@ def fetch_financials(
     For each issuer: fetch company facts, group into one summary per reporting
     period (annual/quarterly), and emit an F1 ``FilingRecord`` per period with the
     period's **publication date**. Persists the raw company-facts JSON (canonical),
-    a normalized facts table, and an HTML summary per period (so the existing
-    ``render_universe`` / ``rag.iter_items`` handle PDF + ingestion). The summaries
-    feed the RAG; the raw JSON preserves exhaustivity.
+    a normalized facts table, and an HTML summary + text per period. F1 is not a vault
+    document (latest-filed values, never point-in-time: chantier 4), so its records live in
+    the F1 index, which neither the vault nor ``render_universe`` reads; the raw JSON
+    preserves exhaustivity.
 
     If two of an issuer's period summaries compute the same ``doc_id`` -- which
     would overwrite one period's summary with another's -- THAT issuer is skipped

@@ -30,7 +30,6 @@ pillar.
 | `02_discover_filings.py` | List an issuer's family-A filings (metadata only) |
 | `03_download_and_extract.py` | Download one filing and extract clean RAG-ready text |
 | `04_xbrl_financials.py` | Pull XBRL facts → a period summary + derived metrics |
-| `05_rag_items.py` | Build a tiny corpus and iterate the `SourceItem`s the RAG ingests |
 
 **Credit-universe resolution** (build a universe from an identifier file)
 

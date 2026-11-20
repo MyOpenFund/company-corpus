@@ -155,7 +155,6 @@ from .registers.financials import (
     build_sk_financials_from_files,
 )
 from .openfigi import coverage_hint, map_identifiers
-from .rag import iter_items
 from .runreport import RunReport as DoctrineReport
 from .source_codes import is_local_source, source_code_for
 from .sources.cik_lookup import fetch_cik_lookup, parse_cik_lookup
@@ -1378,27 +1377,6 @@ def _cmd_migrate_contract(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_rag_items(args: argparse.Namespace) -> int:
-    cfg = _config(args)
-    ciks = None
-    if args.universe:
-        ciks = list(Universe(cfg).iter_ciks(args.universe))
-    elif args.ciks:
-        ciks = [c for c in args.ciks.split(",") if c.strip()]
-    items = iter_items(
-        ciks=ciks, doctypes=args.forms, year_min=args.year_min,
-        year_max=args.year_max, prefer=args.prefer, config=cfg,
-    )
-    n = 0
-    for it in items:
-        n += 1
-        if n <= args.show:
-            p = it.payload
-            print(f"{it.doc_id}  {p['doc_type']:<3} {p.get('year')}  {p['company']}  -> {it.path}")
-    print(f"rag-items: {n} ingestible item(s) [prefer={args.prefer}]")
-    return 0
-
-
 def _cmd_report(args: argparse.Namespace) -> int:
     cfg = _config(args)
     ciks = _ciks_for(args, cfg)
@@ -1765,17 +1743,6 @@ def build_parser() -> argparse.ArgumentParser:
                     help="rewrite the files (else dry-run: counts only, reads the manifests)")
     mc.set_defaults(func=_cmd_migrate_contract)
 
-    ri = sub.add_parser("rag-items", help="preview SourceItems the RAG would ingest")
-    risrc = ri.add_mutually_exclusive_group(required=False)
-    risrc.add_argument("--universe", help="universe name")
-    risrc.add_argument("--ciks", help="comma-separated CIKs (default: all manifests)")
-    ri.add_argument("--forms", default=None, help="scope selector (default: all)")
-    ri.add_argument("--year-min", type=int, default=None, dest="year_min")
-    ri.add_argument("--year-max", type=int, default=None, dest="year_max")
-    ri.add_argument("--prefer", choices=["pdf", "text", "primary"], default="pdf",
-                    help="which stored artifact to feed (default: pdf)")
-    ri.add_argument("--show", type=int, default=10, help="how many items to print")
-    ri.set_defaults(func=_cmd_rag_items)
 
     return p
 

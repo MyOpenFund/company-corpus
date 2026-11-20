@@ -23,7 +23,9 @@ opt-in.
 
 ```
 data/
-├── manifest/<cik>.jsonl        # INDEX: one JSON line per filing (committed) — the map
+├── manifest/<cik>.jsonl        # INDEX: one vault-contract row per filing, families A–E — the map
+├── vocabulary.json             # the codes of those rows, for the vault (generated)
+├── derived/f1/<cik>.jsonl      # F1 records (XBRL period summaries): never vault documents
 ├── universe/<name>.jsonl       # curated issuer lists, ticker<->cik (committed)
 │   └── <name>_changes.jsonl    # dated index changes (e.g. sp500_changes.jsonl)
 ├── financials/<cik>.jsonl      # normalized XBRL metrics, one row per metric (committed)
@@ -126,11 +128,12 @@ keeps every stale record (and prints no prune line).
 
 For each pruned record, in this order: its files (`.primary.html`, `.txt`, `.pdf`, only under
 `raw/<cik>/F1/` and named after the record), its table groups in `data/financials/<cik>.jsonl`
-(only those no remaining record holds: an accession change keeps its period), its manifest row,
-then one line in `data/f1_pruned.jsonl` (run id, cik, doc_id, period, frequency, accession,
-filing date, sha256, deleted files). Until the manifest is rewritten the stale row is still
+(only those no remaining record holds: an accession change keeps its period), its row in the F1
+index (`data/derived/f1/<cik>.jsonl`), then one line in `data/f1_pruned.jsonl` (run id, cik,
+doc_id, period, frequency, accession, filing date, sha256 of the summary HTML, deleted files).
+Until the F1 index is rewritten the stale row is still
 there, so a run that crashes half-way is finished by the next one (idempotent; a record already
-gone is skipped). **Tombstones are lost** if a crash falls between the manifest rewrite and the
+gone is skipped). **Tombstones are lost** if a crash falls between the F1 index rewrite and the
 log append: the records are pruned, but no later run finds them again to log them. A log append
 that fails with an `OSError` keeps the prune (the records are counted pruned) and adds an error
 item naming the doc_ids whose tombstones may be lost; add them to downstream readers by hand.
@@ -140,9 +143,9 @@ legacy table row without `frequency` and a record without one name the same grou
 Inside an issuer it prunes, a record can still be refused: a path outside `raw/<cik>/F1/` or not
 named after it, another issuer's `cik`, a record the run also keeps, a file that cannot be
 deleted. It keeps its row, gets an error item, and is counted in `records-refused` (the issuer-level `refused` counts the guard
-only). **Legacy rows whose files carry another doc_id are refused on every run**: the manifest
+only). **Legacy rows whose files carry another doc_id are refused on every run**: the F1 index
 loader recomputes `doc_id` from the row, so files named after an older doc_id fail the name
-check. Clean them by hand (delete the files and the manifest row, then re-run `xbrl --write`).
+check. Clean them by hand (delete the files and the F1 index row, then re-run `xbrl --write`).
 
 The run prints `prune: pruned=… would-prune=… refused=… skipped=… files=… table-groups=…
 records-refused=…`, and the run report carries the same counters in `details.xbrl.prune`
@@ -157,25 +160,34 @@ yet.
 
 ### The manifest is the map
 
-`data/manifest/<cik>.jsonl` — one JSON object per filing, carrying the metadata
-**and the exact file paths** so you never decode a hash by hand:
+`data/manifest/<cik>.jsonl` — one JSON object per filing, a row of the vault's `documents`
+contract ([`INGESTION_RAG.md`](INGESTION_RAG.md)), carrying the metadata **and the exact file
+paths** so you never decode a hash by hand:
 
 ```jsonc
 {
-  "cik":"0000320193", "ticker":"AAPL",
+  // the contract's common fields
+  "doc_id":"<16-hex>", "corpus":"company", "source_code":"sec",
+  "doc_type":"A1",                                    // internal code (10-K)
+  "title":"Apple Inc. 10-K ...", "date":"2025-10-31", "year":2025,   // filing date
+  "date_precision":"day", "date_kind":"publication", "language":"en",
+  "provenance":"edgar_submissions",
+  "document_url":"https://www.sec.gov/Archives/edgar/.../aapl-...htm",          // primary doc
+  "source_url":"https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/0000320193-25-000079-index.htm",
+  "mime_type":"application/pdf", "sha256":"…",        // hash of the primary document as filed
+  "local_path":"raw/0000320193/A1/2025/<doc_id>.pdf", // what the RAG reads (PDF, else .txt)
+  "entity_scheme":"cik", "entity_value":"0000320193",
+  // this corpus's extras
+  "cik":"0000320193", "family":"A", "sec_form":"10-K", "accession":"0000320193-25-000079",
+  "period_of_report":"2025-09-27",
   "company":"Apple Inc.",          // name as of the filing date (point-in-time)
-  "company_current":"Apple Inc.", "entity_id":"",
-  "form_type":"A1", "family":"A", "sec_form":"10-K",   // internal code + raw form
-  "accession":"0000320193-25-000079", "title":"Apple Inc. 10-K ...",
-  "filing_date":"2025-10-31", "period_of_report":"2025-09-27", "year":2025,
-  "primary_doc_url":"https://www.sec.gov/Archives/edgar/.../aapl-...htm",
-  "submission_url":"...0000320193-25-000079.txt",
-  "sha256":"…", "provenance":"edgar_submissions",
-  "local_path":"raw/0000320193/A1/2025/<doc_id>.submission.txt",
+  "company_current":"Apple Inc.", "ticker":"AAPL", "entity_id":"",
   "primary_path":"raw/0000320193/A1/2025/<doc_id>.primary.htm",
   "text_path":"raw/0000320193/A1/2025/<doc_id>.txt",
   "pdf_path":"raw/0000320193/A1/2025/<doc_id>.pdf",
-  "doc_id":"<16-hex>"
+  "submission_path":"raw/0000320193/A1/2025/<doc_id>.submission.txt",
+  "submission_sha256":"…", "submission_url":"...0000320193-25-000079.txt",
+  "alt_urls":[], "frequency":""
 }
 ```
 
@@ -183,7 +195,7 @@ yet.
 
 ```bash
 grep -i '"AAPL"' data/universe/sp500.jsonl                                    # ticker -> CIK
-jq -r 'select(.sec_form=="10-K") | "\(.year)  \(.text_path)"' data/manifest/0000320193.jsonl
+jq -r 'select(.sec_form=="10-K") | "\(.year)  \(.local_path)"' data/manifest/0000320193.jsonl
 ls data/raw/0000320193/A1/2025/<doc_id>.*                                     # all files of one filing
 ```
 
@@ -302,9 +314,8 @@ keyed on CIK. On top of that anchor:
 python -m company_corpus download --universe sp_curated --years 2010-2020 --write
 python -m company_corpus download --universe sp_curated --since 2015-01-01 --until 2019-12-31 --write
 
-# render PDFs (needs Chrome via COMPANY_CORPUS_CHROME or PATH) + preview RAG items
+# render PDFs (needs Chrome via COMPANY_CORPUS_CHROME or PATH): the vault row's RAG artefact
 python -m company_corpus render-pdf --universe sp_curated --years 2015-2025 --write
-python -m company_corpus rag-items  --universe sp_curated --prefer pdf
 
 # completeness matrix (discovered vs expected per issuer/form/year)
 python -m company_corpus report --universe sp_curated --years 2015-2025 --csv data/reports/matrix.csv
@@ -334,6 +345,7 @@ as text. Bounded to the curated tier by default (Form 4 alone is ~4.6M filings);
 
 ## Feeding the RAG
 
-`company_corpus.rag.iter_items()` yields `SourceItem(doc_id, path, payload)`
-straight from the manifests (PDF by default, text fallback). Full contract +
-connector in [`INGESTION_RAG.md`](INGESTION_RAG.md).
+The manifests are rows of the vault's `documents` contract: the vault ingests them and
+data-orchestrator reads company documents from the vault (`local_path` = the rendered PDF,
+else the cleaned text). Contract, artefact rule and `migrate-contract` in
+[`INGESTION_RAG.md`](INGESTION_RAG.md).

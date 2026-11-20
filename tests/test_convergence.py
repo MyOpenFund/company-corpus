@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from company_corpus import rag
 from company_corpus.config import Config, normalize_cik
 from company_corpus.models import FilingRecord
 from company_corpus.pipeline import fetch_financials
@@ -38,7 +37,7 @@ def _discovery_record() -> FilingRecord:
     )
 
 
-def test_discover_download_discover_keeps_rag_items(config, sample_submission):
+def test_discover_download_discover_keeps_the_vault_artefact(config, sample_submission):
     st = Storage(config)
     st.save_records([_discovery_record()], dry_run=False)
 
@@ -51,7 +50,9 @@ def test_discover_download_discover_keeps_rag_items(config, sample_submission):
 
     kept = next(iter(st.load_manifest("320193").values()))
     assert kept.submission_sha256 and kept.submission_path and kept.primary_path and kept.text_path
-    assert list(rag.iter_items(ciks=["320193"], config=config))
+    assert kept.primary_sha256
+    row = kept.to_row()     # what the vault ingests: the RAG artefact and the primary's hash
+    assert (row["local_path"], row["sha256"]) == (kept.text_path, kept.primary_sha256)
 
 
 # ---------------------------------------------------------------------------

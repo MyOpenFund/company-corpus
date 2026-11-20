@@ -493,7 +493,7 @@ class Storage:
         The skip test used to be ``sub_path.exists()`` alone, so an interrupt
         (SIGTERM, OOM, disk-full) between writing the submission and saving the
         manifest left the document permanently stuck: no primary, no cleaned
-        text, no hash, invisible to ``rag.iter_items`` forever, recoverable only
+        text, no hash, invisible to every reader of the manifest forever, recoverable only
         by re-downloading every byte with ``--overwrite`` (Rob-C4). A missing
         ``submission_sha256`` is the marker: it is set by every complete pass, and it is
         also what a wiped record (DI-C1) or a legacy row lacks (DI-M10). A

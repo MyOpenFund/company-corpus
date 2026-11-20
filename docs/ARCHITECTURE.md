@@ -91,11 +91,11 @@ flowchart TB
     end
 
     subgraph consume["Read-only consumers"]
-        RAGM["rag.py — iter_items → SourceItem"]
+        MIG["migrate.py — migrate-contract"]
         COMP["completeness.py — coverage matrix"]
     end
 
-    DATA[("data/ — manifest/ raw/ universe/<br/>financials/ ownership/")]
+    DATA[("data/ — manifest/ vocabulary.json derived/f1/<br/>raw/ universe/ financials/ ownership/")]
 
     CLI --> PIPE --> srcs
     PIPE --> STORE
@@ -134,7 +134,8 @@ Module responsibilities, one line each:
 | `concepts/` | The two-level concept dictionary (`concepts.json` for meanings, `tags/us_gaap.json` and `tags/ifrs_full.json` for each taxonomy's tags) and the one SQL selection that picks, per concept and period, which filed tag answers it; used by the store's Recipe and by F1 summaries (`summaries.py`). |
 | `opendata/` | Layer 0 → my-open-data batches: archives the EDGAR submissions API and the SEC bulk statement files, maps them to `identity`, `fundamentals`, `filing_statements` and `filings` rows, writes them through the my-open-data writer (`store-batches`, `statements`). |
 | `indices.py` | S&P 500 composition + dated membership (Wikipedia). |
-| `rag.py` / `completeness.py` | Read manifests back into `SourceItem`s; audit coverage vs. expected cadence. |
+| `vocabulary.py` / `migrate.py` | The vault contract's `vocabulary.json`, generated from the taxonomy and the source codes; `migrate-contract`, the one-shot rewrite of a pre-contract corpus. |
+| `completeness.py` | Audit coverage vs. expected cadence. |
 | `config.py` / `http.py` | Runtime config + identifier parsers (`normalize_cik`, `cusip6`, …); the polite Fetcher. |
 | `openfigi.py` | **Isolated, optional** identifier enrichment/triage (no SEC, no CIK). Imported only by the CLI. |
 | `runreport.py` | `RunReport` — structured run-reports + the exit-code doctrine (see below). |
@@ -163,7 +164,9 @@ the field-by-field reference and the per-command "unit of useful work" table.
 
 ### `FilingRecord` — the manifest unit
 
-One JSON line per filing in `data/manifest/<cik>.jsonl`. Its identity is
+One JSON line per filing in `data/manifest/<cik>.jsonl` (families A–E) or, for F1, in
+`data/derived/f1/<cik>.jsonl`. Each line is a row of the vault's `documents` contract
+(see [`INGESTION_RAG.md`](INGESTION_RAG.md)). Its identity is
 **date-independent**: `doc_id = sha1("<cik>|<form-code>|<accession>")[:16]`, so
 re-discovering a filing after a date correction never duplicates it. Family **F**
 (XBRL period summaries) appends `|<period_of_report>|<frequency>` to that basis
@@ -178,9 +181,12 @@ Key fields: `cik`, `form_type` (a `FormType`), `sec_form`, `accession`, `company
 (point-in-time) + `company_current`, `entity_id`, `filing_date`,
 `period_of_report`, `frequency` (period-keyed families only),
 `primary_doc_url`, `submission_url`, `provenance`
-(`edgar_index | edgar_fts | edgar_submissions | wayback`), and on-disk pointers
-`local_path` / `primary_path` / `text_path` / `pdf_path`. `to_row()`/`from_row()`
-round-trip it to JSONL.
+(`edgar_index | edgar_fts | edgar_submissions | wayback`), on-disk pointers
+`submission_path` / `primary_path` / `text_path` / `pdf_path`, and two hashes:
+`submission_sha256` (the stored submission) and `primary_sha256` (the primary document as
+the SEC served it). `to_row()` writes the contract row (`doc_type`, `date`, `document_url`,
+`sha256` = `primary_sha256`, `local_path` = the RAG artefact per
+`Config.vault_artifact_preference`, …); `from_row()` reads it and the pre-contract names.
 
 ### Filing taxonomy (families A–F)
 
@@ -213,7 +219,9 @@ flowchart TB
 
 ```
 data/
-├── manifest/<cik>.jsonl       # INDEX: one line per filing (committed) — the map
+├── manifest/<cik>.jsonl       # INDEX: one vault-contract row per filing, families A–E — the map
+├── vocabulary.json            # the vault contract's codes for these rows (generated)
+├── derived/f1/<cik>.jsonl     # F1 period summaries' records (never vault documents)
 ├── universe/<name>.jsonl      # curated issuer lists (committed); +<name>_changes/_collisions.jsonl
 ├── financials/<cik>.jsonl     # SEC XBRL structured financials (committed)
 ├── financials_eu/<lei>.jsonl  # EU ESEF/IFRS structured financials (committed)
@@ -226,7 +234,11 @@ data/
 ```
 
 The manifest is the entry point — every line carries the exact file paths, so you
-never decode a hash or browse `raw/` by hand.
+never decode a hash or browse `raw/` by hand. It holds only the families of
+`Config.vault_families` (default A–E): the vault ingests it as it is, with
+`vocabulary.json`. F1 summaries carry latest-filed values, not point-in-time ones, so
+they are never a vault document nor a data source; their records live in
+`derived/f1/`, their files stay under `raw/<cik>/F1/`.
 
 **The four table writers merge; they do not replace.** `financials/`,
 `financials_eu/`, `financials_register/` and `ownership/` are written through one
@@ -281,11 +293,11 @@ flowchart LR
     subgraph BR["independent batches"]
         direction TB
         R["render-pdf → .pdf"]
-        X["xbrl → financials/ (F1)"]
+        X["xbrl → financials/ + derived/f1/ (F1)"]
         O["ownership → ownership/ (E)"]
     end
 
-    BR --> RAGS["rag-items<br/>→ SourceItems (read-only)"]
+    BR --> VAULT["vault ingestion<br/>(manifest/ + vocabulary.json, read-only)"]
     BR --> REP["report<br/>completeness matrix"]
 
     DI["discover-index<br/>(full-index, incl. delisted)"] -.alt discovery.-> DL
@@ -294,7 +306,7 @@ flowchart LR
 - **`discover --download`** collapses *discover* + *download* into one call.
 - **`discover-index`** is the exhaustive alternative to `discover` (any filer, via
   the quarterly full-index, including delisted/merged issuers).
-- `report` and `rag-items` are read-only consumers at the tail; `entities`,
+- `report` and the vault ingestion are read-only consumers at the tail; `entities`,
   `list-forms`, `list-universe`, `config` are inspection-only.
 - **`verify`** ([`verify.py`](../company_corpus/verify.py)) audits the whole tree
   against these invariants — pointers resolve, ids are the ones the current
@@ -430,11 +442,7 @@ sequenceDiagram
     CLI->>Pipe: fetch_financials(ciks)
     Pipe->>Src: companyfacts(cik)
     Pipe->>Store: write summaries + financials table (F1)
-    Store->>Disk: financials/0000320193.jsonl
-
-    User->>CLI: rag-items --universe curated
-    CLI->>Disk: read manifests + artifacts
-    CLI-->>User: SourceItems the RAG would ingest
+    Store->>Disk: financials/0000320193.jsonl + derived/f1/0000320193.jsonl
 ```
 
 ---

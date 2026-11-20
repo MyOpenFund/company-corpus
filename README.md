@@ -50,7 +50,7 @@ others only total liabilities (NO/UK/EE/DK-FSA) — so consumers cannot compare
 
 ```bash
 pip install -r requirements.txt           # runtime-only
-pip install -r requirements-dev.txt       # adds pytest-socket etc. for the test suite
+pip install -r requirements-dev.txt       # adds pytest-socket, the pinned vault-contract (tests only)
 python -m pytest -q                       # network-free test suite
 
 export COMPANY_CORPUS_CONTACT="you@example.com"   # required before any live crawl
@@ -75,6 +75,23 @@ python -m company_corpus register-financials --orgnrs 923609016 --write
 # UK Companies House bulk iXBRL (Arelle required; --limit for a bounded test run)
 python -m company_corpus register-financials --ch-bulk accounts_monthly_2024_01.zip --limit 100
 ```
+
+## Feeding the vault (`documents` contract)
+
+Every SEC manifest line (`data/manifest/<cik>.jsonl`, families `A`–`E`) is a row of the
+vault's `documents` contract 1.0.0 (`corpus: company`, `source_code: sec`, `doc_type` = the
+form code, `sha256` = the primary document as the SEC served it, `local_path` = the rendered
+PDF else the cleaned text, `entity_scheme: cik`), and `data/vocabulary.json` declares its
+codes; the vault ingests both as they are. F1 summaries are not vault documents: they live in
+`data/derived/f1/<cik>.jsonl`. A corpus written before the contract is migrated once:
+
+```bash
+python -m company_corpus migrate-contract            # dry run: read the counts
+python -m company_corpus migrate-contract --write    # then: re-run -> rows_rewritten=0 f1_moved=0
+python -m company_corpus verify --hash               # 0 findings
+```
+
+Details, the artefact rule and the checks: [`docs/INGESTION_RAG.md`](docs/INGESTION_RAG.md).
 
 ## Feeding my-open-data (`store-batches`)
 
@@ -184,7 +201,7 @@ on. Counters:
 | `submissions_refreshed:stale`, `submissions_stale` | the archive was older than a filing in companyfacts: re-fetched / not re-fetched (dry run, `--offline`) |
 | `known_at_fallback`, `known_at_capped`, `known_at_naive` | `known_at` derived without an acceptance time (capped at run time / naive timestamp) |
 | `source_doc_id_null` | any report form outside the taxonomy (10-KT, 10-QT): the row has a null `source_doc_id` |
-| `filing_not_in_manifest` | informational: the `source_doc_id` is set but no manifest row holds it; most issuers' manifests hold only F1 summaries |
+| `filing_not_in_manifest` | informational: the `source_doc_id` is set but no manifest row holds it (an issuer whose filings were never discovered; F1 summaries live in `derived/f1/`, not in the manifest) |
 | `filings:<counter>` | the `filings` batch's counters, prefixed: `filings:dropped:not_a_report` (non-report forms), `filings:dropped:bad_filing_date`, `filings:report_date_missing`, `filings:ambiguous_filing`, `filings:known_at_fallback`, plus the shared known_at / source_doc_id counters (`known_at_capped`, `known_at_naive`, `dropped:no_known_at`, `dropped:implausible_filed`, `source_doc_id_null`, `filing_not_in_manifest`), prefixed the same way |
 | `value_rounded` | value rounded to fit the contract |
 | `country_unknown[:code]` | unmapped EDGAR country code |
@@ -311,6 +328,7 @@ a green "nothing to do":
 | `register-financials` | one row per register | period summaries |
 | `store-batches` | sec | issuers emitted (dry run: computed) |
 | `statements` | sec | issuers written (dry run: 0) |
+| `migrate-contract` | sec | manifest rows rewritten + F1 rows moved (dry run: what would be); a refused issuer is a local refusal |
 
 Full detail (every column, plus the three deliberate policy choices behind
 this table) is documented in the `cli.py` module docstring.
@@ -357,8 +375,13 @@ takes **no corpus lock**, so it is safe to run beside a nightly crawl.
 | `stale-doc-id` | a stored id the current identity rule does not reproduce (a pre-period-keyed F1 id, an EU manifest with no `native_id`) |
 | `foreign-row` | a row filed under an entity other than the one naming its file |
 | `invalid-identifier` | a filename or row id that is not a usable CIK / LEI / path component |
-| `incomplete-record` | an artefact is stored but `sha256` is unset (half-processed; `download` repairs it from disk) |
-| `hash-mismatch` | `--hash` only: stored bytes no longer hash to the recorded `sha256` |
+| `incomplete-record` | a submission is stored but `submission_sha256` is unset, or (no submission: an F1 summary) an artefact is stored and no hash is (half-processed; `download` repairs it from disk) |
+| `missing-primary-hash` | a row with a primary document but no `sha256` (its hash): written before the vault contract; `migrate-contract --write` computes it |
+| `f1-in-manifest` | an F1 row still in `manifest/` (written before the vault contract); `migrate-contract --write` moves it to `derived/f1/` |
+| `not-f1-in-f1-index` | a row of another family in `derived/f1/` |
+| `submission-hash-mismatch` | `--hash` only: the stored submission no longer hashes to `submission_sha256` |
+| `primary-hash-mismatch` | `--hash` only: the primary document hashes neither on disk nor re-derived from the submission to `sha256` (the file at `primary_path` may legitimately be an ownership summary that superseded the filed XML: the submission then decides) |
+| `hash-mismatch` | `--hash` only: an EU file no longer hashes to its manifest's `sha256` |
 | `unreadable-row` / `unreadable-file` | a line or a file that could not be parsed or read — reported, never a crash |
 
 Exit codes follow the doctrine: `0` clean, `3` findings, `1` the data
@@ -487,7 +510,7 @@ possible lie.
 | [`docs/FINANCIALS.md`](docs/FINANCIALS.md) | The shared financials engine (reported + derived metrics, 71 curated concepts) |
 | [`docs/EU_FINANCIALS.md`](docs/EU_FINANCIALS.md) | Structured EU ESEF/IFRS financials — json_url stdlib (Tier A) + Arelle (Tier B) |
 | [`docs/REGISTER_FINANCIALS.md`](docs/REGISTER_FINANCIALS.md) | Statutory financials from 8 national registers (🇳🇴 NO · 🇬🇧 UK · 🇧🇪 BE · 🇱🇺 LU · 🇫🇮 FI · 🇩🇰 DK · 🇪🇪 EE · 🇸🇰 SK); no-false-data gate; `leverage_basis` field |
-| [`docs/INGESTION_RAG.md`](docs/INGESTION_RAG.md) | The RAG ingestion contract + a ready-to-paste orchestrator connector |
+| [`docs/INGESTION_RAG.md`](docs/INGESTION_RAG.md) | The vault `documents` contract the manifests follow, the RAG artefact rule, `vocabulary.json`, F1 out of the vault, `migrate-contract` |
 
 ## Core principles
 
