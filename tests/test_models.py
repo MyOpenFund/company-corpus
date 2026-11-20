@@ -9,7 +9,8 @@ import pytest
 
 from company_corpus.config import DEFAULT_VAULT_ARTIFACT_PREFERENCE
 from company_corpus.models import (
-    DOC_ID_PERIOD_KEYED_FAMILIES, FilingRecord, artifact_for_vault, index_url,
+    DOC_ID_PERIOD_KEYED_FAMILIES, FilingRecord, ManifestNeedsMigration, artifact_for_vault,
+    index_url,
 )
 from company_corpus.taxonomy import FormType
 
@@ -159,33 +160,18 @@ def test_contract_row_round_trips_identically():
     assert json.loads(json.dumps(row)) == row
 
 
-def test_a_pre_contract_row_reads_into_the_new_attributes():
-    old = _old_rows()[0]
-    rec = FilingRecord.from_row(old)
-    assert rec.submission_path == old["local_path"]
-    assert rec.submission_sha256 == old["sha256"]
-    assert rec.primary_sha256 is None, "the old sha256 hashed the submission, not the primary"
-    row = rec.to_row()
-    assert row["doc_id"] == old["doc_id"]
-    assert row["submission_path"] == old["local_path"]
-    assert row["submission_sha256"] == old["sha256"]
-    assert row["sha256"] is None
-    assert row["local_path"] == old["pdf_path"]
-    assert row["document_url"] == old["primary_doc_url"]
-    assert (row["doc_type"], row["date"]) == (old["form_type"], old["filing_date"])
-    # And the contract row it became reads back to the same record.
-    assert FilingRecord.from_row(row).to_row() == row
+def test_a_pre_contract_row_is_refused_loudly_naming_the_migration():
+    # The pre-contract form is read by migrate-contract alone: any other reader that met it
+    # and skipped it would let a later write drop the row (the one-way-door hazard).
+    for old in _old_rows():
+        with pytest.raises(ManifestNeedsMigration, match="migrate-contract"):
+            FilingRecord.from_row(old)
 
 
-def test_a_pre_contract_row_without_submission_hashed_its_primary():
-    # write_financial_summary (family F) stored the hash of the HTML it wrote, with no
-    # submission at all: that hash is the primary's.
-    old = _old_rows()[1]
-    assert old["local_path"] is None and old["sha256"]
-    rec = FilingRecord.from_row(old)
-    assert (rec.primary_sha256, rec.submission_sha256, rec.submission_path) == \
-        (old["sha256"], None, None)
-    assert rec.to_row()["sha256"] == old["sha256"]
+def test_the_refusal_is_not_an_error_the_corrupt_line_tolerance_swallows():
+    # Storage skips a line that raises JSONDecodeError/KeyError/ValueError/TypeError with a
+    # warning; a pre-contract row must not be one of those.
+    assert not issubclass(ManifestNeedsMigration, (KeyError, ValueError, TypeError))
 
 
 def test_doc_id_is_unchanged_by_the_contract_rows():

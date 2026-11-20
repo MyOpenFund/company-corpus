@@ -102,28 +102,67 @@ def _pre_migration_manifest(config) -> tuple[FilingRecord, FilingRecord]:
     return a1, f1
 
 
-def test_a_pre_migration_manifest_is_read_without_its_f1_rows(config):
-    a1, f1 = _pre_migration_manifest(config)
+def test_reading_a_pre_migration_manifest_fails_loudly_naming_the_migration(config):
+    _pre_migration_manifest(config)
+    with pytest.raises(ManifestNeedsMigration, match="migrate-contract"):
+        Storage(config).load_manifest(CIK)
+
+
+def test_a_pre_contract_row_among_contract_rows_is_not_skipped(config):
+    # A mixed manifest (a contract row, then one old row): skipping the old row would let the
+    # next write drop it.
     st = Storage(config)
-    assert list(st.load_manifest(CIK)) == [a1.doc_id]
-    assert st.load_f1(CIK) == {}
+    st.save_records([_a1(1)], dry_run=False)
+    path = config.manifest_file(CIK)
+    old = {"cik": CIK, "form_type": "A1", "sec_form": "10-K", "accession": _a1(2).accession,
+           "filing_date": "2024-11-01", "doc_id": _a1(2).doc_id}
+    path.write_text(path.read_text() + json.dumps(old) + "\n")
+    with pytest.raises(ManifestNeedsMigration, match="migrate-contract"):
+        st.load_manifest(CIK)
 
 
-def test_verify_reports_f1_rows_left_in_a_manifest(config):
-    a1, f1 = _pre_migration_manifest(config)
-    findings = verify(config)
-    assert [f.kind for f in findings] == ["f1-in-manifest"]
-    assert f1.doc_id in findings[0].subject and "migrate-contract" in findings[0].detail
-
-
-def test_writing_a_pre_migration_manifest_is_refused_rather_than_dropping_its_f1(config):
+def test_writing_a_pre_migration_manifest_fails_before_any_write(config):
     _pre_migration_manifest(config)
     before = config.manifest_file(CIK).read_text()
     st = Storage(config)
-    assert st.save_records([_a1(2)], dry_run=True).added == 1   # a dry run is harmless
-    with pytest.raises(ManifestNeedsMigration, match="migrate-contract"):
-        st.save_records([_a1(2)], dry_run=False)
+    for dry_run in (True, False):
+        with pytest.raises(ManifestNeedsMigration, match="migrate-contract"):
+            st.save_records([_a1(2)], dry_run=dry_run)
     assert config.manifest_file(CIK).read_text() == before
+
+
+def test_an_f1_row_in_a_manifest_fails_loudly(config):
+    # Contract-form F1 in manifest/ (never written by this code): an error, not a skip.
+    st = Storage(config)
+    st.save_records([_a1()], dry_run=False)
+    path = config.manifest_file(CIK)
+    path.write_text(path.read_text() + json.dumps(_f1(2023).to_row()) + "\n")
+    with pytest.raises(RuntimeError, match="F1"):
+        st.load_manifest(CIK)
+    with pytest.raises(RuntimeError, match="F1"):
+        st.save_records([_a1(2)], dry_run=False)
+
+
+def test_verify_reports_an_f1_row_in_a_manifest(config):
+    st = Storage(config)
+    st.save_records([_a1()], dry_run=False)
+    f1 = _f1(2023)
+    path = config.manifest_file(CIK)
+    path.write_text(path.read_text() + json.dumps(f1.to_row()) + "\n")
+    findings = verify(config)
+    assert [f.kind for f in findings] == ["f1-in-manifest"]
+    assert f1.doc_id in findings[0].subject and "derived/f1" in findings[0].detail
+
+
+def test_a_non_f1_row_in_the_f1_index_fails_loudly(config):
+    st = Storage(config)
+    _seed_f1(st, _f1(2023))
+    path = config.f1_index_file(CIK)
+    path.write_text(path.read_text() + json.dumps(_a1().to_row()) + "\n")
+    before = path.read_text()
+    with pytest.raises(RuntimeError, match="A1"):
+        st.save_f1([_f1(2022)], dry_run=False)
+    assert path.read_text() == before
 
 
 # ---- readers of F1 ----

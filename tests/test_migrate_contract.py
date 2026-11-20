@@ -19,7 +19,7 @@ import pytest
 import company_corpus.cli as cli
 from company_corpus.config import Config, normalize_cik
 from company_corpus.lock import corpus_lock
-from company_corpus.migrate import migrate_contract
+from company_corpus.migrate import contract_names, migrate_contract
 from company_corpus.models import FilingRecord
 from company_corpus.ownership import find_ownership_doc, form345_text, parse_form345, \
     render_form345_html
@@ -173,9 +173,9 @@ def test_the_dry_run_writes_nothing_and_counts_what_it_would_do(old_corpus):
 
 
 def test_the_pre_migration_corpus_shows_its_debt_in_verify(old_corpus):
-    kinds = [f.kind for f in verify(old_corpus)]
-    assert kinds.count("f1-in-manifest") == 5
-    assert kinds.count("missing-primary-hash") == 3
+    findings = verify(old_corpus)
+    assert [f.kind for f in findings] == ["pre-contract-row"] * 11
+    assert all("migrate-contract" in f.detail for f in findings)
 
 
 # ---- write ----
@@ -377,7 +377,8 @@ def _prune_in_index(config, gone, keep):
 
 
 def _apple_f1(config):
-    recs = Storage(config)._read_records(config.manifest_file(APPLE), f1=True)[0]
+    recs = {r.doc_id: r for r in (FilingRecord.from_row(contract_names(x)) for x in _rows(config, APPLE))
+            if r.form_type is FormType.F1}
     return sorted(recs.values(), key=lambda r: r.period_of_report)
 
 

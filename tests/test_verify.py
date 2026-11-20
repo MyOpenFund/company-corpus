@@ -704,8 +704,10 @@ def test_a_submission_without_its_hash_is_still_incomplete_even_with_a_primary_h
     assert _kinds(verify(corpus)) == ["incomplete-record"]
 
 
-def test_a_pre_contract_row_is_verified_by_its_old_names(corpus):
-    # A manifest not yet migrated: local_path/sha256 name the submission, no primary hash.
+def test_a_pre_contract_row_is_reported_naming_the_migration(corpus):
+    # A manifest not yet migrated: verify does not read the old names (only migrate-contract
+    # does); it reports the row and stops calling files orphans (it no longer knows what the
+    # row pointed at).
     rows = _manifest_rows(corpus)
     rec = FilingRecord.from_row(rows[0])
     old = {"cik": rec.cik, "form_type": "A1", "sec_form": rec.sec_form,
@@ -715,12 +717,14 @@ def test_a_pre_contract_row_is_verified_by_its_old_names(corpus):
            "local_path": rec.submission_path, "primary_path": rec.primary_path,
            "text_path": rec.text_path, "pdf_path": None, "doc_id": rec.doc_id}
     _write_manifest_rows(corpus, [old])
-    assert _kinds(verify(corpus, check_hashes=True)) == ["missing-primary-hash"]
+    findings = verify(corpus, check_hashes=True)
+    assert _kinds(findings) == ["pre-contract-row"]
+    assert "migrate-contract" in findings[0].detail
 
 
-def test_a_pre_contract_row_still_has_its_submission_hash_checked(corpus):
-    # missing-primary-hash must not hide a rotted submission (before the migration, and
-    # forever for a row whose primary cannot be hashed).
+def test_a_missing_primary_hash_still_has_its_submission_hash_checked(corpus):
+    # missing-primary-hash must not hide a rotted submission (forever, for a row whose
+    # primary cannot be hashed).
     rows = _manifest_rows(corpus)
     rows[0]["sha256"] = None
     _write_manifest_rows(corpus, rows)
