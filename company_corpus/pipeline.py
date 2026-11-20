@@ -360,7 +360,7 @@ def fetch_financials(
     run_id: str | None = None,
     prune: bool = True,
 ) -> FinancialsReport:
-    """Build per-period XBRL financial summaries (family F1) into manifests.
+    """Build per-period XBRL financial summaries (family F1) into the F1 index.
 
     For each issuer: fetch company facts, group into one summary per reporting
     period (annual/quarterly), and emit an F1 ``FilingRecord`` per period with the
@@ -466,7 +466,7 @@ def fetch_financials(
                 report.prune_skipped += 1
             continue
 
-        # Stale set and guard base come from the manifest as it stood BEFORE this run's
+        # Stale set and guard base come from the F1 index as it stood BEFORE this run's
         # writes: a write would otherwise count its own new records in the base (an
         # accession change makes 1 of 11, not 1 of 10) and decide unlike the dry run.
         stale = in_scope = None
@@ -482,7 +482,7 @@ def fetch_financials(
                                                     _summary_text(ps))
                 storage.store_companyfacts(cik, facts)
                 storage.write_financials_table(cik, rows)
-            report.stats += storage.save_records(records, dry_run=dry_run)
+            report.stats += storage.save_f1(records, dry_run=dry_run)
         except ShrinkGuardError as exc:
             # A tripped no-shrink guard is one issuer's refused write, not the
             # run's death (same doctrine as the identity collision above): the

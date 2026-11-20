@@ -192,7 +192,7 @@ def test_three_comparatives_reach_three_manifest_rows(config, monkeypatch):
     report = fetch_financials(["320193"], dry_run=False, config=config,
                               fetcher=object(), storage=Storage(config))
     assert report.periods == 3
-    assert len(Storage(config).load_manifest("320193")) == 3
+    assert len(Storage(config).load_f1("320193")) == 3
     html = sorted(
         (config.raw_dir / normalize_cik("320193") / "F1").rglob("*.primary.html"))
     assert len(html) == 3
@@ -206,7 +206,7 @@ def test_annual_and_q4_of_one_accession_reach_two_manifest_rows(config, monkeypa
                               fetcher=object(), storage=Storage(config))
     assert not report.errors
     assert report.periods == 2
-    manifest = Storage(config).load_manifest("320193")
+    manifest = Storage(config).load_f1("320193")
     assert len(manifest) == 2
     assert {r.frequency for r in manifest.values()} == {"annual", "quarterly"}
     html = sorted(
@@ -246,8 +246,8 @@ def test_a_colliding_issuer_does_not_abort_the_other_issuers(config, monkeypatch
     report = fetch_financials(["320193", "789019"], dry_run=False, config=config,
                               fetcher=object(), storage=Storage(config))
     storage = Storage(config)
-    assert not storage.load_manifest("320193")           # write-nothing for that one
-    assert len(storage.load_manifest("789019")) == 1     # the others still run
+    assert not storage.load_f1("320193")           # write-nothing for that one
+    assert len(storage.load_f1("789019")) == 1     # the others still run
     assert report.periods == 1
     assert [e["context"] for e in report.errors] == [normalize_cik("320193")]
 

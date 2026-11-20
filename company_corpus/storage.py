@@ -199,6 +199,10 @@ def _row_f1_group(row: dict) -> tuple:
     return row.get("period_end"), row.get("frequency") or None
 
 
+class ManifestNeedsMigration(RuntimeError):
+    """A manifest written before chantier 4 (with F1 rows) cannot be rewritten safely."""
+
+
 class ShrinkGuardError(RuntimeError):
     """A write would drop more of a table than ``no_shrink_fraction`` allows."""
 
@@ -317,13 +321,27 @@ class Storage:
         #: every later write of that table merges (see ``_write_table``).
         self._replaced: set[Path] = set()
 
-    # ---- manifests ----
+    # ---- manifests (vault documents, families Config.vault_families) and the F1 index ----
     def load_manifest(self, cik: str) -> dict[str, FilingRecord]:
-        """Return ``{doc_id: FilingRecord}`` for an issuer (empty if none)."""
-        path = self.config.manifest_file(cik)
+        """Return ``{doc_id: FilingRecord}`` for an issuer's manifest (empty if none).
+
+        Never an F1 record: F1 lives in its own index (:meth:`load_f1`). A manifest written
+        before chantier 4 may still hold F1 rows; they are skipped here (``verify`` reports
+        them as ``f1-in-manifest``, ``migrate-contract`` moves them).
+        """
+        return self._read_records(self.config.manifest_file(cik), f1=False)[0]
+
+    def load_f1(self, cik: str) -> dict[str, FilingRecord]:
+        """Return ``{doc_id: FilingRecord}`` of an issuer's F1 index (``derived/f1/<cik>.jsonl``)."""
+        return self._read_records(self.config.f1_index_file(cik), f1=True)[0]
+
+    def _read_records(self, path: Path, *, f1: bool) -> tuple[dict[str, FilingRecord], int]:
+        """``({doc_id: record}, rows of the other kind skipped)`` of one JSONL file: the F1
+        records (``f1``) or every other one."""
         records: dict[str, FilingRecord] = {}
+        skipped = 0
         if not path.exists():
-            return records
+            return records, skipped
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             line = line.strip()
             if not line:
@@ -334,10 +352,13 @@ class Storage:
                 # One corrupt line (e.g. from an interrupted legacy write) must not
                 # take down the whole issuer's manifest -- skip it and warn.
                 warnings.warn(f"{path}:{lineno}: skipping unparseable manifest row ({exc})",
-                              stacklevel=2)
+                              stacklevel=3)
+                continue
+            if (rec.form_type is FormType.F1) != f1:
+                skipped += 1
                 continue
             records[rec.doc_id] = rec
-        return records
+        return records, skipped
 
     def save_records(
         self, records: Iterable[FilingRecord], *, dry_run: bool = True
@@ -347,14 +368,38 @@ class Storage:
         With ``dry_run=True`` (default) nothing is written; the returned stats
         still reflect what *would* change. Records are grouped by CIK so a batch
         spanning issuers is handled in one call.
+
+        Only vault documents: a record whose family is not in ``Config.vault_families``
+        (F1 above all: :meth:`save_f1`) raises ``ValueError`` before anything is written.
         """
+        records = list(records)
+        allowed = set(self.config.vault_families)
+        refused = sorted({r.form_type.code for r in records if r.form_type.family not in allowed})
+        if refused:
+            raise ValueError(
+                f"refusing to write {', '.join(refused)} record(s) to manifest/: only the "
+                f"families {self.config.vault_families} (Config.vault_families) are vault "
+                "documents (F1 goes to the F1 index: Storage.save_f1)")
+        return self._save_grouped(records, f1=False, dry_run=dry_run)
+
+    def save_f1(self, records: Iterable[FilingRecord], *, dry_run: bool = True) -> SaveStats:
+        """Merge F1 records into their per-issuer F1 index, as :meth:`save_records` merges a
+        manifest (same merge, same sticky pointers). Any other family raises ``ValueError``."""
+        records = list(records)
+        refused = sorted({r.form_type.code for r in records if r.form_type is not FormType.F1})
+        if refused:
+            raise ValueError(f"refusing to write {', '.join(refused)} record(s) to the F1 index")
+        return self._save_grouped(records, f1=True, dry_run=dry_run)
+
+    def _save_grouped(self, records: list[FilingRecord], *, f1: bool,
+                      dry_run: bool) -> SaveStats:
         by_cik: dict[str, list[FilingRecord]] = {}
         for rec in records:
             by_cik.setdefault(normalize_cik(rec.cik), []).append(rec)
 
         total = SaveStats()
         for cik, recs in by_cik.items():
-            total += self._save_cik(cik, recs, dry_run=dry_run)
+            total += self._save_cik(cik, recs, f1=f1, dry_run=dry_run)
         return total
 
     def _carry_sticky(self, prior: FilingRecord, rec: FilingRecord) -> None:
@@ -375,9 +420,10 @@ class Storage:
                 setattr(rec, name, getattr(prior, name))
 
     def _save_cik(
-        self, cik: str, records: list[FilingRecord], *, dry_run: bool
+        self, cik: str, records: list[FilingRecord], *, f1: bool = False, dry_run: bool
     ) -> SaveStats:
-        existing = self.load_manifest(cik)
+        path = self.config.f1_index_file(cik) if f1 else self.config.manifest_file(cik)
+        existing, other_kind = self._read_records(path, f1=f1)
         stats = SaveStats(seen=len(records))
         changed = False
         for rec in records:
@@ -399,11 +445,16 @@ class Storage:
                 stats.unchanged += 1
 
         if changed and not dry_run:
-            self._write_manifest(cik, existing.values())
+            if other_kind and not f1:
+                # A manifest written before chantier 4 still holds F1 rows: rewriting it
+                # from the records read would drop them.
+                raise ManifestNeedsMigration(
+                    f"{path} still holds {other_kind} F1 row(s); run "
+                    "`company-corpus migrate-contract --write` before writing manifests")
+            (self._write_f1 if f1 else self._write_manifest)(cik, existing.values())
         return stats
 
-    def _write_manifest(self, cik: str, records: Iterable[FilingRecord]) -> None:
-        path = self.config.manifest_file(cik)
+    def _write_records(self, path: Path, records: Iterable[FilingRecord]) -> None:
         # Deterministic order: by filing date then accession, for stable diffs.
         ordered = sorted(
             records,
@@ -412,8 +463,14 @@ class Storage:
         preference = self.config.vault_artifact_preference
         _atomic_write_text(path, _jsonl(rec.to_row(artifact_preference=preference)
                                         for rec in ordered))
+
+    def _write_manifest(self, cik: str, records: Iterable[FilingRecord]) -> None:
+        self._write_records(self.config.manifest_file(cik), records)
         # The vault checks these rows against the corpus vocabulary: it travels with them.
         write_vocabulary(self.config)
+
+    def _write_f1(self, cik: str, records: Iterable[FilingRecord]) -> None:
+        self._write_records(self.config.f1_index_file(cik), records)
 
     # ---- download + decomposition (Phase 2) ----
     def raw_dir_for(self, record: FilingRecord) -> Path:
@@ -800,11 +857,12 @@ class Storage:
     def stale_f1_records(self, cik: str, keep_doc_ids: Iterable[str], *,
                          since_year: int | None = None,
                          until_year: int | None = None) -> tuple[list[FilingRecord], int]:
-        """``(stale, in_scope)``: the issuer's F1 records within the year scope whose doc_id
-        the run did not produce, and how many F1 records the scope holds (the guard's base)."""
+        """``(stale, in_scope)``: the issuer's F1 records (F1 index) within the year scope whose
+        doc_id the run did not produce, and how many F1 records the scope holds (the guard's
+        base)."""
         keep = set(keep_doc_ids)
-        scoped = [r for r in self.load_manifest(cik).values()
-                  if r.form_type is FormType.F1 and _in_years(r, since_year, until_year)]
+        scoped = [r for r in self.load_f1(cik).values()
+                  if _in_years(r, since_year, until_year)]
         return [r for r in scoped if r.doc_id not in keep], len(scoped)
 
     def _f1_artefacts(self, record: FilingRecord) -> tuple[list[Path], str | None]:
@@ -843,25 +901,25 @@ class Storage:
 
     def prune_f1(self, cik: str, stale: Sequence[FilingRecord], kept: Sequence[FilingRecord], *,
                  dry_run: bool = True, run_id: str | None = None) -> F1PruneResult:
-        """Remove stale F1 records: files, table groups, manifest rows, then one log line each.
+        """Remove stale F1 records: files, table groups, F1 index rows, then one log line each.
 
-        The order makes a crash harmless: until the manifest is rewritten the stale row is still
+        The order makes a crash harmless: until the F1 index is rewritten the stale row is still
         there, so the next run finds it stale again and finishes (idempotent). After a crash or
         an OSError, the re-run's ``deleted_files`` (log and ``files``) hold only what that run
         deleted: what an earlier attempt removed is not logged again.
 
-        Only records still in the issuer's manifest are pruned (one already gone is skipped
+        Only records still in the issuer's F1 index are pruned (one already gone is skipped
         silently). A record of another issuer than ``cik``, one the caller also passed as kept,
         one with a path outside ``raw/<cik>/F1/`` or not named after it, or one whose file
         cannot be deleted keeps its row, is listed in ``refused`` and has an error item. An
-        ``OSError`` appending the log, after the manifest rewrite, does not undo the prune: the
+        ``OSError`` appending the log, after the F1 index rewrite, does not undo the prune: the
         result stands and an error item names the doc_ids whose tombstones may be lost. A table
-        group is dropped only when no F1 record that stays in the manifest, and no ``kept``
+        group is dropped only when no F1 record that stays in the F1 index, and no ``kept``
         record, holds it (an accession change keeps its period).
         """
         cik = normalize_cik(cik)
         result = F1PruneResult()
-        manifest = self.load_manifest(cik)
+        manifest = self.load_f1(cik)
         kept_ids = {r.doc_id for r in kept}
         doomed: list[tuple[FilingRecord, list[Path]]] = []
         for rec in stale:
@@ -926,7 +984,7 @@ class Storage:
             else:
                 table.unlink()
         pruned = {r.doc_id for r in result.records}
-        self._write_manifest(cik, [r for i, r in manifest.items() if i not in pruned])
+        self._write_f1(cik, [r for i, r in manifest.items() if i not in pruned])
         try:
             self._log_pruned(log, run_id=run_id)
         except OSError as exc:
@@ -942,7 +1000,7 @@ class Storage:
                            pruned: Sequence[FilingRecord], kept: Sequence[FilingRecord]
                            ) -> tuple[list[dict], set[tuple]]:
         """The table's rows, and the ``sec`` groups of ``pruned`` that the table holds and no
-        F1 record staying in ``manifest`` (nor a ``kept`` one) still holds."""
+        F1 record staying in the F1 index (``manifest``, nor a ``kept`` one) still holds."""
         gone = {r.doc_id for r in pruned}
         held = {_f1_group(r) for r in manifest.values()
                 if r.form_type is FormType.F1 and r.doc_id not in gone}

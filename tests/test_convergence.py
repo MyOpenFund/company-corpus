@@ -251,9 +251,9 @@ def test_a_shrink_guard_error_is_a_per_issuer_report_error(config, monkeypatch):
     assert [e["context"] for e in report.errors] == [normalize_cik("320193")]
     assert "refusing to drop" in report.errors[0]["error"]
     # The refused issuer's remaining writes are skipped...
-    assert not Storage(config).load_manifest("320193")
+    assert not Storage(config).load_f1("320193")
     # ...and the run's other issuers are untouched by it.
-    assert len(Storage(config).load_manifest("789019")) == 1
+    assert len(Storage(config).load_f1("789019")) == 1
     assert normalize_cik("320193") in config.discovery_errors_path.read_text(encoding="utf-8")
 
 

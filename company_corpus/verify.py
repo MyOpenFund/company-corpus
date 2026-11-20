@@ -42,6 +42,7 @@ from .eu.documents import Document
 from .models import FilingRecord
 from .paths import UnsafeIdentifier, safe_component
 from .storage import primary_document, text_sha256
+from .taxonomy import FormType
 
 #: The manifest pointers that name bytes on disk, in the order a reader falls
 #: back through them. ``Config.sticky_manifest_fields`` is the same set minus
@@ -156,7 +157,7 @@ class _Scan:
         self._raw: set[str] = set()
         #: rel paths some manifest row points at, whether or not they exist.
         self._referenced: set[str] = set()
-        self._counts = {"manifests": 0, "rows": 0, "eu_manifests": 0,
+        self._counts = {"manifests": 0, "f1_indexes": 0, "rows": 0, "eu_manifests": 0,
                         "tables": 0, "table_rows": 0, "raw_files": 0}
 
     # ---- reporting helpers ----
@@ -206,7 +207,8 @@ class _Scan:
         sentence that explains all N of them.
         """
         manifest_rel = self._rel(self.config.manifest_dir)
-        indexed = self._counts["manifests"] or self._counts["eu_manifests"]
+        indexed = (self._counts["manifests"] or self._counts["f1_indexes"]
+                   or self._counts["eu_manifests"])
         if not indexed:
             missing = ("no " if not self.config.manifest_dir.is_dir()
                        else "an empty ")
@@ -273,9 +275,19 @@ class _Scan:
             return []
         return sorted(p for p in d.glob("*.jsonl") if p.is_file())
 
+    def _f1_index_files(self) -> list[Path]:
+        d = self.config.f1_index_dir
+        if self.ciks is not None:
+            return [d / f"{cik}.jsonl" for cik in self.ciks if (d / f"{cik}.jsonl").is_file()]
+        if not d.is_dir():
+            return []
+        return sorted(p for p in d.glob("*.jsonl") if p.is_file())
+
     def _check_sec_manifests(self) -> None:
-        for path in self._sec_manifest_files():
-            self._counts["manifests"] += 1
+        files = [(p, False) for p in self._sec_manifest_files()]
+        files += [(p, True) for p in self._f1_index_files()]
+        for path, f1_index in files:
+            self._counts["f1_indexes" if f1_index else "manifests"] += 1
             rel = self._rel(path)
             try:
                 cik = normalize_cik(path.stem)
@@ -289,7 +301,7 @@ class _Scan:
             lines = self._read_lines(path)
             if lines is None:
                 continue
-            self._check_sec_rows(rel, cik, lines)
+            self._check_sec_rows(rel, cik, lines, f1_index=f1_index)
 
     def _read_lines(self, path: Path) -> list[str] | None:
         try:
@@ -299,7 +311,8 @@ class _Scan:
             self._blind()
             return None
 
-    def _check_sec_rows(self, rel: str, cik: str | None, lines: list[str]) -> None:
+    def _check_sec_rows(self, rel: str, cik: str | None, lines: list[str], *,
+                        f1_index: bool = False) -> None:
         by_doc_id: dict[str, int] = {}
         for lineno, line in enumerate(lines, 1):
             line = line.strip()
@@ -331,6 +344,16 @@ class _Scan:
 
             stored_id = str(row.get("doc_id") or "")
             by_doc_id[stored_id] = by_doc_id.get(stored_id, 0) + 1
+            is_f1 = record.form_type is FormType.F1
+            if is_f1 and not f1_index:
+                # Its files are still checked below (and referenced: not orphans).
+                self._add("f1-in-manifest", f"{rel}:{stored_id or lineno}",
+                          "an F1 row in manifest/ (written before chantier 4); "
+                          "`migrate-contract --write` moves it to derived/f1/")
+            elif f1_index and not is_f1:
+                self._add("not-f1-in-f1-index", f"{rel}:{stored_id or lineno}",
+                          f"a {record.form_type.code} row in the F1 index; its place is "
+                          "manifest/")
             if stored_id != record.doc_id:
                 self._add(
                     "stale-doc-id", f"{rel}:{stored_id or '(none)'}",
@@ -716,7 +739,8 @@ def format_text(result: CorpusScan) -> str:
     lines = [
         f"verify {result.data_dir} (read-only: nothing is written, "
         f"no corpus lock is taken)",
-        f"  scanned: {s.get('manifests', 0)} manifest(s) / {s.get('rows', 0)} row(s), "
+        f"  scanned: {s.get('manifests', 0)} manifest(s) + {s.get('f1_indexes', 0)} F1 "
+        f"index(es) / {s.get('rows', 0)} row(s), "
         f"{s.get('eu_manifests', 0)} EU manifest(s), {s.get('tables', 0)} table(s) / "
         f"{s.get('table_rows', 0)} row(s), {s.get('raw_files', 0)} raw file(s)"
         + ("" if result.hashed else "  [no hashing: pass --hash]"),

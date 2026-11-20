@@ -291,7 +291,9 @@ def test_an_old_scheme_f1_doc_id_is_reported_as_stale(corpus):
     row["doc_id"] = hashlib.sha1(old_basis.encode()).hexdigest()[:16]
     row["submission_path"] = row["primary_path"] = row["text_path"] = None
     row["local_path"] = row["mime_type"] = row["sha256"] = None
-    _write_manifest_rows(corpus, _manifest_rows(corpus) + [row])
+    index = corpus.f1_index_file("320193")
+    index.parent.mkdir(parents=True, exist_ok=True)
+    index.write_text(json.dumps(row) + "\n")
 
     findings = verify(corpus)
     assert _kinds(findings) == ["stale-doc-id"]
