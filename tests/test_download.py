@@ -346,3 +346,46 @@ def test_download_limit_zero_dry_run_reports_the_repairs(apple_fetcher, config):
     assert report.would_repair == 3 and report.repaired == 0 and report.downloaded == 0
     assert not any(r.submission_sha256 for r in st.load_manifest("320193").values()
                    if r.accession.endswith(("1", "2", "4"))), "a dry run writes nothing"
+
+
+def _sha256_file(path) -> str:
+    import hashlib
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_a_download_stamps_the_hash_of_the_primary_document(apple_fetcher, config):
+    st = Storage(config)
+    rec = _apple_10k()
+    st.fetch_and_store(rec, apple_fetcher, dry_run=False)
+    assert rec.primary_sha256 == _sha256_file(config.data_dir / rec.primary_path)
+    assert rec.submission_sha256 == _sha256_file(config.data_dir / rec.submission_path)
+    assert rec.primary_sha256 != rec.submission_sha256
+    row = rec.to_row()
+    assert row["sha256"] == rec.primary_sha256, "the contract's sha256 is the primary's"
+
+
+def test_the_primary_hash_reaches_the_manifest_and_survives_rediscovery(apple_fetcher, config):
+    st = Storage(config)
+    st.save_records([_apple_10k()], dry_run=False)
+    download_universe(["320193"], scope=FULL_SCOPE, dry_run=False, config=config,
+                      fetcher=apple_fetcher, storage=st)
+    stored = next(iter(st.load_manifest("320193").values()))
+    assert stored.primary_sha256
+    # A fresh discovery record carries no hash: the sticky merge keeps the stored one.
+    st.save_records([_apple_10k()], dry_run=False)
+    assert next(iter(st.load_manifest("320193").values())).primary_sha256 == \
+        stored.primary_sha256
+
+
+def test_a_render_does_not_change_the_primary_hash(apple_fetcher, config):
+    st = Storage(config)
+    rec = _apple_10k()
+    st.fetch_and_store(rec, apple_fetcher, dry_run=False)
+    before = rec.primary_sha256
+
+    def renderer(src, dest):
+        dest.write_bytes(b"%PDF-1.4 fake")
+
+    assert st.render_record(rec, renderer).status == "rendered"
+    assert rec.primary_sha256 == before
+    assert rec.to_row()["mime_type"] == "application/pdf"

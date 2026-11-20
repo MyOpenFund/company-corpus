@@ -90,6 +90,26 @@ def _atomic_write_text(path: Path, data: str) -> None:
         raise
 
 
+def text_sha256(text: str) -> str:
+    """The sha256 of ``text`` as :func:`_atomic_write_text` stores it (UTF-8)."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def primary_document(record: FilingRecord, raw: str):
+    """The primary document of ``record`` within its complete submission ``raw`` (or None).
+
+    One rule for the download (which writes it to ``primary_path`` and stamps its hash as
+    ``primary_sha256``), ``verify --hash`` and ``migrate-contract`` (which re-derive that hash
+    from the submission when the file at ``primary_path`` is no longer the decomposed one:
+    an ownership summary supersedes it).
+    """
+    return select_primary(
+        parse_submission(raw),
+        primary_filename=filename_from_url(record.primary_doc_url),
+        sec_form=record.sec_form,
+    )
+
+
 def _jsonl(rows: Iterable[dict]) -> str:
     return "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)
 
@@ -458,17 +478,14 @@ class Storage:
             )
 
         submission_sha256 = hashlib.sha256(raw.encode("utf-8", "replace")).hexdigest()
-        primary = select_primary(
-            parse_submission(raw),
-            primary_filename=filename_from_url(record.primary_doc_url),
-            sec_form=record.sec_form,
-        )
-        primary_rel = text_rel = None
+        primary = primary_document(record, raw)
+        primary_rel = text_rel = primary_sha256 = None
         if primary and primary.text:
             ext = Path(primary.filename).suffix or ".txt"
             primary_path = dest_dir / f"{record.doc_id}.primary{ext}"
             _atomic_write_text(primary_path, primary.text)
             primary_rel = self._rel(primary_path)
+            primary_sha256 = text_sha256(primary.text)
 
             text_path = dest_dir / f"{record.doc_id}.txt"
             _atomic_write_text(text_path, clean_text(primary.text, primary.filename))
@@ -493,6 +510,7 @@ class Storage:
         if primary_rel:
             record.primary_path = primary_rel
             record.text_path = text_rel
+            record.primary_sha256 = primary_sha256
 
     def fetch_and_store(
         self,
@@ -701,7 +719,7 @@ class Storage:
         primary = dest_dir / f"{record.doc_id}.primary.html"
         _atomic_write_text(primary, html)
         record.primary_path = self._rel(primary)
-        record.primary_sha256 = hashlib.sha256(html.encode("utf-8")).hexdigest()
+        record.primary_sha256 = text_sha256(html)
         txt = dest_dir / f"{record.doc_id}.txt"
         _atomic_write_text(txt, text)
         record.text_path = self._rel(txt)

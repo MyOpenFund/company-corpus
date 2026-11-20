@@ -281,3 +281,23 @@ def test_ownership_limit_leaves_complete_unparsed_filings_behind_the_cap(
                                  fetcher=fetcher, storage=st)
     assert uncapped.parsed_insider == 1, "an uncapped run parses it"
     assert (config.ownership_dir / "0000320193.jsonl").exists()
+
+
+def test_an_ownership_summary_keeps_the_hash_of_the_filed_primary(make_fetcher, config):
+    # The summary HTML supersedes the decomposed Form 4 XML on disk; the contract's sha256
+    # stays the hash of the document as the SEC served it, stamped at download.
+    import hashlib
+
+    from company_corpus.storage import primary_document
+    st = Storage(config)
+    _seed(st, cik="320193", form_type=FormType.E1, sec_form="4", accession="acc-f4",
+          company="Apple Inc.", primary_doc_url="https://x/form4.xml",
+          submission_url="https://sec/form4sub.txt")
+    fetcher = make_fetcher({"form4sub.txt": FORM4_SUBMISSION})
+    process_ownership(["320193"], dry_run=False, config=config, fetcher=fetcher, storage=st)
+    e1 = next(iter(st.load_manifest("320193").values()))
+    filed = primary_document(e1, FORM4_SUBMISSION)
+    assert e1.primary_sha256 == hashlib.sha256(filed.text.encode("utf-8")).hexdigest()
+    assert e1.primary_path.endswith(".primary.html")
+    summary = (config.data_dir / e1.primary_path).read_bytes()
+    assert hashlib.sha256(summary).hexdigest() != e1.primary_sha256
