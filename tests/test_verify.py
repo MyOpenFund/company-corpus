@@ -162,7 +162,7 @@ def test_a_stale_hash_is_found_only_when_hashing_is_asked_for(corpus):
 
     assert verify(corpus) == []  # a metadata pass must not re-read 9 GB
     findings = verify(corpus, check_hashes=True)
-    assert _kinds(findings) == ["hash-mismatch"]
+    assert _kinds(findings) == ["submission-hash-mismatch"]
     assert rows[0]["submission_sha256"][:12] in findings[0].detail
 
 
@@ -644,3 +644,73 @@ def test_staging_residue_in_the_submissions_archive_is_reported(corpus):
     findings = verify(corpus)
     assert _kinds(findings) == ["orphan-artefact"]
     assert findings[0].detail == "interrupted atomic write, safe to delete"
+
+
+# ---------------------------------------------------------------------------
+# the two hashes of a contract row (chantier 4): submission and primary document
+# ---------------------------------------------------------------------------
+def test_a_clean_row_carries_both_hashes(corpus):
+    row = _manifest_rows(corpus)[0]
+    assert row["sha256"] and row["submission_sha256"] and row["sha256"] != row["submission_sha256"]
+
+
+def test_a_rotted_primary_with_no_submission_to_rederive_it_is_a_primary_hash_mismatch(corpus):
+    rows = _manifest_rows(corpus)
+    (corpus.data_dir / rows[0]["primary_path"]).write_text("rotted")
+    (corpus.data_dir / rows[0]["submission_path"]).unlink()
+    rows[0]["submission_path"] = rows[0]["submission_sha256"] = None
+    _write_manifest_rows(corpus, rows)
+
+    assert verify(corpus) == []
+    findings = verify(corpus, check_hashes=True)
+    assert _kinds(findings) == ["primary-hash-mismatch"]
+    assert rows[0]["sha256"][:12] in findings[0].detail
+
+
+def test_a_primary_hash_the_submission_does_not_yield_is_a_mismatch(corpus):
+    rows = _manifest_rows(corpus)
+    rows[0]["sha256"] = "0" * 64
+    _write_manifest_rows(corpus, rows)
+
+    findings = verify(corpus, check_hashes=True)
+    assert _kinds(findings) == ["primary-hash-mismatch"]
+    assert "000000000000" in findings[0].detail
+
+
+def test_a_primary_superseded_by_a_summary_is_checked_against_the_submission(corpus):
+    # The ownership summary replaces the decomposed primary on disk; the stored hash is the
+    # filed document's, which the submission still yields: no finding.
+    rows = _manifest_rows(corpus)
+    (corpus.data_dir / rows[0]["primary_path"]).write_text("<html>summary</html>")
+    assert verify(corpus, check_hashes=True) == []
+
+
+def test_a_row_with_a_primary_but_no_primary_hash_is_reported(corpus):
+    rows = _manifest_rows(corpus)
+    rows[0]["sha256"] = None
+    _write_manifest_rows(corpus, rows)
+
+    findings = verify(corpus)
+    assert _kinds(findings) == ["missing-primary-hash"]
+    assert "migrate-contract" in findings[0].detail
+
+
+def test_a_submission_without_its_hash_is_still_incomplete_even_with_a_primary_hash(corpus):
+    rows = _manifest_rows(corpus)
+    rows[0]["submission_sha256"] = None
+    _write_manifest_rows(corpus, rows)
+    assert _kinds(verify(corpus)) == ["incomplete-record"]
+
+
+def test_a_pre_contract_row_is_verified_by_its_old_names(corpus):
+    # A manifest not yet migrated: local_path/sha256 name the submission, no primary hash.
+    rows = _manifest_rows(corpus)
+    rec = FilingRecord.from_row(rows[0])
+    old = {"cik": rec.cik, "form_type": "A1", "sec_form": rec.sec_form,
+           "accession": rec.accession, "filing_date": "2024-11-01",
+           "primary_doc_url": rec.primary_doc_url, "submission_url": rec.submission_url,
+           "provenance": rec.provenance, "sha256": rec.submission_sha256,
+           "local_path": rec.submission_path, "primary_path": rec.primary_path,
+           "text_path": rec.text_path, "pdf_path": None, "doc_id": rec.doc_id}
+    _write_manifest_rows(corpus, [old])
+    assert _kinds(verify(corpus, check_hashes=True)) == ["missing-primary-hash"]
