@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import tempfile
 import warnings
 from collections.abc import Iterable, Sequence
@@ -206,6 +207,9 @@ def _row_f1_group(row: dict) -> tuple:
     return row.get("period_end"), row.get("frequency") or None
 
 
+_OLD_F1_ROW = re.compile(rb'"form_type"\s*:\s*"F1"')
+
+
 class ManifestNeedsMigration(RuntimeError):
     """A manifest written before chantier 4 (with F1 rows) cannot be rewritten safely."""
 
@@ -337,6 +341,18 @@ class Storage:
         them as ``f1-in-manifest``, ``migrate-contract`` moves them).
         """
         return self._read_records(self.config.manifest_file(cik), f1=False)[0]
+
+    def manifests_needing_migration(self) -> list[str]:
+        """CIKs whose manifest still holds F1 rows (written before chantier 4), sorted.
+
+        A text search for the pre-contract F1 key (``"form_type": "F1"``; the contract writer
+        never puts F1 in a manifest), so a whole corpus is checked in one read per file,
+        without parsing it."""
+        d = self.config.manifest_dir
+        if not d.is_dir():
+            return []
+        return sorted(p.stem for p in d.glob("*.jsonl")
+                      if p.is_file() and _OLD_F1_ROW.search(p.read_bytes()))
 
     def load_f1(self, cik: str) -> dict[str, FilingRecord]:
         """Return ``{doc_id: FilingRecord}`` of an issuer's F1 index (``derived/f1/<cik>.jsonl``)."""

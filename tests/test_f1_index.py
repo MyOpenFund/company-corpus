@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -151,3 +152,45 @@ def test_the_completeness_report_still_counts_f1(config):
     st.save_records([_a1()], dry_run=False)
     rows = build_matrix([CIK], [2024], (FormType.A1, FormType.F1), storage=st, config=config)
     assert {r["form_type"]: r["discovered"] for r in rows} == {"A1": 1, "F1": 1}
+
+
+@pytest.mark.parametrize("argv", [
+    ["discover", "--ciks", "320193", "--write"],
+    ["download", "--ciks", "320193", "--write"],
+    ["render-pdf", "--ciks", "320193", "--write"],
+    ["ownership", "--ciks", "320193", "--write"],
+    ["discover-index", "--ciks", "320193", "--write"],
+])
+def test_writing_commands_stop_before_any_work_on_a_pre_migration_manifest(
+        config, argv, capsys, monkeypatch):
+    import company_corpus.cli as cli
+    _pre_migration_manifest(config)
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(config.data_dir))
+
+    def no_work(*a, **k):
+        raise AssertionError("the preflight must stop the run before any work")
+
+    for name in ("discover_universe", "download_universe", "render_universe",
+                 "process_ownership"):
+        monkeypatch.setattr(cli, name, no_work)
+    monkeypatch.setattr(cli, "EdgarFullIndex", no_work)
+    assert cli.main(["--data-dir", str(config.data_dir), *argv]) == 1
+    err = capsys.readouterr().err
+    assert "migrate-contract" in err and CIK in err
+
+
+def test_a_dry_run_and_a_migrated_corpus_pass_the_preflight(config, monkeypatch):
+    import company_corpus.cli as cli
+    from company_corpus.migrate import migrate_contract
+    _pre_migration_manifest(config)
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(config.data_dir))
+    calls = []
+    monkeypatch.setattr(cli, "download_universe",
+                        lambda *a, **k: calls.append(1) or SimpleNamespace(
+                            downloaded=0, repaired=0, would_repair=0, skipped=0, empty=0,
+                            errors=0, bytes=0, error_items=[]))
+    assert cli.main(["--data-dir", str(config.data_dir), "download", "--ciks", "320193"]) == 0
+    migrate_contract(config, dry_run=False)
+    assert cli.main(["--data-dir", str(config.data_dir), "download", "--ciks", "320193",
+                     "--write"]) == 0
+    assert calls == [1, 1]
