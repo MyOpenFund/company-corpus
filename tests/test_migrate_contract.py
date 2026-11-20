@@ -297,6 +297,10 @@ def test_a_primary_with_no_bytes_left_is_counted_unhashable(old_corpus):
     (old_corpus.data_dir / rows[0]["primary_path"]).unlink()
     rep = migrate_contract(old_corpus, dry_run=False)
     assert (rep.counts["primary_hashed"], rep.counts["primary_unhashable"]) == (2, 1)
+    # Nothing a re-run can do about it: the dry run says so too, no endless "rewrite".
+    again = migrate_contract(old_corpus, dry_run=True).counts
+    assert (again["rows_rewritten"], again["primary_unhashable"]) == (0, 1)
+    assert "missing-primary-hash" in [f.kind for f in verify(old_corpus)]
 
 
 # ---- the vault's own checker over the migrated manifests ----

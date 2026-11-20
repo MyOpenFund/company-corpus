@@ -156,9 +156,10 @@ def _migrate_issuer(storage: Storage, path: Path, counts: Counter, *, dry_run: b
     preference = config.vault_artifact_preference
     changed = bool(f1)
     for row, rec in vault:
+        would_hash = False
         if rec.primary_path and not rec.primary_sha256:
             if dry_run:
-                ok = _hash_source_exists(config, rec)
+                ok = would_hash = _hash_source_exists(config, rec)
             else:
                 rec.primary_sha256 = _primary_hash(config, rec)
                 ok = rec.primary_sha256 is not None
@@ -168,8 +169,8 @@ def _migrate_issuer(storage: Storage, path: Path, counts: Counter, *, dry_run: b
         if artifact_for_vault(rec, preference)[0] is None:
             counts["no_rag_artifact"] += 1
         new = rec.to_row(artifact_preference=preference)
-        if dry_run and rec.primary_path and not rec.primary_sha256:
-            # The hash a write would compute is unknown here: a row missing it changes.
+        if would_hash:
+            # The hash a write would compute is unknown here: the row changes.
             new = None
         if new == row:
             counts["unchanged"] += 1
