@@ -207,3 +207,17 @@ def test_manifest_rows_follow_the_configured_artefact_preference(tmp_path):
                                  dry_run=False)
     row = json.loads(config.manifest_file("320193").read_text())
     assert (row["local_path"], row["mime_type"]) == ("raw/a.txt", "text/plain")
+
+
+def test_a_title_with_unicode_line_separators_survives_a_round_trip(config):
+    # json.dumps(ensure_ascii=False) writes U+2028 / U+0085 raw; str.splitlines would cut
+    # the line there, lose the row, and the next write would drop it from the manifest.
+    from company_corpus.verify import verify
+    st = Storage(config)
+    odd = _rec(title="Line\u2028separator\x85next")
+    st.save_records([odd, _rec(accession="0000320193-24-000124")], dry_run=False)
+    assert st.load_manifest("320193")[odd.doc_id].title == "Line\u2028separator\x85next"
+    assert verify(config) == []
+    from company_corpus.migrate import migrate_contract
+    rep = migrate_contract(config, dry_run=True)
+    assert (rep.counts["rows"], rep.counts["issuers_refused"]) == (2, 0)

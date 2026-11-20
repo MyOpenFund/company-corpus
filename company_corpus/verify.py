@@ -305,7 +305,7 @@ class _Scan:
 
     def _read_lines(self, path: Path) -> list[str] | None:
         try:
-            return path.read_text(encoding="utf-8").splitlines()
+            return path.read_text(encoding="utf-8").split("\n")
         except (OSError, UnicodeDecodeError) as exc:
             self._add("unreadable-file", self._rel(path), f"cannot read it: {exc}")
             self._blind()

@@ -349,7 +349,7 @@ class Storage:
         skipped = 0
         if not path.exists():
             return records, skipped
-        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").split("\n"), 1):
             line = line.strip()
             if not line:
                 continue
@@ -690,7 +690,7 @@ class Storage:
         if not path.exists():
             return []
         rows: list[dict] = []
-        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").split("\n"), 1):
             line = line.strip()
             if not line:
                 continue
