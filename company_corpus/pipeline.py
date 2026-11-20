@@ -360,14 +360,15 @@ def fetch_financials(
     run_id: str | None = None,
     prune: bool = True,
 ) -> FinancialsReport:
-    """Build per-period XBRL financial summaries (family F1) into manifests.
+    """Build per-period XBRL financial summaries (family F1) into the F1 index.
 
     For each issuer: fetch company facts, group into one summary per reporting
     period (annual/quarterly), and emit an F1 ``FilingRecord`` per period with the
     period's **publication date**. Persists the raw company-facts JSON (canonical),
-    a normalized facts table, and an HTML summary per period (so the existing
-    ``render_universe`` / ``rag.iter_items`` handle PDF + ingestion). The summaries
-    feed the RAG; the raw JSON preserves exhaustivity.
+    a normalized facts table, and an HTML summary + text per period. F1 is not a vault
+    document (latest-filed values, never point-in-time: chantier 4), so its records live in
+    the F1 index, which neither the vault nor ``render_universe`` reads; the raw JSON
+    preserves exhaustivity.
 
     If two of an issuer's period summaries compute the same ``doc_id`` -- which
     would overwrite one period's summary with another's -- THAT issuer is skipped
@@ -466,7 +467,7 @@ def fetch_financials(
                 report.prune_skipped += 1
             continue
 
-        # Stale set and guard base come from the manifest as it stood BEFORE this run's
+        # Stale set and guard base come from the F1 index as it stood BEFORE this run's
         # writes: a write would otherwise count its own new records in the base (an
         # accession change makes 1 of 11, not 1 of 10) and decide unlike the dry run.
         stale = in_scope = None
@@ -482,7 +483,7 @@ def fetch_financials(
                                                     _summary_text(ps))
                 storage.store_companyfacts(cik, facts)
                 storage.write_financials_table(cik, rows)
-            report.stats += storage.save_records(records, dry_run=dry_run)
+            report.stats += storage.save_f1(records, dry_run=dry_run)
         except ShrinkGuardError as exc:
             # A tripped no-shrink guard is one issuer's refused write, not the
             # run's death (same doctrine as the identity collision above): the
@@ -696,10 +697,10 @@ def process_ownership(
                 report.repaired += 1
             elif res.status == "would-repair":
                 report.would_repair += 1
-            if dry_run or not rec.local_path:
+            if dry_run or not rec.submission_path:
                 continue
 
-            raw = (config.data_dir / rec.local_path).read_text(encoding="utf-8", errors="replace")
+            raw = (config.data_dir / rec.submission_path).read_text(encoding="utf-8", errors="replace")
             if rec.form_type is FormType.E1:
                 xml = find_ownership_doc(raw, "E1")
                 filing = parse_form345(xml) if xml else None

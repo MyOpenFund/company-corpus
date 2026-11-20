@@ -20,6 +20,8 @@ from datetime import time
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from .taxonomy import FormType
+
 # SEC fair-access program: no more than 10 requests/second per requester.
 # We default to a comfortable margin under that ceiling.
 SEC_MAX_REQUESTS_PER_SECOND = 10.0
@@ -38,8 +40,21 @@ def _default_contact() -> str:
 #: generic "carry forward anything empty": a name legitimately corrected to ""
 #: or a withdrawn ``period_of_report`` must still be clearable.
 STICKY_MANIFEST_FIELDS: tuple[str, ...] = (
-    "local_path", "sha256", "primary_path", "text_path", "pdf_path",
+    "submission_path", "submission_sha256", "primary_sha256", "primary_path", "text_path",
+    "pdf_path",
 )
+
+#: The vault ``documents`` contract (chantier 4, spec §2 Q3): which stored artefact a manifest
+#: row offers the RAG as its ``local_path`` (and ``mime_type``), first set pointer wins. The
+#: engine does not read HTML, so the choice is between the rendered PDF (keeps a table's rows
+#: together on a page) and the cleaned text (always produced by a download).
+VAULT_ARTIFACT_KINDS: tuple[str, ...] = ("pdf", "text")
+DEFAULT_VAULT_ARTIFACT_PREFERENCE: tuple[str, ...] = ("pdf", "text")
+
+#: Taxonomy families whose records are vault documents, written to ``manifest/`` (spec §2 Q2).
+#: Family F (XBRL period summaries) is never one: its values are latest-filed, not
+#: point-in-time, so it lives in its own index (``derived/f1/``) and cannot be configured in.
+DEFAULT_VAULT_FAMILIES: tuple[str, ...] = ("A", "B", "C", "D", "E")
 
 #: Duration bands of ``store-batches`` (chantier 8, spec §4), in days = end - start + 1,
 #: chosen in fiscal weeks and measured on the 672 local companyfacts (2026-11-01):
@@ -100,6 +115,11 @@ DEFAULT_EDGAR_COUNTRY_CODES: dict[str, str] = {
     "V8": "CH",  # Switzerland
     "X0": "GB",  # United Kingdom
 }
+
+
+#: The families ``vault_families`` may list: every taxonomy family but F.
+_VAULT_FAMILY_CHOICES: tuple[str, ...] = tuple(
+    dict.fromkeys(ft.family for ft in FormType if ft.family != "F"))
 
 
 @dataclass
@@ -168,6 +188,15 @@ class Config:
     edgar_country_codes: dict[str, str] = field(
         default_factory=lambda: dict(DEFAULT_EDGAR_COUNTRY_CODES))
 
+    # The vault documents contract (chantier 4).
+    #: Which artefact a manifest row offers the RAG (``local_path`` / ``mime_type``), in order
+    #: of preference among ``"pdf"`` (rendered PDF) and ``"text"`` (cleaned text): the first
+    #: one the record points at wins; none -> the row has no ``local_path``.
+    vault_artifact_preference: tuple[str, ...] = DEFAULT_VAULT_ARTIFACT_PREFERENCE
+    #: Families written to ``manifest/`` (the vault reads it). A record of another family is
+    #: refused there; F (``derived/f1/``) can never be listed.
+    vault_families: tuple[str, ...] = DEFAULT_VAULT_FAMILIES
+
     def __post_init__(self) -> None:
         if isinstance(self.data_dir, str):
             self.data_dir = Path(self.data_dir)
@@ -188,6 +217,19 @@ class Config:
             raise ValueError("statements_publish_grace_days must be >= 0")
         if self.store_stale_filed_max_days_ahead < 0:
             raise ValueError("store_stale_filed_max_days_ahead must be >= 0")
+        self.vault_artifact_preference = tuple(self.vault_artifact_preference)
+        pref = self.vault_artifact_preference
+        if not pref or len(set(pref)) != len(pref) or not set(pref) <= set(VAULT_ARTIFACT_KINDS):
+            raise ValueError(
+                f"vault_artifact_preference must be a non-empty tuple of distinct values among "
+                f"{VAULT_ARTIFACT_KINDS}, got {pref!r}")
+        self.vault_families = tuple(self.vault_families)
+        fams = self.vault_families
+        if (not fams or len(set(fams)) != len(fams)
+                or not set(fams) <= set(_VAULT_FAMILY_CHOICES)):
+            raise ValueError(
+                f"vault_families must be a non-empty tuple of distinct families among "
+                f"{_VAULT_FAMILY_CHOICES} (F is never a vault document), got {fams!r}")
         if not 0.0 <= self.f1_prune_max_fraction <= 1.0:
             raise ValueError("f1_prune_max_fraction must be within [0, 1]")
         try:
@@ -271,6 +313,20 @@ class Config:
     @property
     def discovery_errors_path(self) -> Path:
         return self.data_dir / "discovery_errors.jsonl"
+
+    @property
+    def f1_index_dir(self) -> Path:
+        """Per-issuer F1 records (``<cik>.jsonl``), out of ``manifest/`` (chantier 4, spec §5.2):
+        F1 is not a vault document, and its files stay under ``raw/<cik>/F1/``."""
+        return self.data_dir / "derived" / "f1"
+
+    def f1_index_file(self, cik: str) -> Path:
+        return self.f1_index_dir / f"{normalize_cik(cik)}.jsonl"
+
+    @property
+    def vocabulary_path(self) -> Path:
+        """The corpus vocabulary of the vault contract, at the data root (spec §3.2)."""
+        return self.data_dir / "vocabulary.json"
 
     @property
     def f1_prune_log_path(self) -> Path:

@@ -171,3 +171,25 @@ def test_a_negative_stale_filed_margin_is_refused():
 
 def test_report_forms_are_normalised_to_upper_case_stripped_tuple():
     assert Config(store_report_forms=[" 10-q", "10-k "]).store_report_forms == ("10-Q", "10-K")
+
+
+def test_vault_settings_default_to_the_spec():
+    cfg = Config()
+    assert cfg.vault_artifact_preference == ("pdf", "text")
+    assert cfg.vault_families == ("A", "B", "C", "D", "E")
+
+
+@pytest.mark.parametrize("preference", [(), ("primary",), ("pdf", "pdf"), ("html", "text")])
+def test_a_bad_vault_artifact_preference_is_refused(preference):
+    with pytest.raises(ValueError, match="vault_artifact_preference"):
+        Config(vault_artifact_preference=preference)
+
+
+def test_vault_artifact_preference_accepts_a_list():
+    assert Config(vault_artifact_preference=["text"]).vault_artifact_preference == ("text",)
+
+
+@pytest.mark.parametrize("families", [(), ("A", "F"), ("A", "Z"), ("a",), ("A", "A")])
+def test_bad_vault_families_are_refused(families):
+    with pytest.raises(ValueError, match="vault_families"):
+        Config(vault_families=families)

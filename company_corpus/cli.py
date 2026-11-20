@@ -44,6 +44,9 @@ store-batches         sec        issuers examined             issuers emitted   
 statements            sec        issuers examined             issuers written         bulk files failed
                                                               (dry-run: 0)            (any failure
                                                                                       degrades: truncated)
+migrate-contract      sec        manifest rows read           rows rewritten + F1     (none: a refused
+                                                              rows moved (dry-run:    issuer is a local
+                                                              what would be)          refusal, see below)
 ===================== ========== ============================ ======================= ==================
 
 Three deliberate choices:
@@ -98,6 +101,11 @@ Three deliberate choices:
   the refusal named; with none it is ``degraded``. ``details.xbrl.prune`` carries
   the counters (``records_refused``: records refused inside a pruned issuer),
   ``by_issuer`` and ``refused_by_issuer`` (``None`` with --no-prune).
+* **``migrate-contract`` refuses an issuer rather than guess.** An unreadable line, a stored
+  ``doc_id`` the identity rule does not reproduce or a duplicated ``doc_id`` leaves that
+  issuer's files untouched and is a local refusal (``local_refusals``), never an SEC failure.
+  ``details.migrate_contract`` carries the counters. A re-run after ``--write`` reports
+  ``rows_rewritten=0 f1_moved=0`` and exits 0.
 """
 
 from __future__ import annotations
@@ -121,6 +129,7 @@ from .config import Config, normalize_cik
 from .entity import EntityRegistry
 from .http import Fetcher
 from .lock import CorpusLocked, corpus_lock
+from .migrate import migrate_contract
 from .pipeline import (
     discover_universe,
     download_universe,
@@ -146,13 +155,14 @@ from .registers.financials import (
     build_sk_financials_from_files,
 )
 from .openfigi import coverage_hint, map_identifiers
-from .rag import iter_items
 from .runreport import RunReport as DoctrineReport
 from .source_codes import is_local_source, source_code_for
 from .sources.cik_lookup import fetch_cik_lookup, parse_cik_lookup
 from .sources.edgar_fts import EdgarFTS
 from .sources.edgar_index import EdgarFullIndex
-from .storage import Storage, _atomic_write_text, _jsonl as _jsonl_text
+from .storage import (
+    ManifestNeedsMigration, Storage, _atomic_write_text, _jsonl as _jsonl_text,
+)
 from .taxonomy import FULL_SCOPE, parse_scope
 from .verify import (
     as_json as verify_as_json,
@@ -184,7 +194,7 @@ from .universe import (
 REPORTING_CMDS = {
     "discover", "discover-index", "download", "render-pdf", "xbrl",
     "ownership", "enrich-openfigi", "eu-financials", "register-financials",
-    "eu-acquire", "build-universe", "store-batches", "statements",
+    "eu-acquire", "build-universe", "store-batches", "statements", "migrate-contract",
 }
 
 
@@ -414,6 +424,24 @@ def _corpus_lock_if_writing(args: argparse.Namespace):
         return
     with corpus_lock(_config(args), purpose=args.cmd):
         yield
+
+
+#: Commands that rewrite manifests when they write: on a corpus not yet migrated to the
+#: vault contract (F1 rows still in manifest/) they would stop at their first save, after
+#: network work. The preflight stops them before any.
+_MANIFEST_WRITERS = frozenset({"discover", "discover-index", "download", "render-pdf",
+                               "ownership"})
+
+
+def _preflight_manifests(args: argparse.Namespace) -> None:
+    if args.cmd not in _MANIFEST_WRITERS or not _is_writing_run(args):
+        return
+    stale = Storage(_config(args)).manifests_needing_migration()
+    if stale:
+        shown = ", ".join(stale[:5]) + (f" and {len(stale) - 5} more" if len(stale) > 5 else "")
+        raise ManifestNeedsMigration(
+            f"{len(stale)} manifest(s) still hold F1 rows ({shown}): run "
+            "`company-corpus migrate-contract --write` before any writing command")
 
 
 def _config(args: argparse.Namespace) -> Config:
@@ -877,6 +905,10 @@ def _cmd_render_pdf(args: argparse.Namespace) -> int:
     cfg = _config(args)
     ciks = _ciks_for(args, cfg)
     scope = parse_scope(args.forms)
+    if any(ft.family == "F" for ft in scope):
+        print("render-pdf: F1 is no longer rendered (its records left the manifest for "
+              "derived/f1/: never a vault document); rendering the other forms only",
+              file=sys.stderr)
     year_min, year_max, since, until = _period_args(args)
     dry_run = not args.write
     try:
@@ -1345,24 +1377,34 @@ def _cmd_verify(args: argparse.Namespace) -> int:
     return 3 if result.findings else 0
 
 
-def _cmd_rag_items(args: argparse.Namespace) -> int:
+def _cmd_migrate_contract(args: argparse.Namespace) -> int:
+    """Rewrite the manifests in the vault contract (chantier 4). Dry-run unless --write."""
     cfg = _config(args)
-    ciks = None
-    if args.universe:
-        ciks = list(Universe(cfg).iter_ciks(args.universe))
-    elif args.ciks:
-        ciks = [c for c in args.ciks.split(",") if c.strip()]
-    items = iter_items(
-        ciks=ciks, doctypes=args.forms, year_min=args.year_min,
-        year_max=args.year_max, prefer=args.prefer, config=cfg,
-    )
-    n = 0
-    for it in items:
-        n += 1
-        if n <= args.show:
-            p = it.payload
-            print(f"{it.doc_id}  {p['doc_type']:<3} {p.get('year')}  {p['company']}  -> {it.path}")
-    print(f"rag-items: {n} ingestible item(s) [prefer={args.prefer}]")
+    ciks = [normalize_cik(c) for c in args.ciks.split(",") if c.strip()] if args.ciks else None
+    dry_run = not args.write
+    rep = migrate_contract(cfg, ciks=ciks, dry_run=dry_run)
+    mode = "DRY-RUN (nothing written)" if dry_run else "WROTE"
+    c = rep.counts
+    print(f"migrate-contract [{mode}] — {c['issuers']} manifest(s), {c['rows']} row(s)")
+    print("  " + " ".join(f"{k}={v}" for k, v in c.items() if k not in ("issuers", "rows")))
+    if dry_run:
+        print("  (dry run: primary_hashed counts the primary documents a write would hash)")
+    for err in rep.errors:
+        print(f"  refused: {err['error']}", file=sys.stderr)
+    if rep.ciks_without_manifest:
+        print(f"  no manifest for: {', '.join(rep.ciks_without_manifest)}", file=sys.stderr)
+    if rep.unknown_provenances:
+        values = " ".join(f"{k}={v}" for k, v in sorted(rep.unknown_provenances.items()))
+        print(f"  provenance outside the vocabulary: {values} (the vault would refuse these "
+              "rows: unknown_provenance)", file=sys.stderr)
+    report = getattr(args, "report", None)
+    if report is not None:
+        report.details = {"migrate_contract": {**c,
+                                               "unknown_provenances": rep.unknown_provenances}}
+    # The unit of work is a row rewritten or moved; a refused issuer is the corpus's own
+    # decision (its files are left as they are), counted as a local refusal.
+    _feed_report(report, "sec", seen=c["rows"], new=rep.useful_work)
+    _feed_local_refusals(report, rep.errors)
     return 0
 
 
@@ -1723,17 +1765,15 @@ def build_parser() -> argparse.ArgumentParser:
                     help="emit findings as JSON")
     vf.set_defaults(func=_cmd_verify)
 
-    ri = sub.add_parser("rag-items", help="preview SourceItems the RAG would ingest")
-    risrc = ri.add_mutually_exclusive_group(required=False)
-    risrc.add_argument("--universe", help="universe name")
-    risrc.add_argument("--ciks", help="comma-separated CIKs (default: all manifests)")
-    ri.add_argument("--forms", default=None, help="scope selector (default: all)")
-    ri.add_argument("--year-min", type=int, default=None, dest="year_min")
-    ri.add_argument("--year-max", type=int, default=None, dest="year_max")
-    ri.add_argument("--prefer", choices=["pdf", "text", "primary"], default="pdf",
-                    help="which stored artifact to feed (default: pdf)")
-    ri.add_argument("--show", type=int, default=10, help="how many items to print")
-    ri.set_defaults(func=_cmd_rag_items)
+    mc = sub.add_parser(
+        "migrate-contract",
+        help="rewrite manifest rows in the vault documents contract, move F1 rows to "
+             "derived/f1/, hash primary documents, write vocabulary.json (dry-run by default)")
+    mc.add_argument("--ciks", help="comma-separated CIKs (default: every manifest)")
+    mc.add_argument("--write", action="store_true",
+                    help="rewrite the files (else dry-run: counts only, reads the manifests)")
+    mc.set_defaults(func=_cmd_migrate_contract)
+
 
     return p
 
@@ -1755,6 +1795,7 @@ def main(argv: list[str] | None = None) -> int:
     args.report = report
     try:
         with _corpus_lock_if_writing(args):
+            _preflight_manifests(args)
             func_rc = args.func(args)
     except CorpusLocked as exc:
         # Its own branch, before the generic handler: a refused start is not a

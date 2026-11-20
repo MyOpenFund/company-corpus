@@ -231,7 +231,7 @@ def _ownership_corpus(st: Storage, fetcher) -> None:
     for accession, day in (("acc-f4-2", 2), ("acc-f4-1", 1)):
         rec = _e1(accession, day)
         st.fetch_and_store(rec, fetcher, dry_run=False)
-        rec.sha256 = None  # the interrupt marker: bytes on disk, nothing stamped
+        rec.submission_sha256 = None  # the interrupt marker: bytes on disk, nothing stamped
         recs.append(rec)
     st.save_records(recs, dry_run=False)
 
@@ -253,8 +253,8 @@ def test_ownership_limit_caps_downloads_but_not_repairs(make_fetcher, config):
     assert rep.downloaded == 0 and rep.repaired == 2
     assert rep.parsed_insider == 2, "a repaired filing is parsed like any other"
     by_acc = {r.accession: r for r in st.load_manifest("320193").values()}
-    assert by_acc["acc-f4-2"].sha256 and by_acc["acc-f4-1"].sha256
-    assert not by_acc["acc-f4-3"].sha256, "the new download stays capped"
+    assert by_acc["acc-f4-2"].submission_sha256 and by_acc["acc-f4-1"].submission_sha256
+    assert not by_acc["acc-f4-3"].submission_sha256, "the new download stays capped"
 
 
 def test_ownership_limit_leaves_complete_unparsed_filings_behind_the_cap(
@@ -270,7 +270,7 @@ def test_ownership_limit_leaves_complete_unparsed_filings_behind_the_cap(
     rec = _e1("acc-f4-9", 9)
     st.fetch_and_store(rec, fetcher, dry_run=False)  # complete: bytes + sha256
     st.save_records([rec], dry_run=False)
-    assert rec.sha256, "the filing is complete on disk, so no repair is due"
+    assert rec.submission_sha256, "the filing is complete on disk, so no repair is due"
 
     capped = process_ownership(["320193"], dry_run=False, limit=0, config=config,
                                fetcher=fetcher, storage=st)
@@ -281,3 +281,23 @@ def test_ownership_limit_leaves_complete_unparsed_filings_behind_the_cap(
                                  fetcher=fetcher, storage=st)
     assert uncapped.parsed_insider == 1, "an uncapped run parses it"
     assert (config.ownership_dir / "0000320193.jsonl").exists()
+
+
+def test_an_ownership_summary_keeps_the_hash_of_the_filed_primary(make_fetcher, config):
+    # The summary HTML supersedes the decomposed Form 4 XML on disk; the contract's sha256
+    # stays the hash of the document as the SEC served it, stamped at download.
+    import hashlib
+
+    from company_corpus.storage import primary_document
+    st = Storage(config)
+    _seed(st, cik="320193", form_type=FormType.E1, sec_form="4", accession="acc-f4",
+          company="Apple Inc.", primary_doc_url="https://x/form4.xml",
+          submission_url="https://sec/form4sub.txt")
+    fetcher = make_fetcher({"form4sub.txt": FORM4_SUBMISSION})
+    process_ownership(["320193"], dry_run=False, config=config, fetcher=fetcher, storage=st)
+    e1 = next(iter(st.load_manifest("320193").values()))
+    filed = primary_document(e1, FORM4_SUBMISSION)
+    assert e1.primary_sha256 == hashlib.sha256(filed.text.encode("utf-8")).hexdigest()
+    assert e1.primary_path.endswith(".primary.html")
+    summary = (config.data_dir / e1.primary_path).read_bytes()
+    assert hashlib.sha256(summary).hexdigest() != e1.primary_sha256

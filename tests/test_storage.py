@@ -98,13 +98,13 @@ def test_load_manifest_skips_corrupt_line(config):
 
 def test_rediscovery_preserves_download_pointers(config):
     st = Storage(config)
-    stored = _rec(local_path="raw/a.txt", sha256="abc", primary_path="raw/a.htm",
+    stored = _rec(submission_path="raw/a.txt", submission_sha256="abc", primary_path="raw/a.htm",
                   text_path="raw/a.txt", pdf_path="raw/a.pdf")
     st.save_records([stored], dry_run=False)
     # A fresh discovery record: same doc_id, every pointer empty by construction.
     stats = st.save_records([_rec(title="corrected")], dry_run=False)
     kept = next(iter(st.load_manifest("320193").values()))
-    assert (kept.local_path, kept.sha256, kept.primary_path, kept.text_path,
+    assert (kept.submission_path, kept.submission_sha256, kept.primary_path, kept.text_path,
             kept.pdf_path) == ("raw/a.txt", "abc", "raw/a.htm", "raw/a.txt", "raw/a.pdf")
     assert kept.title == "corrected"
     assert stats.updated == 1
@@ -112,17 +112,17 @@ def test_rediscovery_preserves_download_pointers(config):
 
 def test_sticky_carry_forward_does_not_mask_a_real_change(config):
     st = Storage(config)
-    st.save_records([_rec(local_path="raw/a.txt", sha256="abc")], dry_run=False)
+    st.save_records([_rec(submission_path="raw/a.txt", submission_sha256="abc")], dry_run=False)
     # A record that re-derives an artefact must WIN; sticky only fills blanks.
-    st.save_records([_rec(local_path="raw/b.txt", sha256="")], dry_run=False)
+    st.save_records([_rec(submission_path="raw/b.txt", submission_sha256="")], dry_run=False)
     kept = next(iter(st.load_manifest("320193").values()))
-    assert kept.local_path == "raw/b.txt"
-    assert kept.sha256 == "abc"
+    assert kept.submission_path == "raw/b.txt"
+    assert kept.submission_sha256 == "abc"
 
 
 def test_identical_rediscovery_counts_unchanged_not_updated(config):
     st = Storage(config)
-    st.save_records([_rec(local_path="raw/a.txt", sha256="abc")], dry_run=False)
+    st.save_records([_rec(submission_path="raw/a.txt", submission_sha256="abc")], dry_run=False)
     stats = st.save_records([_rec()], dry_run=False)
     assert (stats.updated, stats.unchanged) == (0, 1)
 
@@ -182,11 +182,42 @@ def test_a_non_sticky_field_is_still_clearable(config):
     """
     st = Storage(config)
     st.save_records([_rec(period_of_report=date(2024, 9, 28), company="Old Name",
-                          local_path="raw/a.txt", sha256="abc")], dry_run=False)
+                          submission_path="raw/a.txt", submission_sha256="abc")], dry_run=False)
 
     st.save_records([_rec(period_of_report=None, company="")], dry_run=False)
 
     kept = next(iter(st.load_manifest("320193").values()))
     assert kept.period_of_report is None and kept.company == ""
-    assert (kept.local_path, kept.sha256) == ("raw/a.txt", "abc"), \
+    assert (kept.submission_path, kept.submission_sha256) == ("raw/a.txt", "abc"), \
         "the pointers, and only the pointers, survive"
+
+
+def test_a_manifest_write_writes_the_vocabulary_beside_it(config):
+    from company_corpus.vocabulary import build_vocabulary
+    st = Storage(config)
+    st.save_records([_rec()], dry_run=True)
+    assert not config.vocabulary_path.exists(), "a dry run writes nothing"
+    st.save_records([_rec()], dry_run=False)
+    assert json.loads(config.vocabulary_path.read_text()) == build_vocabulary(config)
+
+
+def test_manifest_rows_follow_the_configured_artefact_preference(tmp_path):
+    config = Config(data_dir=tmp_path, vault_artifact_preference=("text", "pdf"))
+    Storage(config).save_records([_rec(text_path="raw/a.txt", pdf_path="raw/a.pdf")],
+                                 dry_run=False)
+    row = json.loads(config.manifest_file("320193").read_text())
+    assert (row["local_path"], row["mime_type"]) == ("raw/a.txt", "text/plain")
+
+
+def test_a_title_with_unicode_line_separators_survives_a_round_trip(config):
+    # json.dumps(ensure_ascii=False) writes U+2028 / U+0085 raw; str.splitlines would cut
+    # the line there, lose the row, and the next write would drop it from the manifest.
+    from company_corpus.verify import verify
+    st = Storage(config)
+    odd = _rec(title="Line\u2028separator\x85next")
+    st.save_records([odd, _rec(accession="0000320193-24-000124")], dry_run=False)
+    assert st.load_manifest("320193")[odd.doc_id].title == "Line\u2028separator\x85next"
+    assert verify(config) == []
+    from company_corpus.migrate import migrate_contract
+    rep = migrate_contract(config, dry_run=True)
+    assert (rep.counts["rows"], rep.counts["issuers_refused"]) == (2, 0)

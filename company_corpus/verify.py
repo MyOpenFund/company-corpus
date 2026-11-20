@@ -41,6 +41,8 @@ from .config import Config, normalize_cik, normalize_lei
 from .eu.documents import Document
 from .models import FilingRecord
 from .paths import UnsafeIdentifier, safe_component
+from .storage import primary_document, read_submission, text_sha256
+from .taxonomy import FormType
 
 #: The manifest pointers that name bytes on disk, in the order a reader falls
 #: back through them. ``Config.sticky_manifest_fields`` is the same set minus
@@ -48,7 +50,7 @@ from .paths import UnsafeIdentifier, safe_component
 #: an operator who narrows the sticky set must not thereby narrow what is
 #: CHECKED -- the pointers a record carries are a fact of the schema.
 ARTEFACT_POINTERS: tuple[str, ...] = (
-    "local_path", "primary_path", "text_path", "pdf_path",
+    "submission_path", "primary_path", "text_path", "pdf_path",
 )
 
 #: Raw files that legitimately exist with no manifest row pointing at them.
@@ -155,7 +157,7 @@ class _Scan:
         self._raw: set[str] = set()
         #: rel paths some manifest row points at, whether or not they exist.
         self._referenced: set[str] = set()
-        self._counts = {"manifests": 0, "rows": 0, "eu_manifests": 0,
+        self._counts = {"manifests": 0, "f1_indexes": 0, "rows": 0, "eu_manifests": 0,
                         "tables": 0, "table_rows": 0, "raw_files": 0}
 
     # ---- reporting helpers ----
@@ -205,7 +207,8 @@ class _Scan:
         sentence that explains all N of them.
         """
         manifest_rel = self._rel(self.config.manifest_dir)
-        indexed = self._counts["manifests"] or self._counts["eu_manifests"]
+        indexed = (self._counts["manifests"] or self._counts["f1_indexes"]
+                   or self._counts["eu_manifests"])
         if not indexed:
             missing = ("no " if not self.config.manifest_dir.is_dir()
                        else "an empty ")
@@ -272,9 +275,19 @@ class _Scan:
             return []
         return sorted(p for p in d.glob("*.jsonl") if p.is_file())
 
+    def _f1_index_files(self) -> list[Path]:
+        d = self.config.f1_index_dir
+        if self.ciks is not None:
+            return [d / f"{cik}.jsonl" for cik in self.ciks if (d / f"{cik}.jsonl").is_file()]
+        if not d.is_dir():
+            return []
+        return sorted(p for p in d.glob("*.jsonl") if p.is_file())
+
     def _check_sec_manifests(self) -> None:
-        for path in self._sec_manifest_files():
-            self._counts["manifests"] += 1
+        files = [(p, False) for p in self._sec_manifest_files()]
+        files += [(p, True) for p in self._f1_index_files()]
+        for path, f1_index in files:
+            self._counts["f1_indexes" if f1_index else "manifests"] += 1
             rel = self._rel(path)
             try:
                 cik = normalize_cik(path.stem)
@@ -288,17 +301,18 @@ class _Scan:
             lines = self._read_lines(path)
             if lines is None:
                 continue
-            self._check_sec_rows(rel, cik, lines)
+            self._check_sec_rows(rel, cik, lines, f1_index=f1_index)
 
     def _read_lines(self, path: Path) -> list[str] | None:
         try:
-            return path.read_text(encoding="utf-8").splitlines()
+            return path.read_text(encoding="utf-8").split("\n")
         except (OSError, UnicodeDecodeError) as exc:
             self._add("unreadable-file", self._rel(path), f"cannot read it: {exc}")
             self._blind()
             return None
 
-    def _check_sec_rows(self, rel: str, cik: str | None, lines: list[str]) -> None:
+    def _check_sec_rows(self, rel: str, cik: str | None, lines: list[str], *,
+                        f1_index: bool = False) -> None:
         by_doc_id: dict[str, int] = {}
         for lineno, line in enumerate(lines, 1):
             line = line.strip()
@@ -330,6 +344,16 @@ class _Scan:
 
             stored_id = str(row.get("doc_id") or "")
             by_doc_id[stored_id] = by_doc_id.get(stored_id, 0) + 1
+            is_f1 = record.form_type is FormType.F1
+            if is_f1 and not f1_index:
+                # Its files are still checked below (and referenced: not orphans).
+                self._add("f1-in-manifest", f"{rel}:{stored_id or lineno}",
+                          "an F1 row in manifest/ (written before chantier 4); "
+                          "`migrate-contract --write` moves it to derived/f1/")
+            elif f1_index and not is_f1:
+                self._add("not-f1-in-f1-index", f"{rel}:{stored_id or lineno}",
+                          f"a {record.form_type.code} row in the F1 index; its place is "
+                          "manifest/")
             if stored_id != record.doc_id:
                 self._add(
                     "stale-doc-id", f"{rel}:{stored_id or '(none)'}",
@@ -370,32 +394,72 @@ class _Scan:
             if not self._exists(rel):
                 self._add("missing-artefact", where, f"{name} is not on disk: {rel}")
 
-        if any(pointers.values()) and not record.sha256:
-            # Storage._needs_repair's own marker: a record with bytes on disk
-            # and no hash was interrupted between writing and stamping, and is
-            # invisible to every consumer that trusts the hash chain.
+        if record.submission_path and not record.submission_sha256:
+            # Storage._needs_repair's own marker: a submission on disk and no hash was
+            # interrupted between writing and stamping, and is invisible to every consumer
+            # that trusts the hash chain.
             self._add("incomplete-record", where,
-                      "an artefact is stored but sha256 is unset "
+                      "a submission is stored but submission_sha256 is unset "
                       "(half-processed; `download` repairs it from disk)")
-        elif self.check_hashes and record.sha256:
-            self._check_hash(where, record)
+        elif not record.submission_path and any(pointers.values()) \
+                and not record.primary_sha256:
+            # No submission (an F1 summary, a corpus stored without submissions): the
+            # primary's hash is the only one, and it is stamped last.
+            self._add("incomplete-record", where,
+                      "an artefact is stored but no hash is set (half-processed)")
+        else:
+            if record.primary_path and not record.primary_sha256:
+                # The vault contract's sha256: a row written before chantier 4. Its
+                # submission hash is still checked below.
+                self._add("missing-primary-hash", where,
+                          "primary_path is set but sha256 (the primary document's hash) is "
+                          "not; `migrate-contract --write` computes it from the files on disk")
+            if self.check_hashes:
+                self._check_hashes(where, record)
 
-    def _check_hash(self, where: str, record: FilingRecord) -> None:
-        """Re-hash what ``sha256`` actually covers.
+    def _check_hashes(self, where: str, record: FilingRecord) -> None:
+        """Re-hash what each hash covers (``--hash``).
 
-        Which artefact that is depends on the producer, and there is no third
-        spelling: ``fetch_and_store`` hashes the complete submission it stored
-        (``local_path``), while ``write_financial_summary`` -- family F, which
-        has no submission -- hashes the HTML it rendered (``primary_path``).
+        ``submission_sha256`` covers the complete submission at ``submission_path``.
+        ``primary_sha256`` (the contract's ``sha256``) covers the primary document as the
+        authority served it. The file at ``primary_path`` holds it until an ownership summary
+        supersedes it; on a mismatch the primary is therefore re-derived from the submission
+        (:func:`storage.primary_document`) and the hash is accepted when the submission still
+        yields it. A derived file is re-derivable from the submission, the root of the chain.
         """
-        rel = record.local_path or record.primary_path
-        if not rel or not self._inside_data_dir(rel) or not self._exists(rel):
-            return  # already reported as a missing artefact
-        actual = self._sha256_file(where, self.data_dir / rel)
-        if actual is not None and actual != record.sha256:
-            self._add("hash-mismatch", where,
-                      f"stored sha256 {record.sha256[:12]}… but {rel} hashes "
-                      f"to {actual[:12]}…")
+        sub = record.submission_path
+        sub_ok = bool(sub) and self._inside_data_dir(sub) and self._exists(sub)
+        if record.submission_sha256 and sub_ok:
+            actual = self._sha256_file(where, self.data_dir / sub)
+            if actual is not None and actual != record.submission_sha256:
+                self._add("submission-hash-mismatch", where,
+                          f"stored submission_sha256 {record.submission_sha256[:12]}… but "
+                          f"{sub} hashes to {actual[:12]}…")
+        primary, expected = record.primary_path, record.primary_sha256
+        if not (primary and expected) or not self._inside_data_dir(primary) \
+                or not self._exists(primary):
+            return  # nothing to check, or already reported as a missing artefact
+        actual = self._sha256_file(where, self.data_dir / primary)
+        if actual is None or actual == expected:
+            return
+        derived = self._primary_from_submission(where, record) if sub_ok else None
+        if derived == expected:
+            return
+        source = (f"and the submission yields {derived[:12]}…" if derived
+                  else "and no submission yields it")
+        self._add("primary-hash-mismatch", where,
+                  f"stored sha256 {expected[:12]}… but {primary} hashes to {actual[:12]}… "
+                  f"{source}")
+
+    def _primary_from_submission(self, where: str, record: FilingRecord) -> str | None:
+        path = self.data_dir / record.submission_path
+        try:
+            raw = read_submission(path)
+        except (OSError, UnicodeDecodeError) as exc:
+            self._add("unreadable-file", self._rel(path), f"cannot read it: {exc}")
+            return None
+        primary = primary_document(record, raw)
+        return text_sha256(primary.text) if primary and primary.text else None
 
     def _inside_data_dir(self, rel: str) -> bool:
         candidate = Path(rel)
@@ -677,7 +741,8 @@ def format_text(result: CorpusScan) -> str:
     lines = [
         f"verify {result.data_dir} (read-only: nothing is written, "
         f"no corpus lock is taken)",
-        f"  scanned: {s.get('manifests', 0)} manifest(s) / {s.get('rows', 0)} row(s), "
+        f"  scanned: {s.get('manifests', 0)} manifest(s) + {s.get('f1_indexes', 0)} F1 "
+        f"index(es) / {s.get('rows', 0)} row(s), "
         f"{s.get('eu_manifests', 0)} EU manifest(s), {s.get('tables', 0)} table(s) / "
         f"{s.get('table_rows', 0)} row(s), {s.get('raw_files', 0)} raw file(s)"
         + ("" if result.hashed else "  [no hashing: pass --hash]"),

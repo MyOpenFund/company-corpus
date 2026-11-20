@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from company_corpus import rag
 from company_corpus.config import Config, normalize_cik
 from company_corpus.models import FilingRecord
 from company_corpus.pipeline import fetch_financials
@@ -38,7 +37,7 @@ def _discovery_record() -> FilingRecord:
     )
 
 
-def test_discover_download_discover_keeps_rag_items(config, sample_submission):
+def test_discover_download_discover_keeps_the_vault_artefact(config, sample_submission):
     st = Storage(config)
     st.save_records([_discovery_record()], dry_run=False)
 
@@ -50,8 +49,10 @@ def test_discover_download_discover_keeps_rag_items(config, sample_submission):
     st.save_records([_discovery_record()], dry_run=False)  # the second discovery
 
     kept = next(iter(st.load_manifest("320193").values()))
-    assert kept.sha256 and kept.local_path and kept.primary_path and kept.text_path
-    assert list(rag.iter_items(ciks=["320193"], config=config))
+    assert kept.submission_sha256 and kept.submission_path and kept.primary_path and kept.text_path
+    assert kept.primary_sha256
+    row = kept.to_row()     # what the vault ingests: the RAG artefact and the primary's hash
+    assert (row["local_path"], row["sha256"]) == (kept.text_path, kept.primary_sha256)
 
 
 # ---------------------------------------------------------------------------
@@ -251,9 +252,9 @@ def test_a_shrink_guard_error_is_a_per_issuer_report_error(config, monkeypatch):
     assert [e["context"] for e in report.errors] == [normalize_cik("320193")]
     assert "refusing to drop" in report.errors[0]["error"]
     # The refused issuer's remaining writes are skipped...
-    assert not Storage(config).load_manifest("320193")
+    assert not Storage(config).load_f1("320193")
     # ...and the run's other issuers are untouched by it.
-    assert len(Storage(config).load_manifest("789019")) == 1
+    assert len(Storage(config).load_f1("789019")) == 1
     assert normalize_cik("320193") in config.discovery_errors_path.read_text(encoding="utf-8")
 
 

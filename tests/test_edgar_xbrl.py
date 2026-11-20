@@ -30,7 +30,7 @@ def test_fetch_financials_writes_records_and_artifacts(xbrl_fetcher, config):
     assert rep.stats.added == 2
 
     st = Storage(config)
-    manifest = st.load_manifest("320193")
+    manifest = st.load_f1("320193")
     assert all(r.form_type is FormType.F1 for r in manifest.values())
     fy = next(r for r in manifest.values() if r.sec_form.startswith("10-K"))
     assert fy.filing_date == date(2023, 11, 1)        # publication date
@@ -41,12 +41,16 @@ def test_fetch_financials_writes_records_and_artifacts(xbrl_fetcher, config):
     # Canonical raw facts + normalized table persisted.
     assert (config.data_dir / "raw" / "0000320193" / "F1" / "companyfacts.json").exists()
     assert (config.financials_dir / "0000320193.jsonl").exists()
+    # F1 is never a vault document: nothing reaches manifest/ (chantier 4).
+    assert not (config.data_dir / "manifest").exists()
+    assert config.f1_index_file("320193").exists()
 
 
 def test_fetch_financials_dry_run_writes_nothing(xbrl_fetcher, config):
     rep = fetch_financials(["320193"], dry_run=True, config=config, fetcher=xbrl_fetcher)
     assert rep.periods == 2 and rep.stats.added == 2
     assert not (config.data_dir / "manifest").exists()
+    assert not config.f1_index_dir.exists()
     assert not config.financials_dir.exists()
 
 

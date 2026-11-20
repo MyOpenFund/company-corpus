@@ -26,8 +26,8 @@ latest_10k = max(records, key=lambda r: r.filing_date)
 print(f"Downloading {latest_10k.sec_form} filed {latest_10k.filing_date} …")
 
 result = storage.fetch_and_store(latest_10k, fetcher, dry_run=False)
-print(f"  status={result.status}  bytes={result.bytes:,}  sha256={latest_10k.sha256[:16]}…")
-print(f"  submission: {latest_10k.local_path}")
+print(f"  status={result.status}  bytes={result.bytes:,}  submission_sha256={latest_10k.submission_sha256[:16]}…")
+print(f"  submission: {latest_10k.submission_path}")
 print(f"  primary   : {latest_10k.primary_path}")
 print(f"  clean text: {latest_10k.text_path}")
 

@@ -67,6 +67,9 @@ def build_matrix(
     for cik in ciks:
         cik = normalize_cik(cik)
         manifest = storage.load_manifest(cik)
+        if any(form is FormType.F1 for form in scope):
+            # F1 is not a vault document: it lives in its own index (chantier 4).
+            manifest = {**manifest, **storage.load_f1(cik)}
         # Count discovered docs per (form, year).
         counts: dict[tuple[FormType, int], int] = defaultdict(int)
         # Label the issuer with its CURRENT name, taken from the most recent filing

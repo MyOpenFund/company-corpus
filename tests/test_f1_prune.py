@@ -36,7 +36,7 @@ def _row(rec: FilingRecord, source: str = "sec") -> dict:
 def _seed(storage: Storage, *recs: FilingRecord) -> None:
     for r in recs:
         storage.write_financial_summary(r, f"<p>{r.doc_id}</p>", r.doc_id)
-    storage.save_records(recs, dry_run=False)
+    storage.save_f1(recs, dry_run=False)
     storage.write_financials_table(CIK, [_row(r) for r in recs])
 
 
@@ -66,7 +66,7 @@ def test_a_vanished_period_loses_its_row_files_table_group_and_is_logged(config)
     res = st.prune_f1(CIK, [gone], [kept], dry_run=False, run_id="r1")
     assert [r.doc_id for r in res.records] == [gone.doc_id] and not res.errors
     assert not any(f.exists() for f in files) and len(res.files) == 2
-    assert set(st.load_manifest(CIK)) == {kept.doc_id}
+    assert set(st.load_f1(CIK)) == {kept.doc_id}
     assert {r["period_end"] for r in _table(config)} == {"2023-12-31"} and res.table_groups == 1
     log = [json.loads(x) for x in config.f1_prune_log_path.read_text().splitlines()]
     assert [(x["doc_id"], x["run_id"], x["accession"]) for x in log] == [
@@ -79,7 +79,7 @@ def test_an_accession_change_keeps_the_period_table_group(config):
     _seed(st, old, new)
     res = st.prune_f1(CIK, [old], [new], dry_run=False)
     assert res.table_groups == 0 and {r["period_end"] for r in _table(config)} == {"2023-12-31"}
-    assert set(st.load_manifest(CIK)) == {new.doc_id}
+    assert set(st.load_f1(CIK)) == {new.doc_id}
 
 
 def test_a_rendered_pdf_and_an_unpointed_canonical_file_go_too(config):
@@ -105,7 +105,7 @@ def test_a_path_outside_the_record_s_f1_artefacts_refuses_the_record(config, poi
     gone.primary_path = pointer.format(cik=CIK, id=gone.doc_id)
     res = st.prune_f1(CIK, [gone], [kept], dry_run=False)
     assert not res.records and res.errors[0]["source"] == "f1_prune"
-    assert target.read_text() == "keep me" and gone.doc_id in st.load_manifest(CIK)
+    assert target.read_text() == "keep me" and gone.doc_id in st.load_f1(CIK)
 
 
 def test_other_sources_and_non_f1_rows_are_never_touched(config):
@@ -128,7 +128,7 @@ def test_a_table_left_empty_is_deleted(config):
     _seed(st, only)
     st.prune_f1(CIK, [only], [], dry_run=False)
     assert not (config.financials_dir / f"{CIK}.jsonl").exists()
-    assert (config.manifest_file(CIK)).read_text() == ""
+    assert (config.f1_index_file(CIK)).read_text() == ""
 
 
 def test_a_dry_run_counts_and_changes_nothing(config):
@@ -155,7 +155,7 @@ def test_a_failed_delete_keeps_the_row_and_a_rerun_finishes(config, monkeypatch)
     monkeypatch.setattr(Path, "unlink", failing)
     res = st.prune_f1(CIK, [gone], [kept], dry_run=False)
     assert not res.records and "PermissionError" in res.errors[0]["error"]
-    assert gone.doc_id in st.load_manifest(CIK)
+    assert gone.doc_id in st.load_f1(CIK)
     # the primary went before the .txt failed: reported; the row stays, so does its table group
     assert res.files == [gone.primary_path] and res.table_groups == 0
     assert {r["period_end"] for r in _table(config)} == {"2019-12-31", "2023-12-31"}
@@ -183,7 +183,7 @@ def test_a_symlink_escaping_raw_cik_f1_refuses_the_record(config, tmp_path):
     link.symlink_to(outside)               # named like the record, resolves elsewhere
     res = st.prune_f1(CIK, [gone], [kept], dry_run=False)
     assert not res.records and "refusing" in res.errors[0]["error"]
-    assert outside.read_text() == "keep me" and gone.doc_id in st.load_manifest(CIK)
+    assert outside.read_text() == "keep me" and gone.doc_id in st.load_f1(CIK)
     assert (config.data_dir / gone.primary_path).exists()
 
 
@@ -196,14 +196,14 @@ def test_a_record_without_filing_date_is_pruned_from_unknown(config):
     res = st.prune_f1(CIK, [gone], [kept], dry_run=False)
     assert [r.doc_id for r in res.records] == [gone.doc_id] and len(res.files) == 2
     assert not list((config.raw_dir / CIK / "F1" / "unknown").glob("*"))
-    assert set(st.load_manifest(CIK)) == {kept.doc_id}
+    assert set(st.load_f1(CIK)) == {kept.doc_id}
 
 
 def test_a_record_without_period_is_out_of_a_year_scope(config):
     st = Storage(config)
     undated = FilingRecord(cik=CIK, form_type=FormType.F1, sec_form="10-K/XBRL", accession="x",
                            filing_date=date(2024, 2, 1), frequency="annual")
-    st.save_records([undated], dry_run=False)
+    st.save_f1([undated], dry_run=False)
     assert st.stale_f1_records(CIK, [], since_year=2000) == ([], 0)
     stale, in_scope = st.stale_f1_records(CIK, [])
     assert [r.doc_id for r in stale] == [undated.doc_id] and in_scope == 1
@@ -216,7 +216,7 @@ def test_a_refused_record_does_not_stop_the_others(config):
     bad.primary_path = f"raw/{CIK}/F1/companyfacts.json"
     res = st.prune_f1(CIK, [bad, good], [kept], dry_run=False)
     assert [r.doc_id for r in res.records] == [good.doc_id] and len(res.errors) == 1
-    assert set(st.load_manifest(CIK)) == {bad.doc_id, kept.doc_id}
+    assert set(st.load_f1(CIK)) == {bad.doc_id, kept.doc_id}
     # the refused record's table group stays: its row is still in the manifest
     assert {r["period_end"] for r in _table(config)} == {"2018-12-31", "2023-12-31"}
 
@@ -236,7 +236,7 @@ def test_a_record_passed_as_both_stale_and_kept_is_refused(config):
     _seed(st, rec)
     res = st.prune_f1(CIK, [rec], [rec], dry_run=False)
     assert not res.records and "also keeps" in res.errors[0]["error"]
-    assert (config.data_dir / rec.primary_path).exists() and rec.doc_id in st.load_manifest(CIK)
+    assert (config.data_dir / rec.primary_path).exists() and rec.doc_id in st.load_f1(CIK)
 
 
 # ---- B1 review fixes ----
@@ -248,7 +248,7 @@ def test_a_record_of_another_issuer_is_refused(config):
     _seed(st, gone, kept)
     res = st.prune_f1("789019", [gone], [kept], dry_run=False)
     assert not res.records and "789019" in res.errors[0]["context"]
-    assert "cik" in res.errors[0]["error"] and gone.doc_id in st.load_manifest(CIK)
+    assert "cik" in res.errors[0]["error"] and gone.doc_id in st.load_f1(CIK)
     assert (config.data_dir / gone.primary_path).exists()
 
 
@@ -318,7 +318,7 @@ def test_a_quarterly_record_sharing_an_annual_period_end_drops_its_group_only(co
     assert [r.doc_id for r in res.records] == [quarterly.doc_id] and res.table_groups == 1
     assert {(r["period_end"], r["frequency"]) for r in _table(config)} == {
         ("2023-12-31", "annual")}
-    assert set(st.load_manifest(CIK)) == {annual.doc_id}
+    assert set(st.load_f1(CIK)) == {annual.doc_id}
 
 
 def test_a_semi_annual_record_is_pruned_like_any_other(config):
@@ -343,7 +343,7 @@ def test_the_log_line_carries_every_field(config):
     assert line == {"run_id": "r9", "cik": CIK, "doc_id": gone.doc_id,
                     "period_of_report": "2019-12-31", "frequency": "annual",
                     "accession": gone.accession, "filing_date": gone.filing_date.isoformat(),
-                    "sha256": gone.sha256, "deleted_files": [gone.primary_path, gone.text_path]}
+                    "sha256": gone.primary_sha256, "deleted_files": [gone.primary_path, gone.text_path]}
 
 
 def test_a_relative_data_dir_works(tmp_path, monkeypatch):
@@ -355,7 +355,7 @@ def test_a_relative_data_dir_works(tmp_path, monkeypatch):
     res = st.prune_f1(CIK, [gone], [kept], dry_run=False)
     assert sorted(res.files) == sorted([gone.primary_path, gone.text_path])
     assert not (tmp_path / "data" / gone.primary_path).exists()
-    assert set(st.load_manifest(CIK)) == {kept.doc_id}
+    assert set(st.load_f1(CIK)) == {kept.doc_id}
 
 
 def test_a_data_dir_reached_through_a_symlink_logs_clean_paths(tmp_path):
@@ -422,7 +422,7 @@ def _fresh_plan():
 
 
 def _f1_ids(config, cik=CIK) -> set[str]:
-    return {i for i, r in Storage(config).load_manifest(cik).items() if r.form_type is FormType.F1}
+    return {i for i, r in Storage(config).load_f1(cik).items() if r.form_type is FormType.F1}
 
 
 def test_one_changed_accession_in_ten_is_pruned_at_the_guard_boundary(config, monkeypatch):
@@ -546,10 +546,10 @@ def test_an_os_error_from_prune_f1_is_one_issuer_s_error(config, monkeypatch):
 
 def test_prune_f1_error_items_reach_the_report(config, monkeypatch):
     _run(config, monkeypatch, TEN)
-    m = Storage(config).load_manifest(CIK)
+    m = Storage(config).load_f1(CIK)
     gone = next(r for r in m.values() if r.period_of_report == date(2014, 12, 31))
     gone.primary_path = f"raw/{CIK}/F1/companyfacts.json"   # a pointer prune_f1 refuses
-    Storage(config)._write_manifest(CIK, m.values())
+    Storage(config)._write_f1(CIK, m.values())
     rep = _run(config, monkeypatch, TEN[1:])
     assert rep.pruned == 0 and any(
         e["source"] == "f1_prune" and e.get("doc_id") == gone.doc_id for e in rep.errors)
@@ -558,9 +558,9 @@ def test_prune_f1_error_items_reach_the_report(config, monkeypatch):
 
 def test_a_crash_before_the_manifest_write_is_finished_by_the_next_run(config, monkeypatch):
     _run(config, monkeypatch, TEN)
-    gone = next(r for r in Storage(config).load_manifest(CIK).values()
+    gone = next(r for r in Storage(config).load_f1(CIK).values()
                 if r.period_of_report == date(2014, 12, 31))
-    real = Storage._write_manifest
+    real = Storage._write_f1
     calls = {"n": 0}
 
     def crashing(self, cik, records):
@@ -570,14 +570,14 @@ def test_a_crash_before_the_manifest_write_is_finished_by_the_next_run(config, m
             raise OSError("disk full")
         return real(self, cik, records)
 
-    monkeypatch.setattr(Storage, "_write_manifest", crashing)
+    monkeypatch.setattr(Storage, "_write_f1", crashing)
     rep = _run(config, monkeypatch, TEN[1:])
     assert rep.pruned == 0 and any(
         e["source"] == "f1_prune" and "disk full" in e["error"] for e in rep.errors)
     assert calls["n"] == 1 and gone.doc_id in _f1_ids(config)
     assert not (config.data_dir / gone.primary_path).exists()
     assert not config.f1_prune_log_path.exists()
-    monkeypatch.setattr(Storage, "_write_manifest", real)
+    monkeypatch.setattr(Storage, "_write_f1", real)
     rep = _run(config, monkeypatch, TEN[1:])
     assert rep.pruned == 1 and gone.doc_id not in _f1_ids(config)
     (line,) = [json.loads(x) for x in config.f1_prune_log_path.read_text().splitlines()]
@@ -665,6 +665,7 @@ def test_a_fresh_issuer_with_facts_and_no_summary_writes_nothing(config, monkeyp
     assert rep.pruned == 0 and rep.prune_skipped == 0 and rep.prune_refused == 0
     assert not (config.raw_dir / CIK).exists()
     assert not config.manifest_file(CIK).exists()
+    assert not config.f1_index_file(CIK).exists()
     assert not (config.financials_dir / f"{CIK}.jsonl").exists()
     assert not config.f1_prune_log_path.exists()
 
@@ -811,10 +812,10 @@ def test_a_failed_delete_is_a_refused_record(config, monkeypatch):
 
 def test_records_refused_reach_the_report_and_the_cli_line(config, monkeypatch, capsys):
     _run(config, monkeypatch, TEN)
-    m = Storage(config).load_manifest(CIK)
+    m = Storage(config).load_f1(CIK)
     gone = next(r for r in m.values() if r.period_of_report == date(2014, 12, 31))
     gone.primary_path = f"raw/{CIK}/F1/companyfacts.json"
-    Storage(config)._write_manifest(CIK, m.values())
+    Storage(config)._write_f1(CIK, m.values())
     rep = _run(config, monkeypatch, TEN[1:])
     assert rep.records_refused == 1 and rep.prune_summary["records_refused"] == 1
     _Source.plan = {CIK: (FACTS, TEN[1:], [], {})}
@@ -841,7 +842,7 @@ def test_a_failed_log_append_keeps_the_prune_and_names_the_lost_tombstones(confi
     _failing_log(monkeypatch, config)
     res = st.prune_f1(CIK, [gone], [kept], dry_run=False)
     assert [r.doc_id for r in res.records] == [gone.doc_id] and len(res.files) == 2
-    assert set(st.load_manifest(CIK)) == {kept.doc_id} and not res.refused
+    assert set(st.load_f1(CIK)) == {kept.doc_id} and not res.refused
     (err,) = res.errors
     assert err["source"] == "f1_prune" and err["doc_ids"] == [gone.doc_id]
     assert "tombstone" in err["error"] and "disk full" in err["error"]
