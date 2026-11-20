@@ -28,12 +28,14 @@ flowchart LR
     end
     BUC["company_corpus<br/>(company / micro)"]
     CBC["central-bank-corpus<br/>(central-bank / macro)"]
+    VAULT["vault<br/>(documents contract)"]
     RAG["data-orchestrator<br/>→ eigenmind"]
 
     EDGAR --> BUC
     FUT -.planned.-> BUC
-    BUC -->|SourceItems| RAG
-    CBC -->|SourceItems| RAG
+    BUC -->|"manifests + vocabulary.json"| VAULT
+    CBC -->|"manifests + vocabulary.json"| VAULT
+    VAULT -->|documents rows| RAG
 ```
 
 ### Core principles

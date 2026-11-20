@@ -194,3 +194,11 @@ def test_a_dry_run_and_a_migrated_corpus_pass_the_preflight(config, monkeypatch)
     assert cli.main(["--data-dir", str(config.data_dir), "download", "--ciks", "320193",
                      "--write"]) == 0
     assert calls == [1, 1]
+
+
+def test_render_pdf_says_f1_is_no_longer_rendered(config, capsys, monkeypatch):
+    import company_corpus.cli as cli
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(config.data_dir))
+    cli.main(["--data-dir", str(config.data_dir), "render-pdf", "--ciks", "320193",
+              "--forms", "F1"])
+    assert "F1 is no longer rendered" in capsys.readouterr().err

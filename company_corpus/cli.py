@@ -905,6 +905,10 @@ def _cmd_render_pdf(args: argparse.Namespace) -> int:
     cfg = _config(args)
     ciks = _ciks_for(args, cfg)
     scope = parse_scope(args.forms)
+    if any(ft.family == "F" for ft in scope):
+        print("render-pdf: F1 is no longer rendered (its records left the manifest for "
+              "derived/f1/: never a vault document); rendering the other forms only",
+              file=sys.stderr)
     year_min, year_max, since, until = _period_args(args)
     dry_run = not args.write
     try:
