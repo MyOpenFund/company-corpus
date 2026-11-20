@@ -115,7 +115,9 @@ pinned package.
 ## Migrating a corpus written before the contract
 
 For a clone whose data predates the contract (company-corpus before #16). Until it has run,
-every command but `migrate-contract` stops on the first pre-contract manifest it reads.
+every command that reads the manifest (`discover`, `discover-index`, `download`,
+`render-pdf`, `ownership`, `report`, `store-batches`; not `xbrl`, which writes the F1 index
+only) stops on the first pre-contract manifest it reads.
 
 **One-way door.** Code from before the contract cannot read the migrated rows: it fails on
 `form_type`, skips every row, and its next write rewrites the manifest from what it read
@@ -127,8 +129,10 @@ every command but `migrate-contract` stops on the first pre-contract manifest it
 2. **No `xbrl --write` between the code update and a completed migration** (it writes and
    prunes the F1 index while the old F1 rows still sit in the manifest; the migration copes --
    a pruned F1 row, tombstoned in `f1_pruned.jsonl` with its files gone, is dropped and counted
-   `f1_dropped_tombstoned` -- but do not rely on it). Every other command fails on the first
-   pre-contract manifest it reads (`ManifestNeedsMigration`) and writes nothing to it.
+   `f1_dropped_tombstoned` -- but do not rely on it). Every command that reads the manifest
+   fails on the first pre-contract manifest it reads (`error: …`, exit 1,
+   `ManifestNeedsMigration`) and writes nothing to it; a run over several issuers (`discover
+   --universe`, `discover-index --all`) has by then written the issuers before it.
 3. Run the migration:
 
 ```bash
@@ -150,8 +154,12 @@ moved to `derived/f1/` (a `doc_id` the index already holds keeps the index's row
 one whose files are gone is dropped), the primary document of each row hashed (from the stored
 submission, else the primary file), `vocabulary.json` written. An unreadable line, a stored
 `doc_id` the identity rule does not reproduce or a duplicated `doc_id` refuses that whole
-issuer (its files untouched, an error names the line). Counts: `rows_rewritten`, `unchanged`,
-`f1_moved`, `f1_already_indexed`, `f1_dropped_tombstoned`, `primary_hashed` (a dry run counts
+issuer (its files untouched, an error names the line); the other issuers go on. The issuer's
+F1 index is read as strictly (an unreadable or duplicate line, or a row of another family,
+refuses the issuer naming `derived/f1/<cik>.jsonl:<line>` and the fix); a pre-contract row
+there is renamed and the index rewritten (`f1_index_renamed`). Counts: `rows_rewritten`,
+`unchanged`, `f1_moved`, `f1_already_indexed`, `f1_dropped_tombstoned`, `f1_index_renamed`,
+`primary_hashed` (a dry run counts
 the ones a write would hash), `primary_unhashable` (a pointer and no bytes left),
 `no_primary`, `no_rag_artifact`, `provenance_unknown`, `issuers_refused`. A `provenance`
 outside the vocabulary (only `edgar_index`, `edgar_fts`, `edgar_submissions`, `wayback`) is

@@ -342,7 +342,7 @@ class _Scan:
                 self._add("pre-contract-row", f"{rel}:{row.get('doc_id') or lineno}",
                           "a row in the pre-contract form (written before the vault "
                           "contract); `migrate-contract --write` rewrites the manifest, and "
-                          "every other command refuses it until then")
+                          "every command that reads the manifest refuses it until then")
                 self._blind()
                 continue
             except Exception as exc:  # noqa: BLE001 - a manifest row is untrusted
