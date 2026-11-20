@@ -261,3 +261,36 @@ def test_report_on_a_manifest_it_cannot_read_is_an_error_not_a_traceback(
     assert ("migrate-contract" if bad == "pre-contract" else "F1") in err
     assert config.manifest_file(CIK).read_bytes() == before
 
+
+MASTER_IDX = """CIK|Company Name|Form Type|Date Filed|Filename
+320193|Apple Inc.|10-K|2024-11-01|edgar/data/320193/0000320193-24-000123.txt
+"""
+
+
+@pytest.mark.parametrize("cmd", ["discover", "discover-index"])
+@pytest.mark.parametrize("write", [False, True])
+def test_discovery_on_a_pre_migration_manifest_fails_cleanly_and_writes_nothing(
+        config, cmd, write, capsys, monkeypatch):
+    # Discovery merges into the manifest, so it reads it first: a pre-contract manifest
+    # stops the run (exit 1, the migration named), and the manifest is left byte for byte.
+    import company_corpus.cli as cli
+    import company_corpus.pipeline as pipeline
+    from .conftest import APPLE_SUBMISSIONS, FakeFetcher
+
+    def fake(cfg):
+        return FakeFetcher({"CIK0000320193.json": APPLE_SUBMISSIONS,
+                            "master.idx": MASTER_IDX}, config=cfg)
+
+    monkeypatch.setattr(pipeline, "Fetcher", fake)
+    monkeypatch.setattr(cli, "Fetcher", fake)
+    _pre_migration_manifest(config)
+    before = config.manifest_file(CIK).read_bytes()
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(config.data_dir))
+    argv = ["--data-dir", str(config.data_dir), cmd, "--ciks", "320193", "--years", "2024"]
+    rc = cli.main(argv + (["--write"] if write else []))
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "error: " in err and "migrate-contract" in err and CIK in err
+    assert "Traceback" not in err
+    assert config.manifest_file(CIK).read_bytes() == before
+    assert not config.f1_index_dir.exists()
