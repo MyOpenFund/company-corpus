@@ -38,7 +38,7 @@ from .vocabulary import write_vocabulary
 #: The counters of a run, in report order.
 COUNTERS: tuple[str, ...] = (
     "issuers", "issuers_refused", "rows", "rows_rewritten", "unchanged", "f1_moved",
-    "f1_already_indexed", "primary_hashed", "primary_unhashable", "no_primary",
+    "f1_already_indexed", "f1_dropped_tombstoned", "primary_hashed", "primary_unhashable", "no_primary",
     "no_rag_artifact",
 )
 
@@ -49,7 +49,8 @@ class MigrationReport:
 
     ``rows_rewritten``/``unchanged``: vault rows whose manifest line changes or not.
     ``f1_moved``: F1 rows leaving ``manifest/`` (``f1_already_indexed`` of them were in the
-    index already). ``primary_hashed``: primary hashes computed; ``primary_unhashable``:
+    index already; ``f1_dropped_tombstoned`` of them were pruned by ``xbrl --write`` since --
+    tombstoned in ``f1_pruned.jsonl``, files gone -- and are not restored). ``primary_hashed``: primary hashes computed; ``primary_unhashable``:
     rows with a primary pointer and no bytes left to hash. ``no_primary``: vault rows without a
     primary document; ``no_rag_artifact``: vault rows without a ``local_path`` (the RAG cannot
     ingest them; they stay as inventory). ``errors``: one item per refused issuer.
@@ -72,11 +73,12 @@ def migrate_contract(config: Config, *, ciks: Sequence[str] | None = None,
     """Migrate the manifests of ``ciks`` (default: every ``manifest/*.jsonl``)."""
     storage = Storage(config)
     report = MigrationReport()
+    tombstones = _tombstones(config)
     for path in _manifest_paths(config, ciks):
         report.counts["issuers"] += 1
         counts = Counter()
         try:
-            _migrate_issuer(storage, path, counts, dry_run=dry_run)
+            _migrate_issuer(storage, path, counts, tombstones, dry_run=dry_run)
         except _Refused as exc:
             report.counts["issuers_refused"] += 1
             report.errors.append({"source": "migrate_contract", "context": path.stem,
@@ -136,7 +138,35 @@ def _read(path: Path) -> list[tuple[dict, FilingRecord]]:
     return out
 
 
-def _migrate_issuer(storage: Storage, path: Path, counts: Counter, *, dry_run: bool) -> None:
+def _tombstones(config: Config) -> frozenset[str]:
+    """doc_ids of the F1 records ``xbrl --write`` pruned (``f1_pruned.jsonl``)."""
+    try:
+        lines = config.f1_prune_log_path.read_text(encoding="utf-8").split("\n")
+    except (OSError, UnicodeDecodeError):
+        return frozenset()
+    ids = set()
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and isinstance(row.get("doc_id"), str):
+            ids.add(row["doc_id"])
+    return frozenset(ids)
+
+
+def _pruned_since(config: Config, rec: FilingRecord, tombstones: frozenset[str]) -> bool:
+    """An F1 row still in an old manifest that the new code's prune already removed: its
+    doc_id is tombstoned and none of its files is left. Restoring it into the index would
+    bring back a record the run decided was stale, pointing at nothing."""
+    if rec.doc_id not in tombstones:
+        return False
+    pointers = [p for p in (rec.primary_path, rec.text_path, rec.pdf_path) if p]
+    return not any((config.data_dir / p).exists() for p in pointers)
+
+
+def _migrate_issuer(storage: Storage, path: Path, counts: Counter,
+                    tombstones: frozenset[str] = frozenset(), *, dry_run: bool) -> None:
     config = storage.config
     rows = _read(path)
     cik = path.stem
@@ -181,12 +211,15 @@ def _migrate_issuer(storage: Storage, path: Path, counts: Counter, *, dry_run: b
     indexed = storage.load_f1(cik) if f1 else {}
     counts["f1_moved"] += len(f1)
     counts["f1_already_indexed"] += sum(1 for r in f1 if r.doc_id in indexed)
+    dropped = {r.doc_id for r in f1
+               if r.doc_id not in indexed and _pruned_since(config, r, tombstones)}
+    counts["f1_dropped_tombstoned"] += len(dropped)
     if dry_run or not changed:
         return
     if f1:
         # The index first: a crash between the two writes leaves F1 rows in both places,
         # which a re-run settles (the index's row wins), never in neither.
-        merged = {r.doc_id: r for r in f1}
+        merged = {r.doc_id: r for r in f1 if r.doc_id not in dropped}
         merged.update(indexed)
         storage._write_f1(cik, merged.values())
     storage._write_manifest(cik, [rec for _, rec in vault])

@@ -165,7 +165,8 @@ def test_the_dry_run_writes_nothing_and_counts_what_it_would_do(old_corpus):
     assert _snapshot(old_corpus) == before
     assert rep.counts == {
         "issuers": 3, "issuers_refused": 0, "rows": 11, "rows_rewritten": 6, "unchanged": 0,
-        "f1_moved": 5, "f1_already_indexed": 0, "primary_hashed": 3, "primary_unhashable": 0,
+        "f1_moved": 5, "f1_already_indexed": 0, "f1_dropped_tombstoned": 0,
+        "primary_hashed": 3, "primary_unhashable": 0,
         "no_primary": 3, "no_rag_artifact": 3,
     }
     assert rep.errors == []
@@ -363,3 +364,59 @@ def test_cli_a_refused_issuer_alone_degrades_the_run(old_corpus, capsys, monkeyp
     (old_corpus.manifest_dir / f"{APPLE}.jsonl").write_text("not json\n")
     rc = cli.main(["--data-dir", str(old_corpus.data_dir), "migrate-contract", "--write"])
     assert rc == 3
+
+
+# ---- F1 rows pruned by the new code must not come back (tombstones) ----
+
+def _prune_in_index(config, gone, keep):
+    st = Storage(config)
+    st.save_f1([gone, keep], dry_run=False)
+    res = st.prune_f1(APPLE, [gone], [keep], dry_run=False, run_id="r")
+    assert [r.doc_id for r in res.records] == [gone.doc_id]
+    assert not (config.data_dir / gone.primary_path).exists()
+
+
+def _apple_f1(config):
+    recs = Storage(config)._read_records(config.manifest_file(APPLE), f1=True)[0]
+    return sorted(recs.values(), key=lambda r: r.period_of_report)
+
+
+def test_two_xbrl_writes_before_the_migration_do_not_resurrect_a_pruned_f1(old_corpus):
+    gone, keep = _apple_f1(old_corpus)
+    _prune_in_index(old_corpus, gone, keep)        # the second xbrl --write pruned 2022
+    dry = migrate_contract(old_corpus, dry_run=True).counts
+    assert dry["f1_dropped_tombstoned"] == 1
+    rep = migrate_contract(old_corpus, dry_run=False)
+    assert (rep.counts["f1_moved"], rep.counts["f1_dropped_tombstoned"]) == (5, 1)
+    assert {r["doc_id"] for r in _rows(old_corpus, APPLE, f1=True)} == {keep.doc_id}
+    assert verify(old_corpus) == []
+
+
+def test_a_crash_mid_migration_then_a_prune_does_not_resurrect_it(old_corpus, monkeypatch):
+    real = Storage._write_manifest
+
+    def crash(self, cik, records):
+        if cik == APPLE:
+            raise OSError("disk full")
+        return real(self, cik, records)
+
+    monkeypatch.setattr(Storage, "_write_manifest", crash)
+    with pytest.raises(OSError):
+        migrate_contract(old_corpus, dry_run=False)
+    monkeypatch.setattr(Storage, "_write_manifest", real)
+    gone, keep = _apple_f1(old_corpus)               # F1 in both the manifest and the index
+    assert {r["doc_id"] for r in _rows(old_corpus, APPLE, f1=True)} == {gone.doc_id, keep.doc_id}
+    _prune_in_index(old_corpus, Storage(old_corpus).load_f1(APPLE)[gone.doc_id],
+                    Storage(old_corpus).load_f1(APPLE)[keep.doc_id])
+    rep = migrate_contract(old_corpus, dry_run=False)
+    assert rep.counts["f1_dropped_tombstoned"] == 1
+    assert {r["doc_id"] for r in _rows(old_corpus, APPLE, f1=True)} == {keep.doc_id}
+    assert verify(old_corpus) == []
+
+
+def test_a_tombstoned_f1_whose_files_are_still_there_is_moved(old_corpus):
+    gone, _ = _apple_f1(old_corpus)
+    old_corpus.f1_prune_log_path.write_text(json.dumps({"doc_id": gone.doc_id}) + "\n")
+    rep = migrate_contract(old_corpus, dry_run=False)
+    assert rep.counts["f1_dropped_tombstoned"] == 0
+    assert gone.doc_id in {r["doc_id"] for r in _rows(old_corpus, APPLE, f1=True)}
