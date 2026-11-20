@@ -19,7 +19,7 @@ import pytest
 import company_corpus.cli as cli
 from company_corpus.config import Config, normalize_cik
 from company_corpus.lock import corpus_lock
-from company_corpus.migrate import migrate_contract
+from company_corpus.migrate import contract_names, migrate_contract
 from company_corpus.models import FilingRecord
 from company_corpus.ownership import find_ownership_doc, form345_text, parse_form345, \
     render_form345_html
@@ -166,16 +166,16 @@ def test_the_dry_run_writes_nothing_and_counts_what_it_would_do(old_corpus):
     assert rep.counts == {
         "issuers": 3, "issuers_refused": 0, "rows": 11, "rows_rewritten": 6, "unchanged": 0,
         "f1_moved": 5, "f1_already_indexed": 0, "f1_dropped_tombstoned": 0,
-        "primary_hashed": 3, "primary_unhashable": 0,
+        "f1_index_renamed": 0, "primary_hashed": 3, "primary_unhashable": 0,
         "no_primary": 3, "no_rag_artifact": 3, "provenance_unknown": 0,
     }
     assert rep.errors == []
 
 
 def test_the_pre_migration_corpus_shows_its_debt_in_verify(old_corpus):
-    kinds = [f.kind for f in verify(old_corpus)]
-    assert kinds.count("f1-in-manifest") == 5
-    assert kinds.count("missing-primary-hash") == 3
+    findings = verify(old_corpus)
+    assert [f.kind for f in findings] == ["pre-contract-row"] * 11
+    assert all("migrate-contract" in f.detail for f in findings)
 
 
 # ---- write ----
@@ -292,6 +292,77 @@ def test_a_manifest_named_by_no_cik_is_refused(old_corpus):
     assert rep.counts["issuers_refused"] == 1 and "notacik" in rep.errors[0]["error"]
 
 
+def _seed_index(config: Config, rows: list[dict]) -> Path:
+    path = config.f1_index_file(APPLE)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+    return path
+
+
+def _refused_by_its_index(config: Config, index: Path):
+    """Apple refused because of its F1 index; Microsoft and Amazon migrate; vocabulary.json
+    is written; Apple's manifest and index are left byte for byte."""
+    manifest = config.manifest_file(APPLE)
+    before = (manifest.read_bytes(), index.read_bytes())
+    rep = migrate_contract(config, dry_run=False)
+    assert (manifest.read_bytes(), index.read_bytes()) == before
+    assert rep.counts["issuers_refused"] == 1
+    assert [e["context"] for e in rep.errors] == [APPLE]
+    assert rep.counts["f1_moved"] == 3, "Microsoft's and Amazon's F1 rows move"
+    assert config.f1_index_file(MSFT).exists() and config.f1_index_file(AMZN).exists()
+    assert config.vocabulary_path.exists()
+    error = rep.errors[0]["error"]
+    assert f"derived/f1/{APPLE}.jsonl:" in error
+    assert "run migrate-contract" not in error and "re-run" in error
+    return error
+
+
+def test_a_row_of_another_family_in_the_f1_index_refuses_the_issuer(old_corpus):
+    a1 = _rec(APPLE, FormType.A1, "10-K", "0000320193-23-000999")
+    index = _seed_index(old_corpus, [_f1(APPLE, 2021).to_row(), a1.to_row()])
+    error = _refused_by_its_index(old_corpus, index)
+    assert ":2" in error and "an A1 row" in error and a1.doc_id in error
+
+
+def test_an_unparseable_f1_index_line_refuses_the_issuer(old_corpus):
+    # load_f1 would skip it with a warning, and the index rewrite would then drop it.
+    index = _seed_index(old_corpus, [_f1(APPLE, 2021).to_row()])
+    index.write_text(index.read_text() + '{"cik": "0000320193", "doc_ty\n')
+    error = _refused_by_its_index(old_corpus, index)
+    assert ":2" in error and "not a filing record" in error
+
+
+def test_a_pre_contract_f1_index_row_is_migrated_with_the_manifest(old_corpus):
+    # No released writer produced one (the index came with the contract), but a pre-contract
+    # row there is read the migration's way and rewritten in the contract, not refused.
+    old = _f1(APPLE, 2021)
+    _seed_index(old_corpus, [_old_row(old)])
+    rep = migrate_contract(old_corpus, dry_run=False)
+    assert rep.errors == [] and rep.counts["f1_moved"] == 5
+    assert rep.counts["f1_index_renamed"] == 1
+    rows = {r["doc_id"]: r for r in _rows(old_corpus, APPLE, f1=True)}
+    assert set(rows) == {old.doc_id, _f1(APPLE, 2022).doc_id, _f1(APPLE, 2023).doc_id}
+    assert all("doc_type" in r and "form_type" not in r for r in rows.values())
+    assert Storage(old_corpus).load_f1(APPLE).keys() == rows.keys()
+
+
+def test_a_pre_contract_f1_index_row_of_a_migrated_issuer_is_rewritten(old_corpus):
+    # The manifest has nothing left to move: the index alone is rewritten, the manifest kept.
+    migrate_contract(old_corpus, dry_run=False)
+    index = old_corpus.f1_index_file(APPLE)
+    rows = _rows(old_corpus, APPLE, f1=True)
+    rec = FilingRecord.from_row(rows[0])
+    index.write_text("".join(json.dumps(r) + "\n" for r in [_old_row(rec), *rows[1:]]))
+    manifest = old_corpus.manifest_file(APPLE).read_bytes()
+    dry = migrate_contract(old_corpus, dry_run=True)
+    assert dry.counts["f1_index_renamed"] == 1 and dry.useful_work == 1
+    rep = migrate_contract(old_corpus, dry_run=False)
+    assert rep.errors == [] and rep.counts["f1_index_renamed"] == 1
+    assert old_corpus.manifest_file(APPLE).read_bytes() == manifest
+    assert _rows(old_corpus, APPLE, f1=True) == rows
+    assert migrate_contract(old_corpus, dry_run=True).useful_work == 0
+
+
 def test_a_primary_with_no_bytes_left_is_counted_unhashable(old_corpus):
     rows = _rows(old_corpus, MSFT)
     (old_corpus.data_dir / rows[0]["local_path"]).unlink()      # the submission
@@ -377,7 +448,8 @@ def _prune_in_index(config, gone, keep):
 
 
 def _apple_f1(config):
-    recs = Storage(config)._read_records(config.manifest_file(APPLE), f1=True)[0]
+    recs = {r.doc_id: r for r in (FilingRecord.from_row(contract_names(x)) for x in _rows(config, APPLE))
+            if r.form_type is FormType.F1}
     return sorted(recs.values(), key=lambda r: r.period_of_report)
 
 
@@ -441,3 +513,42 @@ def test_a_cik_without_a_manifest_is_reported(old_corpus, capsys, monkeypatch):
     monkeypatch.setenv("COMPANY_DATA_DIR", str(old_corpus.data_dir))
     cli.main(["--data-dir", str(old_corpus.data_dir), "migrate-contract", "--ciks", "1234"])
     assert "no manifest for: 0000001234" in capsys.readouterr().err
+
+
+# ---- the migration reads the pre-contract form on its own ----
+
+FIXTURES = Path(__file__).parent / "fixtures" / "contract"
+
+
+def _fixture_rows() -> list[dict]:
+    return [json.loads(x) for x in
+            (FIXTURES / "pre_contract_rows.jsonl").read_text(encoding="utf-8").splitlines()]
+
+
+def test_contract_names_renames_a_pre_contract_row_with_a_submission():
+    from company_corpus.migrate import contract_names
+    old = _fixture_rows()[0]
+    new = contract_names(old)
+    assert (new["doc_type"], new["date"], new["document_url"]) == (
+        old["form_type"], old["filing_date"], old["primary_doc_url"])
+    assert (new["submission_path"], new["submission_sha256"]) == (old["local_path"], old["sha256"])
+    assert new["sha256"] is None, "the old sha256 hashed the submission, not the primary"
+    assert not {"form_type", "filing_date", "primary_doc_url", "local_path"} & set(new)
+    rec = FilingRecord.from_row(new)
+    assert rec.doc_id == old["doc_id"] and rec.submission_path == old["local_path"]
+    assert old["form_type"] == "A1", "the input row is not modified"
+
+
+def test_contract_names_keeps_the_primary_hash_of_a_row_without_submission():
+    from company_corpus.migrate import contract_names
+    old = _fixture_rows()[1]
+    assert old["local_path"] is None and old["sha256"]
+    rec = FilingRecord.from_row(contract_names(old))
+    assert (rec.primary_sha256, rec.submission_sha256, rec.submission_path) == \
+        (old["sha256"], None, None)
+
+
+def test_contract_names_leaves_a_contract_row_alone():
+    from company_corpus.migrate import contract_names
+    row = _rec(APPLE, FormType.A1, "10-K", "0000320193-24-000123").to_row()
+    assert contract_names(row) == row

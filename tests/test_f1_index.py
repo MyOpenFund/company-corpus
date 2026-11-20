@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from datetime import date, timedelta
-from types import SimpleNamespace
 
 import pytest
 
@@ -102,28 +101,67 @@ def _pre_migration_manifest(config) -> tuple[FilingRecord, FilingRecord]:
     return a1, f1
 
 
-def test_a_pre_migration_manifest_is_read_without_its_f1_rows(config):
-    a1, f1 = _pre_migration_manifest(config)
+def test_reading_a_pre_migration_manifest_fails_loudly_naming_the_migration(config):
+    _pre_migration_manifest(config)
+    with pytest.raises(ManifestNeedsMigration, match="migrate-contract"):
+        Storage(config).load_manifest(CIK)
+
+
+def test_a_pre_contract_row_among_contract_rows_is_not_skipped(config):
+    # A mixed manifest (a contract row, then one old row): skipping the old row would let the
+    # next write drop it.
     st = Storage(config)
-    assert list(st.load_manifest(CIK)) == [a1.doc_id]
-    assert st.load_f1(CIK) == {}
+    st.save_records([_a1(1)], dry_run=False)
+    path = config.manifest_file(CIK)
+    old = {"cik": CIK, "form_type": "A1", "sec_form": "10-K", "accession": _a1(2).accession,
+           "filing_date": "2024-11-01", "doc_id": _a1(2).doc_id}
+    path.write_text(path.read_text() + json.dumps(old) + "\n")
+    with pytest.raises(ManifestNeedsMigration, match="migrate-contract"):
+        st.load_manifest(CIK)
 
 
-def test_verify_reports_f1_rows_left_in_a_manifest(config):
-    a1, f1 = _pre_migration_manifest(config)
-    findings = verify(config)
-    assert [f.kind for f in findings] == ["f1-in-manifest"]
-    assert f1.doc_id in findings[0].subject and "migrate-contract" in findings[0].detail
-
-
-def test_writing_a_pre_migration_manifest_is_refused_rather_than_dropping_its_f1(config):
+def test_writing_a_pre_migration_manifest_fails_before_any_write(config):
     _pre_migration_manifest(config)
     before = config.manifest_file(CIK).read_text()
     st = Storage(config)
-    assert st.save_records([_a1(2)], dry_run=True).added == 1   # a dry run is harmless
-    with pytest.raises(ManifestNeedsMigration, match="migrate-contract"):
-        st.save_records([_a1(2)], dry_run=False)
+    for dry_run in (True, False):
+        with pytest.raises(ManifestNeedsMigration, match="migrate-contract"):
+            st.save_records([_a1(2)], dry_run=dry_run)
     assert config.manifest_file(CIK).read_text() == before
+
+
+def test_an_f1_row_in_a_manifest_fails_loudly(config):
+    # Contract-form F1 in manifest/ (never written by this code): an error, not a skip.
+    st = Storage(config)
+    st.save_records([_a1()], dry_run=False)
+    path = config.manifest_file(CIK)
+    path.write_text(path.read_text() + json.dumps(_f1(2023).to_row()) + "\n")
+    with pytest.raises(RuntimeError, match="an F1 row"):
+        st.load_manifest(CIK)
+    with pytest.raises(RuntimeError, match="F1"):
+        st.save_records([_a1(2)], dry_run=False)
+
+
+def test_verify_reports_an_f1_row_in_a_manifest(config):
+    st = Storage(config)
+    st.save_records([_a1()], dry_run=False)
+    f1 = _f1(2023)
+    path = config.manifest_file(CIK)
+    path.write_text(path.read_text() + json.dumps(f1.to_row()) + "\n")
+    findings = verify(config)
+    assert [f.kind for f in findings] == ["f1-in-manifest"]
+    assert f1.doc_id in findings[0].subject and "derived/f1" in findings[0].detail
+
+
+def test_a_non_f1_row_in_the_f1_index_fails_loudly(config):
+    st = Storage(config)
+    _seed_f1(st, _f1(2023))
+    path = config.f1_index_file(CIK)
+    path.write_text(path.read_text() + json.dumps(_a1().to_row()) + "\n")
+    before = path.read_text()
+    with pytest.raises(RuntimeError, match="A1"):
+        st.save_f1([_f1(2022)], dry_run=False)
+    assert path.read_text() == before
 
 
 # ---- readers of F1 ----
@@ -154,46 +192,42 @@ def test_the_completeness_report_still_counts_f1(config):
     assert {r["form_type"]: r["discovered"] for r in rows} == {"A1": 1, "F1": 1}
 
 
-@pytest.mark.parametrize("argv", [
-    ["discover", "--ciks", "320193", "--write"],
-    ["download", "--ciks", "320193", "--write"],
-    ["render-pdf", "--ciks", "320193", "--write"],
-    ["ownership", "--ciks", "320193", "--write"],
-    ["discover-index", "--ciks", "320193", "--write"],
-])
-def test_writing_commands_stop_before_any_work_on_a_pre_migration_manifest(
-        config, argv, capsys, monkeypatch):
+@pytest.mark.parametrize("cmd", ["download", "render-pdf", "ownership"])
+@pytest.mark.parametrize("write", [False, True])
+def test_a_command_reading_a_pre_migration_manifest_fails_naming_the_migration(
+        config, cmd, write, capsys, monkeypatch):
+    # No preflight scan: the failure comes from reading the manifest, before any network
+    # work for that issuer, and nothing is written.
+    import company_corpus.cli as cli
+    _pre_migration_manifest(config)
+    before = config.manifest_file(CIK).read_text()
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(config.data_dir))
+    argv = ["--data-dir", str(config.data_dir), cmd, "--ciks", "320193"]
+    assert cli.main(argv + (["--write"] if write else [])) == 1
+    err = capsys.readouterr().err
+    assert "migrate-contract" in err and CIK in err
+    assert config.manifest_file(CIK).read_text() == before
+    assert not config.f1_index_dir.exists()
+
+
+def test_a_writing_run_does_not_scan_the_manifests_it_does_not_read(config, monkeypatch):
+    # The per-run scan of every manifest is gone: an issuer outside the run is not read.
     import company_corpus.cli as cli
     _pre_migration_manifest(config)
     monkeypatch.setenv("COMPANY_DATA_DIR", str(config.data_dir))
-
-    def no_work(*a, **k):
-        raise AssertionError("the preflight must stop the run before any work")
-
-    for name in ("discover_universe", "download_universe", "render_universe",
-                 "process_ownership"):
-        monkeypatch.setattr(cli, name, no_work)
-    monkeypatch.setattr(cli, "EdgarFullIndex", no_work)
-    assert cli.main(["--data-dir", str(config.data_dir), *argv]) == 1
-    err = capsys.readouterr().err
-    assert "migrate-contract" in err and CIK in err
+    assert not hasattr(Storage, "manifests_needing_migration")
+    assert cli.main(["--data-dir", str(config.data_dir), "download", "--ciks", "789019",
+                     "--write"]) == 0
 
 
-def test_a_dry_run_and_a_migrated_corpus_pass_the_preflight(config, monkeypatch):
+def test_a_migrated_corpus_is_read_by_the_writing_commands(config, monkeypatch):
     import company_corpus.cli as cli
     from company_corpus.migrate import migrate_contract
     _pre_migration_manifest(config)
     monkeypatch.setenv("COMPANY_DATA_DIR", str(config.data_dir))
-    calls = []
-    monkeypatch.setattr(cli, "download_universe",
-                        lambda *a, **k: calls.append(1) or SimpleNamespace(
-                            downloaded=0, repaired=0, would_repair=0, skipped=0, empty=0,
-                            errors=0, bytes=0, error_items=[]))
-    assert cli.main(["--data-dir", str(config.data_dir), "download", "--ciks", "320193"]) == 0
     migrate_contract(config, dry_run=False)
     assert cli.main(["--data-dir", str(config.data_dir), "download", "--ciks", "320193",
-                     "--write"]) == 0
-    assert calls == [1, 1]
+                     "--limit", "0", "--write"]) == 0
 
 
 def test_render_pdf_says_f1_is_no_longer_rendered(config, capsys, monkeypatch):
@@ -202,3 +236,61 @@ def test_render_pdf_says_f1_is_no_longer_rendered(config, capsys, monkeypatch):
     cli.main(["--data-dir", str(config.data_dir), "render-pdf", "--ciks", "320193",
               "--forms", "F1"])
     assert "F1 is no longer rendered" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("bad", ["pre-contract", "f1-in-manifest"])
+def test_report_on_a_manifest_it_cannot_read_is_an_error_not_a_traceback(
+        config, bad, capsys, monkeypatch):
+    # `report` is not a reporting command: main() itself turns the reader's refusal into
+    # `error: ...` and exit code 1.
+    import company_corpus.cli as cli
+    if bad == "pre-contract":
+        _pre_migration_manifest(config)
+    else:
+        st = Storage(config)
+        st.save_records([_a1()], dry_run=False)
+        path = config.manifest_file(CIK)
+        path.write_text(path.read_text() + json.dumps(_f1(2023).to_row()) + "\n")
+    before = config.manifest_file(CIK).read_bytes()
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(config.data_dir))
+    rc = cli.main(["--data-dir", str(config.data_dir), "report", "--ciks", "320193",
+                   "--years", "2024"])
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert err.startswith("error: ") and CIK in err and "Traceback" not in err
+    assert ("migrate-contract" if bad == "pre-contract" else "F1") in err
+    assert config.manifest_file(CIK).read_bytes() == before
+
+
+MASTER_IDX = """CIK|Company Name|Form Type|Date Filed|Filename
+320193|Apple Inc.|10-K|2024-11-01|edgar/data/320193/0000320193-24-000123.txt
+"""
+
+
+@pytest.mark.parametrize("cmd", ["discover", "discover-index"])
+@pytest.mark.parametrize("write", [False, True])
+def test_discovery_on_a_pre_migration_manifest_fails_cleanly_and_writes_nothing(
+        config, cmd, write, capsys, monkeypatch):
+    # Discovery merges into the manifest, so it reads it first: a pre-contract manifest
+    # stops the run (exit 1, the migration named), and the manifest is left byte for byte.
+    import company_corpus.cli as cli
+    import company_corpus.pipeline as pipeline
+    from .conftest import APPLE_SUBMISSIONS, FakeFetcher
+
+    def fake(cfg):
+        return FakeFetcher({"CIK0000320193.json": APPLE_SUBMISSIONS,
+                            "master.idx": MASTER_IDX}, config=cfg)
+
+    monkeypatch.setattr(pipeline, "Fetcher", fake)
+    monkeypatch.setattr(cli, "Fetcher", fake)
+    _pre_migration_manifest(config)
+    before = config.manifest_file(CIK).read_bytes()
+    monkeypatch.setenv("COMPANY_DATA_DIR", str(config.data_dir))
+    argv = ["--data-dir", str(config.data_dir), cmd, "--ciks", "320193", "--years", "2024"]
+    rc = cli.main(argv + (["--write"] if write else []))
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "error: " in err and "migrate-contract" in err and CIK in err
+    assert "Traceback" not in err
+    assert config.manifest_file(CIK).read_bytes() == before
+    assert not config.f1_index_dir.exists()

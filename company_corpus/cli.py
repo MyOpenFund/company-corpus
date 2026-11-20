@@ -161,7 +161,8 @@ from .sources.cik_lookup import fetch_cik_lookup, parse_cik_lookup
 from .sources.edgar_fts import EdgarFTS
 from .sources.edgar_index import EdgarFullIndex
 from .storage import (
-    ManifestNeedsMigration, Storage, _atomic_write_text, _jsonl as _jsonl_text,
+    ManifestNeedsMigration, MisplacedRecord, Storage, _atomic_write_text,
+    _jsonl as _jsonl_text,
 )
 from .taxonomy import FULL_SCOPE, parse_scope
 from .verify import (
@@ -424,24 +425,6 @@ def _corpus_lock_if_writing(args: argparse.Namespace):
         return
     with corpus_lock(_config(args), purpose=args.cmd):
         yield
-
-
-#: Commands that rewrite manifests when they write: on a corpus not yet migrated to the
-#: vault contract (F1 rows still in manifest/) they would stop at their first save, after
-#: network work. The preflight stops them before any.
-_MANIFEST_WRITERS = frozenset({"discover", "discover-index", "download", "render-pdf",
-                               "ownership"})
-
-
-def _preflight_manifests(args: argparse.Namespace) -> None:
-    if args.cmd not in _MANIFEST_WRITERS or not _is_writing_run(args):
-        return
-    stale = Storage(_config(args)).manifests_needing_migration()
-    if stale:
-        shown = ", ".join(stale[:5]) + (f" and {len(stale) - 5} more" if len(stale) > 5 else "")
-        raise ManifestNeedsMigration(
-            f"{len(stale)} manifest(s) still hold F1 rows ({shown}): run "
-            "`company-corpus migrate-contract --write` before any writing command")
 
 
 def _config(args: argparse.Namespace) -> Config:
@@ -1783,7 +1766,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.cmd not in REPORTING_CMDS:
-        return args.func(args)
+        try:
+            return args.func(args)
+        except (ManifestNeedsMigration, MisplacedRecord) as exc:
+            # A manifest or F1 index the readers refuse (pre-contract row, row of the other
+            # kind): the message names the file, the line and the remedy -- no traceback.
+            # The reporting commands get the same through their generic handler below.
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
 
     if not logging.getLogger().handlers:
         logging.basicConfig(
@@ -1795,7 +1785,6 @@ def main(argv: list[str] | None = None) -> int:
     args.report = report
     try:
         with _corpus_lock_if_writing(args):
-            _preflight_manifests(args)
             func_rc = args.func(args)
     except CorpusLocked as exc:
         # Its own branch, before the generic handler: a refused start is not a

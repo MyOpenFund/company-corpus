@@ -39,10 +39,10 @@ from pathlib import Path
 
 from .config import Config, normalize_cik, normalize_lei
 from .eu.documents import Document
-from .models import FilingRecord
+from .models import FilingRecord, ManifestNeedsMigration
 from .paths import UnsafeIdentifier, safe_component
 from .storage import primary_document, read_submission, text_sha256
-from .taxonomy import FormType
+from .taxonomy import FormType, code_article
 
 #: The manifest pointers that name bytes on disk, in the order a reader falls
 #: back through them. ``Config.sticky_manifest_fields`` is the same set minus
@@ -336,6 +336,15 @@ class _Scan:
                           f"row is filed under {row_cik} in {cik}'s manifest")
             try:
                 record = FilingRecord.from_row(row)
+            except ManifestNeedsMigration:
+                # Only migrate-contract reads the old names. What the row points at is
+                # unknown here, so the orphan check is dropped (as for an unreadable row).
+                self._add("pre-contract-row", f"{rel}:{row.get('doc_id') or lineno}",
+                          "a row in the pre-contract form (written before the vault "
+                          "contract); `migrate-contract --write` rewrites the manifest, and "
+                          "every command that reads the manifest refuses it until then")
+                self._blind()
+                continue
             except Exception as exc:  # noqa: BLE001 - a manifest row is untrusted
                 self._add("unreadable-row", where,
                           f"not a filing record ({type(exc).__name__}: {exc})")
@@ -348,12 +357,12 @@ class _Scan:
             if is_f1 and not f1_index:
                 # Its files are still checked below (and referenced: not orphans).
                 self._add("f1-in-manifest", f"{rel}:{stored_id or lineno}",
-                          "an F1 row in manifest/ (written before chantier 4); "
-                          "`migrate-contract --write` moves it to derived/f1/")
+                          "an F1 row in manifest/; its place is derived/f1/ "
+                          "(`migrate-contract --write` moves it)")
             elif f1_index and not is_f1:
                 self._add("not-f1-in-f1-index", f"{rel}:{stored_id or lineno}",
-                          f"a {record.form_type.code} row in the F1 index; its place is "
-                          "manifest/")
+                          f"{code_article(record.form_type.code)} {record.form_type.code} "
+                          "row in the F1 index; its place is manifest/")
             if stored_id != record.doc_id:
                 self._add(
                     "stale-doc-id", f"{rel}:{stored_id or '(none)'}",
@@ -409,8 +418,7 @@ class _Scan:
                       "an artefact is stored but no hash is set (half-processed)")
         else:
             if record.primary_path and not record.primary_sha256:
-                # The vault contract's sha256: a row written before chantier 4. Its
-                # submission hash is still checked below.
+                # The vault contract's sha256. The submission hash is still checked below.
                 self._add("missing-primary-hash", where,
                           "primary_path is set but sha256 (the primary document's hash) is "
                           "not; `migrate-contract --write` computes it from the files on disk")

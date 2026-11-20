@@ -12,7 +12,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import tempfile
 import warnings
 from collections.abc import Iterable, Sequence
@@ -22,10 +21,10 @@ from pathlib import Path
 
 from .config import Config, normalize_cik, normalize_lei
 from .extract import clean_text
-from .models import FilingRecord
+from .models import FilingRecord, ManifestNeedsMigration
 from .paths import safe_component
 from .submission import filename_from_url, parse_submission, select_primary
-from .taxonomy import FormType
+from .taxonomy import FormType, code_article
 from .vocabulary import write_vocabulary
 
 
@@ -207,11 +206,10 @@ def _row_f1_group(row: dict) -> tuple:
     return row.get("period_end"), row.get("frequency") or None
 
 
-_OLD_F1_ROW = re.compile(rb'"form_type"\s*:\s*"F1"')
+class MisplacedRecord(RuntimeError):
+    """An F1 row in ``manifest/`` or another family's row in the F1 index.
 
-
-class ManifestNeedsMigration(RuntimeError):
-    """A manifest written before chantier 4 (with F1 rows) cannot be rewritten safely."""
+    Raised, never skipped: the next write of the file would drop a skipped row."""
 
 
 class ShrinkGuardError(RuntimeError):
@@ -336,41 +334,34 @@ class Storage:
     def load_manifest(self, cik: str) -> dict[str, FilingRecord]:
         """Return ``{doc_id: FilingRecord}`` for an issuer's manifest (empty if none).
 
-        Never an F1 record: F1 lives in its own index (:meth:`load_f1`). A manifest written
-        before chantier 4 may still hold F1 rows; they are skipped here (``verify`` reports
-        them as ``f1-in-manifest``, ``migrate-contract`` moves them).
+        Never an F1 record: F1 lives in its own index (:meth:`load_f1`); an F1 row here raises
+        :class:`MisplacedRecord`. A row in the pre-contract form raises
+        :class:`ManifestNeedsMigration` (run ``migrate-contract --write``).
         """
-        return self._read_records(self.config.manifest_file(cik), f1=False)[0]
-
-    def manifests_needing_migration(self) -> list[str]:
-        """CIKs whose manifest still holds F1 rows (written before chantier 4), sorted.
-
-        A text search for the pre-contract F1 key (``"form_type": "F1"``; the contract writer
-        never puts F1 in a manifest), so a whole corpus is checked in one read per file,
-        without parsing it."""
-        d = self.config.manifest_dir
-        if not d.is_dir():
-            return []
-        return sorted(p.stem for p in d.glob("*.jsonl")
-                      if p.is_file() and _OLD_F1_ROW.search(p.read_bytes()))
+        return self._read_records(self.config.manifest_file(cik), f1=False)
 
     def load_f1(self, cik: str) -> dict[str, FilingRecord]:
         """Return ``{doc_id: FilingRecord}`` of an issuer's F1 index (``derived/f1/<cik>.jsonl``)."""
-        return self._read_records(self.config.f1_index_file(cik), f1=True)[0]
+        return self._read_records(self.config.f1_index_file(cik), f1=True)
 
-    def _read_records(self, path: Path, *, f1: bool) -> tuple[dict[str, FilingRecord], int]:
-        """``({doc_id: record}, rows of the other kind skipped)`` of one JSONL file: the F1
-        records (``f1``) or every other one."""
+    def _read_records(self, path: Path, *, f1: bool) -> dict[str, FilingRecord]:
+        """``{doc_id: record}`` of one JSONL file: the F1 index (``f1``) or a manifest.
+
+        A row of the other kind raises :class:`MisplacedRecord`, a pre-contract row (``form_type``,
+        no ``doc_type``) :class:`ManifestNeedsMigration`: both name the line. Only a line that
+        is not a record is skipped (with a warning): unparseable JSON, or a row missing a
+        required field -- a row with neither ``doc_type`` nor ``form_type`` among them."""
         records: dict[str, FilingRecord] = {}
-        skipped = 0
         if not path.exists():
-            return records, skipped
+            return records
         for lineno, line in enumerate(path.read_text(encoding="utf-8").split("\n"), 1):
             line = line.strip()
             if not line:
                 continue
             try:
                 rec = FilingRecord.from_row(json.loads(line))
+            except ManifestNeedsMigration as exc:
+                raise ManifestNeedsMigration(f"{path}:{lineno}: {exc}") from None
             except (json.JSONDecodeError, KeyError, ValueError, TypeError) as exc:
                 # One corrupt line (e.g. from an interrupted legacy write) must not
                 # take down the whole issuer's manifest -- skip it and warn.
@@ -378,10 +369,13 @@ class Storage:
                               stacklevel=3)
                 continue
             if (rec.form_type is FormType.F1) != f1:
-                skipped += 1
-                continue
+                where = "the F1 index; its place is manifest/" if f1 else \
+                    "manifest/; F1 lives in derived/f1/ (`verify` reports it)"
+                code = rec.form_type.code
+                raise MisplacedRecord(
+                    f"{path}:{lineno}: {code_article(code)} {code} row ({rec.doc_id}) in {where}")
             records[rec.doc_id] = rec
-        return records, skipped
+        return records
 
     def save_records(
         self, records: Iterable[FilingRecord], *, dry_run: bool = True
@@ -446,7 +440,7 @@ class Storage:
         self, cik: str, records: list[FilingRecord], *, f1: bool = False, dry_run: bool
     ) -> SaveStats:
         path = self.config.f1_index_file(cik) if f1 else self.config.manifest_file(cik)
-        existing, other_kind = self._read_records(path, f1=f1)
+        existing = self._read_records(path, f1=f1)
         stats = SaveStats(seen=len(records))
         changed = False
         for rec in records:
@@ -468,12 +462,6 @@ class Storage:
                 stats.unchanged += 1
 
         if changed and not dry_run:
-            if other_kind and not f1:
-                # A manifest written before chantier 4 still holds F1 rows: rewriting it
-                # from the records read would drop them.
-                raise ManifestNeedsMigration(
-                    f"{path} still holds {other_kind} F1 row(s); run "
-                    "`company-corpus migrate-contract --write` before writing manifests")
             (self._write_f1 if f1 else self._write_manifest)(cik, existing.values())
         return stats
 

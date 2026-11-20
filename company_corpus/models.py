@@ -98,6 +98,19 @@ class IdentityCollisionError(RuntimeError):
         self.doc_ids: list[str] = list(doc_ids)
 
 
+class ManifestNeedsMigration(RuntimeError):
+    """A manifest row in the pre-contract form (written before chantier 4): ``form_type``
+    and no ``doc_type``.
+
+    Only ``migrate-contract`` reads that form (``migrate.contract_names``). Every other reader
+    fails on it, never skips it: a skipped row would be dropped by the next write of its
+    manifest. Not a ``ValueError``/``KeyError``/``TypeError``, so the corrupt-line tolerance of
+    the manifest reader cannot swallow it. A line with neither name is not recognized as an
+    old row: it is not a record, and the manifest reader skips it with a warning like any
+    unparseable line (``verify`` reports it as ``unreadable-row``).
+    """
+
+
 @dataclass
 class FilingRecord:
     """One company filing, with provenance and on-disk pointers."""
@@ -212,36 +225,23 @@ class FilingRecord:
 
     @classmethod
     def from_row(cls, row: dict) -> "FilingRecord":
-        """Reconstruct a record from a manifest line: a contract row (:meth:`to_row`) or a
-        pre-contract one (transition, chantier 4).
+        """Reconstruct a record from a manifest line in the contract form (:meth:`to_row`).
 
-        A row is in the contract form when it has ``doc_type``, which the pre-contract
-        writer never wrote. The old form named the type ``form_type``, the date
-        ``filing_date``, the primary's URL ``primary_doc_url``, the submission ``local_path``
-        and its hash ``sha256`` -- except on a row with no submission (family F summaries),
-        whose ``sha256`` hashed the primary it pointed at.
+        A pre-contract row (no ``doc_type``, the type under ``form_type``) raises
+        :class:`ManifestNeedsMigration`: run ``migrate-contract --write`` first. A row with
+        neither raises ``KeyError`` (not a record).
         """
         def _parse_date(value: str | None) -> date | None:
             return date.fromisoformat(value) if value else None
 
-        if "doc_type" in row:
-            code, filed = row["doc_type"], row.get("date")
-            primary_doc_url = row.get("document_url") or ""
-            submission_path = row.get("submission_path")
-            submission_sha256 = row.get("submission_sha256")
-            primary_sha256 = row.get("sha256")
-        else:
-            code, filed = row["form_type"], row.get("filing_date")
-            primary_doc_url = row.get("primary_doc_url") or ""
-            submission_path = row.get("local_path")
-            if submission_path:
-                submission_sha256, primary_sha256 = row.get("sha256"), None
-            else:
-                submission_sha256, primary_sha256 = None, row.get("sha256")
-
+        if "doc_type" not in row and "form_type" in row:
+            raise ManifestNeedsMigration(
+                f"a manifest row in the pre-contract form (doc_id {row.get('doc_id')!r}, "
+                "form_type instead of doc_type); run `company-corpus migrate-contract --write` "
+                "first (see docs/INGESTION_RAG.md, Migrating)")
         return cls(
             cik=row["cik"],
-            form_type=by_code(code),
+            form_type=by_code(row["doc_type"]),
             sec_form=row["sec_form"],
             accession=row["accession"],
             title=row.get("title", ""),
@@ -249,15 +249,15 @@ class FilingRecord:
             company_current=row.get("company_current", ""),
             ticker=row.get("ticker", ""),
             entity_id=row.get("entity_id", ""),
-            filing_date=_parse_date(filed),
+            filing_date=_parse_date(row.get("date")),
             period_of_report=_parse_date(row.get("period_of_report")),
             frequency=row.get("frequency") or "",
-            primary_doc_url=primary_doc_url,
+            primary_doc_url=row.get("document_url") or "",
             submission_url=row.get("submission_url", ""),
             provenance=row.get("provenance", "edgar_index"),
-            submission_sha256=submission_sha256,
-            primary_sha256=primary_sha256,
-            submission_path=submission_path,
+            submission_sha256=row.get("submission_sha256"),
+            primary_sha256=row.get("sha256"),
+            submission_path=row.get("submission_path"),
             primary_path=row.get("primary_path"),
             text_path=row.get("text_path"),
             pdf_path=row.get("pdf_path"),

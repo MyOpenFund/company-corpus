@@ -188,7 +188,8 @@ Key fields: `cik`, `form_type` (a `FormType`), `sec_form`, `accession`, `company
 `submission_sha256` (the stored submission) and `primary_sha256` (the primary document as
 the SEC served it). `to_row()` writes the contract row (`doc_type`, `date`, `document_url`,
 `sha256` = `primary_sha256`, `local_path` = the RAG artefact per
-`Config.vault_artifact_preference`, …); `from_row()` reads it and the pre-contract names.
+`Config.vault_artifact_preference`, …); `from_row()` reads it back and refuses a pre-contract
+row (`ManifestNeedsMigration`: only `migrate.contract_names` reads the old names).
 
 ### Filing taxonomy (families A–F)
 
