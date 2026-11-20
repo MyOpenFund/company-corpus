@@ -361,8 +361,8 @@ class _Scan:
                           "(`migrate-contract --write` moves it)")
             elif f1_index and not is_f1:
                 self._add("not-f1-in-f1-index", f"{rel}:{stored_id or lineno}",
-                          f"{code_article(record.form_type.code)} {record.form_type.code} row in the F1 index; its place is "
-                          "manifest/")
+                          f"{code_article(record.form_type.code)} {record.form_type.code} "
+                          "row in the F1 index; its place is manifest/")
             if stored_id != record.doc_id:
                 self._add(
                     "stale-doc-id", f"{rel}:{stored_id or '(none)'}",
