@@ -124,6 +124,13 @@ accession number than the one companyfacts cites (3 of 40,049 on the 672-issuer 
 Run with `--write` and without `--offline` to refresh stale archives: offline, filings made after
 the last archive fetch are missing from `filings` and their facts carry the fallback `known_at`.
 
+Upgrading from the store's former name (`my-open-data`, renamed 2026-11-22): run
+`pip uninstall -y my-open-data` in the venv before `pip install ".[store]"` (both distributions
+would otherwise stay installed), and rename `MYOPENDATA_*` variables to `OPEN_DATA_STORE_*` in your
+shell profile (an unset `OPEN_DATA_STORE_DATA_ROOT` turns the `--landing` below into `/landing`).
+Details: the store's
+[`docs/MIGRATION.md`](https://github.com/MyOpenFund/open-data-store/blob/main/docs/MIGRATION.md).
+
 ```bash
 pip install ".[store]"          # open-data-store writer (optional extra); publishing needs open-data-store[publisher]
 company-corpus --contact "$SEC_CONTACT" store-batches --universe sp_curated \

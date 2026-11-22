@@ -155,7 +155,7 @@ run report (`local_refusals`, `totals.docs_failed`), not an SEC fetch failure; b
 period summaries the run stays `ok`, without any it is `degraded`.
 
 `data/f1_pruned.jsonl` is the tombstone list for downstream readers (a RAG index, the
-open-data-store store) that copied a pruned `doc_id`: they should drop it. No reader consumes it
+open-data-store) that copied a pruned `doc_id`: they should drop it. No reader consumes it
 yet.
 
 ### The manifest is the map
