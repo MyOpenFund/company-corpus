@@ -1,7 +1,7 @@
 """Store rows -> period summaries with ratios: the store readers' entry point (the MCP calls it).
 
 Input: the rows :func:`~company_corpus.concepts.selection.run_selection` returns for ONE issuer
-(my-open-data ``fundamentals`` vintages and ``filing_statements`` as the Recipe reads them).
+(open-data-store ``fundamentals`` vintages and ``filing_statements`` as the Recipe reads them).
 Output: :class:`~company_corpus.financials.PeriodSummary` objects whose ``values`` are F1's and
 whose ``derived`` (point-in-time) and ``ttm`` ratios come from the same functions as F1, so a
 store reader never computes a concept or a ratio itself.
@@ -11,7 +11,7 @@ to F1's ``q4_rule="ytd9"`` (Q4 = annual - 9-month YTD); ``"sum_of_quarters"`` (Q
 - Q3, spec MCP-2 Q6) stays a parameter.
 
 Publication date: pass the issuer's ``fundamentals`` rows as ``vintages`` (see
-:func:`summaries_from_rows`). ``known_at`` is a UTC instant (my-open-data declares it
+:func:`summaries_from_rows`). ``known_at`` is a UTC instant (open-data-store declares it
 ``timestamp("us", tz="UTC")``, so store rows arrive tz-aware; a reader may hand it back in its
 session zone), read as a calendar date in ``publication_tz`` (default ``"America/New_York"``,
 EDGAR's zone and the store's own ``store_known_at_fallback_tz``): a filing without an acceptance

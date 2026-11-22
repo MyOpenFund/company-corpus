@@ -106,7 +106,7 @@ Tag choices that still matter to a reader:
 ## How a concept gets its value (SEC)
 
 `company_corpus/concepts/selection.py` generates one SQL statement from the dictionary. The F1 engine
-and the my-open-data Recipe `fundamentals_concepts` run the same statement, so they give the same
+and the open-data-store Recipe `fundamentals_concepts` run the same statement, so they give the same
 values. Facts are stored as filed, by tag; which tag answers a concept is decided when reading, so
 changing the dictionary changes no stored row.
 

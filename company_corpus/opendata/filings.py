@@ -2,7 +2,7 @@
 
 One row per report filing (``Config.store_report_forms``): its form and the period it reports
 on (``reportDate``), as EDGAR lists them; ``valid_date`` is the filing date. Every column is a
-function of the archive alone, so a replay re-emits the same rows (my-open-data chantier 2).
+function of the archive alone, so a replay re-emits the same rows (open-data-store chantier 2).
 """
 from __future__ import annotations
 

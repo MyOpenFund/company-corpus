@@ -134,7 +134,7 @@ Module responsibilities, one line each:
 | `naming.py` / `entity.py` | Point-in-time issuer names; cross-CIK economic-entity joins. |
 | `financials.py` / `ownership.py` | Shared financials engine (reported/derived/TTM rows, the 71 concepts of `concepts/concepts.json`) — reused by SEC XBRL (`edgar_xbrl`), EU ESEF (`eu/financials.py`), and the register pillar (`registers/`). Structure insider/13F filings. |
 | `concepts/` | The two-level concept dictionary (`concepts.json` for meanings, `tags/us_gaap.json` and `tags/ifrs_full.json` for each taxonomy's tags) and the one SQL selection that picks, per concept and period, which filed tag answers it; used by the store's Recipe and by F1 summaries (`summaries.py`). |
-| `opendata/` | Layer 0 → my-open-data batches: archives the EDGAR submissions API and the SEC bulk statement files, maps them to `identity`, `fundamentals`, `filing_statements` and `filings` rows, writes them through the my-open-data writer (`store-batches`, `statements`). |
+| `opendata/` | Layer 0 → open-data-store batches: archives the EDGAR submissions API and the SEC bulk statement files, maps them to `identity`, `fundamentals`, `filing_statements` and `filings` rows, writes them through the open-data-store writer (`store-batches`, `statements`). |
 | `indices.py` | S&P 500 composition + dated membership (Wikipedia). |
 | `vocabulary.py` / `migrate.py` | The vault contract's `vocabulary.json`, generated from the taxonomy and the source codes; `migrate-contract`, the one-shot rewrite of a pre-contract corpus. |
 | `completeness.py` | Audit coverage vs. expected cadence. |

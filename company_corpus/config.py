@@ -60,7 +60,7 @@ DEFAULT_VAULT_FAMILIES: tuple[str, ...] = ("A", "B", "C", "D", "E")
 #: chosen in fiscal weeks and measured on the 672 local companyfacts (2026-11-01):
 #: quarterly 12-16 weeks (4-4-5 and 12-12-12-16 calendars), semiannual 24-28 weeks,
 #: annual 52-53 weeks / calendar year, and the 9-month year-to-date (36-40 weeks). A band
-#: whose label is not a my-open-data frequency is a drop reason; a duration in no
+#: whose label is not an open-data-store frequency is a drop reason; a duration in no
 #: band is dropped as ``odd_duration`` (monthly, stubs, 10-KT transition periods). The F1
 #: engine keeps its own, wider bands (``concepts.summaries.F1_DURATION_BANDS``).
 DEFAULT_DURATION_BANDS: tuple[tuple[str, int, int], ...] = (
@@ -154,7 +154,7 @@ class Config:
     #: OS metadata, never written by the corpus. Referenced files are unaffected.
     verify_ignore_hidden: bool = True
 
-    # my-open-data batches (chantier 8, ``store-batches``).
+    # open-data-store batches (chantier 8, ``store-batches``).
     store_duration_bands: tuple[tuple[str, int, int], ...] = DEFAULT_DURATION_BANDS
     #: Tags cross-checking each filing's reporting currency. Frozen after a first publish.
     store_currency_anchor_tags: tuple[str, ...] = DEFAULT_CURRENCY_ANCHOR_TAGS

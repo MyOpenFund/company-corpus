@@ -1,7 +1,7 @@
-"""EDGAR submissions archive -> my-open-data ``entity_observations`` rows (spec §5, S11).
+"""EDGAR submissions archive -> open-data-store ``entity_observations`` rows (spec §5, S11).
 
 EDGAR-only and minimal: the CIK itself (current and former names, country), and the tickers
-(non-resolving in my-open-data, so they never merge entities). known_at is the archive's
+(non-resolving in open-data-store, so they never merge entities). known_at is the archive's
 fetch time (kind ``collected``): replaying an unchanged archive re-emits identical rows,
 a refreshed archive is a new observation (SCD2 in the store).
 Each refresh, explicit or automatic, adds identity rows at a new ``valid_date`` (about one

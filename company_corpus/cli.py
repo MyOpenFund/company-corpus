@@ -962,7 +962,7 @@ def _cmd_xbrl(args: argparse.Namespace) -> int:
 
 
 def _cmd_store_batches(args: argparse.Namespace) -> int:
-    """Layer 0 -> my-open-data batches (chantier 8). Dry-run unless --write."""
+    """Layer 0 -> open-data-store batches (chantier 8). Dry-run unless --write."""
     from .opendata.batches import StoreUnavailable, store_batches
 
     if args.refresh_submissions and args.offline:
@@ -1620,13 +1620,13 @@ def build_parser() -> argparse.ArgumentParser:
     xb.set_defaults(func=_cmd_xbrl)
 
     sb = sub.add_parser("store-batches",
-                        help="write my-open-data batches (SEC identity, fundamentals, filing_statements, filings) from "
-                             "layer 0 (dry-run by default)")
+                        help="write open-data-store batches (SEC identity, fundamentals, filing_statements, "
+                             "filings) from layer 0 (dry-run by default)")
     sbsrc = sb.add_mutually_exclusive_group(required=True)
     sbsrc.add_argument("--universe", help="universe name")
     sbsrc.add_argument("--ciks", help="comma-separated CIKs")
     sb.add_argument("--landing", required=True,
-                    help="my-open-data landing zone (MYOPENDATA_DATA_ROOT/landing)")
+                    help="open-data-store landing zone (OPEN_DATA_STORE_DATA_ROOT/landing)")
     sb.add_argument("--refresh-submissions", action="store_true", dest="refresh_submissions",
                     help="re-fetch the EDGAR submissions archive (new identity observations)")
     sb.add_argument("--offline", action="store_true",

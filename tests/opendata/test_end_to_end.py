@@ -20,7 +20,7 @@ def _need(module: str):
     return importlib.import_module(module) if REQUIRED else pytest.importorskip(module)
 
 
-_need("myopendata")
+_need("open_data_store")
 duckdb = _need("duckdb")
 
 try:
@@ -31,10 +31,10 @@ except duckdb.Error as exc:
     pytest.skip(f"DuckDB ducklake extension unavailable (needs network on first use): {exc}",
                 allow_module_level=True)
 
-from myopendata.config import StoreConfig  # noqa: E402
-from myopendata.contracts.standard import ENTITY_OBSERVATIONS, FILINGS, FUNDAMENTALS  # noqa: E402
-from myopendata.publisher import approve_contract, publish_pending  # noqa: E402
-from myopendata.reader import Store  # noqa: E402
+from open_data_store.config import StoreConfig  # noqa: E402
+from open_data_store.contracts.standard import ENTITY_OBSERVATIONS, FILINGS, FUNDAMENTALS  # noqa: E402
+from open_data_store.publisher import approve_contract, publish_pending  # noqa: E402
+from open_data_store.reader import Store  # noqa: E402
 
 from company_corpus.opendata.batches import store_batches  # noqa: E402
 from tests.opendata.factories import (  # noqa: E402
@@ -172,10 +172,10 @@ def test_known_limit_a_lower_accession_arriving_second_is_quarantined(config, tm
 
 
 def test_a_fundamentals_contract_without_ytd9_is_refused_up_front(monkeypatch):
-    """A my-open-data older than fundamentals 3.1 fails once, clearly, not issuer by issuer."""
+    """An open-data-store older than fundamentals 3.1 fails once, clearly, not issuer by issuer."""
     import dataclasses
 
-    import myopendata.contracts.standard as standard
+    import open_data_store.contracts.standard as standard
 
     from company_corpus.opendata import batches
 
@@ -186,4 +186,4 @@ def test_a_fundamentals_contract_without_ytd9_is_refused_up_front(monkeypatch):
                       if c is freq else c for c in FUNDAMENTALS.columns))
     monkeypatch.setattr(standard, "FUNDAMENTALS", old)
     with pytest.raises(batches.StoreUnavailable, match="fundamentals 3.1"):
-        batches._myopendata()
+        batches._store_api()

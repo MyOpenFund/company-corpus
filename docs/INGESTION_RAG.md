@@ -85,8 +85,8 @@ refuses any other family. **F1 is never a vault document and never a data source
 summary holds *latest-filed* values (a restatement replaces the original), not what was known
 at a date. Its records live in their own index, `derived/f1/<cik>.jsonl` (same row format,
 read and written by the F1 code only: `xbrl`, its prune, `verify`); its files stay under
-`raw/<cik>/F1/`. Strategies and every point-in-time reader read **the store** (my-open-data
-`fundamentals` / `filing_statements`, as of `known_at`; README, "Feeding my-open-data"),
+`raw/<cik>/F1/`. Strategies and every point-in-time reader read **the store** (open-data-store
+`fundamentals` / `filing_statements`, as of `known_at`; README, "Feeding open-data-store"),
 never F1.
 
 ### `vocabulary.json`

@@ -1,6 +1,6 @@
 """Facts as filed -> one value per concept and period (chantier 9, spec §7).
 
-One SQL statement generated from the dictionary, run by the my-open-data reader as a ``Recipe``
+One SQL statement generated from the dictionary, run by the open-data-store reader as a ``Recipe``
 and by the F1 engine in a local DuckDB connection. The input ``facts`` holds every vintage knowable
 at the read date. Only the latest row per tag and period is a candidate; the one it replaced serves
 to flag a strong restatement.
@@ -247,13 +247,13 @@ SELECT *, {_lit(d.version)} AS dictionary_version FROM ({' UNION ALL '.join(sele
 
 
 def recipe(dictionary: Dictionary | None = None, *, filing_tz: str = DEFAULT_FILING_TZ):
-    """The ``fundamentals_concepts`` Recipe; needs my-open-data's reader.
+    """The ``fundamentals_concepts`` Recipe; needs open-data-store's reader.
 
     ``filing_tz`` changes which facts count as filed before their period ended, hence the rows,
     but not the Recipe's version label (the dictionary version): a non-default zone gives
     different rows under the same label, so readers should keep the default. The view's
-    ``known_at`` must be a TIMESTAMPTZ (my-open-data declares it so), see :func:`selection_sql`."""
-    from myopendata.reader import Recipe
+    ``known_at`` must be a TIMESTAMPTZ (open-data-store declares it so), see :func:`selection_sql`."""
+    from open_data_store.reader import Recipe
 
     d = dictionary or load_dictionary()
     return Recipe(RECIPE_NAME, d.version, {"facts": "fundamentals:vintages", "positions": "filing_statements"},

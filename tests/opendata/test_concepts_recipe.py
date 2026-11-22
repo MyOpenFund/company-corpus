@@ -7,7 +7,7 @@ import pytest
 
 REQUIRED = os.environ.get("REQUIRE_DUCKLAKE") == "1"
 if not REQUIRED:
-    pytest.importorskip("myopendata")
+    pytest.importorskip("open_data_store")
 import duckdb  # noqa: E402
 
 try:
@@ -17,15 +17,15 @@ except duckdb.Error as exc:
         raise
     pytest.skip(f"ducklake extension unavailable: {exc}", allow_module_level=True)
 
-from myopendata.config import StoreConfig  # noqa: E402
-from myopendata.contracts.standard import (  # noqa: E402
+from open_data_store.config import StoreConfig  # noqa: E402
+from open_data_store.contracts.standard import (  # noqa: E402
     ENTITY_OBSERVATIONS,
     FILING_STATEMENTS,
     FILINGS,
     FUNDAMENTALS,
 )
-from myopendata.publisher import approve_contract, publish_pending  # noqa: E402
-from myopendata.reader import Store  # noqa: E402
+from open_data_store.publisher import approve_contract, publish_pending  # noqa: E402
+from open_data_store.reader import Store  # noqa: E402
 
 from company_corpus.concepts.selection import RECIPE_NAME, recipe  # noqa: E402
 from company_corpus.concepts.summaries import select_for_f1  # noqa: E402
@@ -79,7 +79,7 @@ def test_recipe_equals_f1_on_real_filings(published):
     store, loaded = published
     with Store.open(store) as s:
         t = s.assemble(recipe())
-    assert t.schema.metadata[b"myopendata.recipe"].startswith(RECIPE_NAME.encode() + b"@2.1.0")
+    assert t.schema.metadata[b"open_data_store.recipe"].startswith(RECIPE_NAME.encode() + b"@2.1.0")
     by_issuer = {}
     for r in t.to_pylist():
         by_issuer.setdefault(r["entity_value"], {})[(r["concept"], r["valid_date"], r["frequency"])] = r
@@ -101,7 +101,7 @@ def test_recipe_drops_a_balance_filed_before_its_date(published):
     cik, _ = loaded["lilly_early"]
     with Store.open(store) as s:
         t = s.assemble(recipe())
-    assert t.schema.metadata[b"myopendata.recipe"].startswith(RECIPE_NAME.encode() + b"@2.1.0")
+    assert t.schema.metadata[b"open_data_store.recipe"].startswith(RECIPE_NAME.encode() + b"@2.1.0")
     mine = [r for r in t.to_pylist() if r["entity_value"] == cik
             and r["valid_date"].isoformat() == "2014-03-31"]
     assert mine                                               # the quarter itself is there
