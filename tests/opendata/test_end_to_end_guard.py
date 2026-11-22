@@ -42,7 +42,7 @@ def test_without_the_variable_a_load_failure_skips(tmp_path):
 
 
 def test_with_the_variable_a_load_failure_fails(tmp_path):
-    pytest.importorskip("myopendata")
+    pytest.importorskip("open_data_store")
     res = _run_end_to_end(tmp_path, require=True)
     assert res.returncode not in (0, NO_TESTS_COLLECTED), res.stdout + res.stderr
     assert "ducklake extension unavailable" in res.stdout

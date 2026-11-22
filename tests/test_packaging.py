@@ -63,6 +63,6 @@ def test_store_extra_and_ci_requirements_pin_the_same_commit():
 
     extra = _pyproject()["project"]["optional-dependencies"]["store"]
     ci = (REPO / "requirements-store.txt").read_text()
-    pins = re.findall(r"my-open-data\[\w+\] @ git\+https://github\.com/MyOpenFund/"
-                      r"my-open-data@([0-9a-f]{40})", " ".join(extra) + "\n" + ci)
+    pins = re.findall(r"open-data-store\[\w+\] @ git\+https://github\.com/MyOpenFund/"
+                      r"open-data-store@([0-9a-f]{40})", " ".join(extra) + "\n" + ci)
     assert len(pins) == 2 and pins[0] == pins[1]

@@ -105,10 +105,10 @@ check: [`docs/INGESTION_RAG.md`](docs/INGESTION_RAG.md#migrating-a-corpus-writte
 
 Details, the artefact rule and the checks: [`docs/INGESTION_RAG.md`](docs/INGESTION_RAG.md).
 
-## Feeding my-open-data (`store-batches`)
+## Feeding open-data-store (`store-batches`)
 
 `store-batches` turns layer 0 (the stored `companyfacts.json` and the EDGAR
-submissions archive) into [my-open-data](https://github.com/MyOpenFund/my-open-data)
+submissions archive) into [open-data-store](https://github.com/MyOpenFund/open-data-store)
 batches. For each issuer it emits one `entity_observations` batch, one `fundamentals` 3.1.0
 batch (facts as filed, by tag) and one `filing_statements` 1.0.0 batch (which tag is on which
 statement) and one `filings` 1.0.0 batch (each report filing's form and `reportDate`, from the
@@ -117,7 +117,7 @@ submissions archive), always the full history; replaying the same inputs is a no
 (5.7 GB under `raw/_sec_statements/`) and extracts the positions per issuer. Which tag answers
 which concept is decided when reading: see [`docs/FINANCIALS.md`](docs/FINANCIALS.md).
 `store-batches` writes into a landing zone and never publishes: you run
-`myopendata publish` afterwards. It is a dry run unless `--write`.
+`open-data-store publish` afterwards. It is a dry run unless `--write`.
 A `fundamentals.filing_ref` can lack a `filings` row when EDGAR lists the filing under another
 accession number than the one companyfacts cites (3 of 40,049 on the 672-issuer corpus,
 2026-11-09): a reader treats an unmatched `filing_ref` as form unknown.
@@ -125,10 +125,10 @@ Run with `--write` and without `--offline` to refresh stale archives: offline, f
 the last archive fetch are missing from `filings` and their facts carry the fallback `known_at`.
 
 ```bash
-pip install ".[store]"          # my-open-data writer (optional extra); publishing needs my-open-data[publisher]
+pip install ".[store]"          # open-data-store writer (optional extra); publishing needs open-data-store[publisher]
 company-corpus --contact "$SEC_CONTACT" store-batches --universe sp_curated \
-    --landing "$MYOPENDATA_DATA_ROOT/landing" --write
-myopendata publish
+    --landing "$OPEN_DATA_STORE_DATA_ROOT/landing" --write
+open-data-store publish
 ```
 
 The CLI stays importable without the extra; `store-batches` then fails cleanly
@@ -188,7 +188,7 @@ This differs from the F1 engine's issuer-wide rule.
 code is reported, never guessed.
 
 **`fiscal_year` is null by design.** The column is in every row and is always null; a
-reader view in my-open-data will derive it. Fiscal years can only be computed from the
+reader view in open-data-store will derive it. Fiscal years can only be computed from the
 year-ends known today, so a later 10-K or 10-KT changes the label of rows that are
 already published. The full history is re-emitted every run, and the publisher
 quarantines a batch whose row has the same `(natural_key, known_at)` as a published row
@@ -252,7 +252,7 @@ The command prints at most 10 failed issuers; the run report has them all.
 
 **Exit codes.** `0` every issuer emitted (or pending, in a dry run); `3` at least one
 issuer failed (the run is `degraded`); `1` fatal (landing zone not writable,
-my-open-data not installed, corpus lock held); `2` usage error.
+open-data-store not installed, corpus lock held); `2` usage error.
 
 The end-to-end test (writer, then publisher) needs the DuckDB `ducklake` extension
 and skips when it cannot be installed. With `REQUIRE_DUCKLAKE=1` that is a failure

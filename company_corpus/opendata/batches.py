@@ -1,7 +1,7 @@
-"""``store-batches``: layer 0 -> my-open-data batches, one issuer at a time (spec §3, §6).
+"""``store-batches``: layer 0 -> open-data-store batches, one issuer at a time (spec §3, §6).
 
 Per issuer: one ``entity_observations`` batch, then one ``fundamentals``, one
-``filing_statements`` and one ``filings`` batch, written through the my-open-data writer into a
+``filing_statements`` and one ``filings`` batch, written through the open-data-store writer into a
 landing zone. Stateless: full history every run; the
 store's publisher skips what it already holds. An issuer's failure never stops the others.
 Dry-run (``write=False``) computes and validates everything from disk and writes nothing.
@@ -52,28 +52,28 @@ PRODUCER = "company-corpus"
 
 
 class StoreUnavailable(RuntimeError):
-    """my-open-data (with fundamentals 3.x) is not installed."""
+    """open-data-store (with fundamentals 3.x) is not installed."""
 
 
 class _IssuerFailed(RuntimeError):
     pass
 
 
-def _myopendata() -> SimpleNamespace:
+def _store_api() -> SimpleNamespace:
     try:
         import pyarrow as pa
-        from myopendata.contracts.rules import BatchInvalid, conform
-        from myopendata.contracts.standard import (
+        from open_data_store.contracts.rules import BatchInvalid, conform
+        from open_data_store.contracts.standard import (
             ENTITY_OBSERVATIONS,
             FILING_STATEMENTS,
             FILINGS,
             FUNDAMENTALS,
         )
-        from myopendata.writer import write_batch
-        from myopendata.writer.batch import batch_id_for, content_hash
+        from open_data_store.writer import write_batch
+        from open_data_store.writer.batch import batch_id_for, content_hash
     except ImportError as exc:
         raise StoreUnavailable(
-            "store-batches needs my-open-data: pip install 'company-corpus[store]'") from exc
+            "store-batches needs open-data-store: pip install 'company-corpus[store]'") from exc
     if FUNDAMENTALS.major != 3 or "ytd9" not in (FUNDAMENTALS.column("frequency").allowed or ()):
         raise StoreUnavailable(
             f"store-batches needs fundamentals 3.1 or later (frequency ytd9), found {FUNDAMENTALS.version}")
@@ -143,7 +143,7 @@ class StoreBatchesReport:
 def store_batches(ciks, *, config: Config, landing: Path, write: bool, offline: bool = False,
                   refresh: bool = False, fetcher=None, run_id: str,
                   now: datetime | None = None) -> StoreBatchesReport:
-    mod = _myopendata()
+    mod = _store_api()
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     if fetcher is None and write and not offline:
         fetcher = Fetcher(config)

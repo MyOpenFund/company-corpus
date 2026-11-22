@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-pytest.importorskip("myopendata")
+pytest.importorskip("open_data_store")
 pq = pytest.importorskip("pyarrow.parquet")
 
 from company_corpus.opendata.batches import store_batches  # noqa: E402

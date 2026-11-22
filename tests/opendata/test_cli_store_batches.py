@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-pytest.importorskip("myopendata")
+pytest.importorskip("open_data_store")
 
 import company_corpus.cli as cli  # noqa: E402
 from tests.opendata.test_batches import A, B, _issuer  # noqa: E402
@@ -62,13 +62,13 @@ def test_refresh_with_offline_is_a_usage_error(config, tmp_path, monkeypatch):
     assert e.value.code == 2
 
 
-def test_missing_myopendata_is_fatal(config, tmp_path, monkeypatch):
+def test_missing_store_is_fatal(config, tmp_path, monkeypatch):
     import company_corpus.opendata.batches as batches
 
     def unavailable():
-        raise batches.StoreUnavailable("store-batches needs my-open-data")
+        raise batches.StoreUnavailable("store-batches needs open-data-store")
 
-    monkeypatch.setattr(batches, "_myopendata", unavailable)
+    monkeypatch.setattr(batches, "_store_api", unavailable)
     _issuer(config, A)
     assert _main(config, monkeypatch, "--ciks", A, "--landing", str(tmp_path / "l")) == 1
 

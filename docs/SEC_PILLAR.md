@@ -155,7 +155,7 @@ run report (`local_refusals`, `totals.docs_failed`), not an SEC fetch failure; b
 period summaries the run stays `ok`, without any it is `degraded`.
 
 `data/f1_pruned.jsonl` is the tombstone list for downstream readers (a RAG index, the
-my-open-data store) that copied a pruned `doc_id`: they should drop it. No reader consumes it
+open-data-store store) that copied a pruned `doc_id`: they should drop it. No reader consumes it
 yet.
 
 ### The manifest is the map
@@ -328,9 +328,9 @@ python -m company_corpus xbrl --universe sp_curated --years 2015-2025 --write
 # statement positions from the SEC Financial Statement Data Sets (used by xbrl and the store)
 python -m company_corpus statements --universe sp_curated --write
 
-# my-open-data batches (identity, fundamentals, filing_statements, filings) into a landing zone;
-# never publishes — run `myopendata publish` afterwards (README, "Feeding my-open-data")
-python -m company_corpus store-batches --universe sp_curated --landing "$MYOPENDATA_DATA_ROOT/landing" --write
+# open-data-store batches (identity, fundamentals, filing_statements, filings) into a landing zone;
+# never publishes — run `open-data-store publish` afterwards (README, "Feeding open-data-store")
+python -m company_corpus store-batches --universe sp_curated --landing "$OPEN_DATA_STORE_DATA_ROOT/landing" --write
 
 # ownership (E) — structured insider transactions + 13F holdings
 python -m company_corpus discover  --universe sp_curated --forms E --write
