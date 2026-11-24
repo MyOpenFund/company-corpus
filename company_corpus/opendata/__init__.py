@@ -2,5 +2,5 @@
 
 ``submissions`` archives the EDGAR submissions API, ``statements`` the SEC bulk statement files;
 ``identity``, ``fundamentals`` and ``statements`` map layer 0 to contract rows (pure Python), ``batches`` writes them through the open-data-store
-writer (optional extra ``company-corpus[store]``).
+writer (optional extra ``myopenfund-company-corpus[store]``).
 """

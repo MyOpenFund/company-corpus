@@ -10,6 +10,8 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 BENIGN = {"tests/fixtures/eu/it_companies.json"}  # an Italian issuer's name, legitimate data
 FORBIDDEN = re.compile(rb"\bgenerali\b|onedrive|/Users/marc|Desktop/All CODING|jeulin|@gmail", re.I)
+# The author credit required on every published MyOpenFund package is the one allowed mention.
+CREDIT_OK = re.compile(rb"Marc Jeulin|github\.com/jeulinmarc", re.I)
 # This module's own source necessarily contains the forbidden substrings (they're
 # in the regex pattern above), so it must be excluded from the scan it defines.
 SELF = Path(__file__).resolve().relative_to(REPO).as_posix()
@@ -35,14 +37,14 @@ def test_no_personal_or_employer_references_in_tracked_files():
         if rel in BENIGN or rel == SELF:
             continue
         data = (REPO / rel).read_bytes()
-        if FORBIDDEN.search(data):
+        if FORBIDDEN.search(CREDIT_OK.sub(b"", data)):
             hits.append(rel)
     assert hits == []
 
 
 def test_licences_present_and_scoped():
     lic = (REPO / "LICENSE").read_text()
-    assert lic.startswith("MIT License") and "MyOpenFund" in lic
+    assert lic.startswith("MIT License") and "Copyright (c) 2026 Marc Jeulin" in lic
     dl = (REPO / "DATA_LICENSE").read_text()
     assert "CC BY 4.0" in dl and "tests/fixtures" in dl
     for cc in ("be", "dk", "ee", "eu", "fi", "lu", "sk", "uk"):

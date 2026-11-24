@@ -1,14 +1,26 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]  # PEP 639 `license = "MIT"` (string form) needs setuptools 77+
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "company-corpus"
-version = "0.1.0"
+name = "myopenfund-company-corpus"
+dynamic = ["version"]
 description = "Open-data corpus of company filings (SEC EDGAR + EU OAMs + national registers) — the bottom-up/micro counterpart to central-bank-corpus."
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE", "DATA_LICENSE"]
 requires-python = ">=3.11"
+authors = [{ name = "Marc Jeulin" }]
+maintainers = [{ name = "Marc Jeulin" }]
+keywords = ["myopenfund", "sec", "edgar", "esef", "xbrl", "filings", "open-data"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Intended Audience :: Developers",
+]
 dependencies = [
     "requests>=2.31",
     "beautifulsoup4>=4.12",
@@ -26,12 +38,22 @@ be = ["curl_cffi>=0.7"]
 # Tier B ESEF parsing: local .zip packages via Arelle. Imported lazily inside
 # oim_from_esef_zip; only required to run the Arelle bridge.
 eu-financials = ["arelle-release"]
-# open-data-store producer side (``store-batches``, chantier 8): the writer only, pinned to a
-# reviewed commit. The CI job "store" also installs the publisher (requirements-store.txt).
-store = ["open-data-store[writer] @ git+https://github.com/MyOpenFund/open-data-store@7a86987908c177a3f38e285b828cc03ed40f6f8b"]
+# open-data-store producer side (``store-batches``, chantier 8): the writer only, from PyPI,
+# capped below the next breaking 0.x. The CI job "store" also installs the publisher
+# (requirements-store.txt).
+store = ["myopenfund-open-data-store[writer]>=0.1.0,<0.2"]
+
+[project.urls]
+Homepage = "https://github.com/MyOpenFund/company-corpus"
+Source = "https://github.com/MyOpenFund/company-corpus"
+Issues = "https://github.com/MyOpenFund/company-corpus/issues"
+Organization = "https://github.com/MyOpenFund"
 
 [project.scripts]
 company-corpus = "company_corpus.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "company_corpus.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["company_corpus*"]

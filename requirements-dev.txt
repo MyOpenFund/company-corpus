@@ -11,6 +11,8 @@
 pytest
 pytest-socket>=0.8
 # The `documents` contract of the vault (chantier 4): tests check every manifest row and the
-# generated vocabulary.json against it. Dev/test only: the runtime never imports it. Pinned by
-# commit (vault master), from the contract/ subdirectory.
-vault-contract @ git+https://github.com/MyOpenFund/vault@12ffd11d15c90c8133dc8c8a38b8e47e3b6a4fce#subdirectory=contract
+# generated vocabulary.json against it. Dev/test only: the runtime never imports it. Pinned to
+# the PyPI release.
+myopenfund-vault-contract==1.1.0
+# The packaging tests parse the workflow files.
+pyyaml
