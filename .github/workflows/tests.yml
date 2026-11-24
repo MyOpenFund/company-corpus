@@ -8,8 +8,9 @@ on:
     branches: [main]
   pull_request:
   schedule:
-    # Weekly: the sibling packages (open-data-store, vault-contract) resolve from PyPI, so a
-    # sibling release that breaks this suite shows up here without waiting for a push.
+    # Weekly: the sibling packages (open-data-store, vault-contract) resolve from PyPI within
+    # their ranges, so a sibling release that breaks this suite or the [store] smoke install
+    # shows up here without waiting for a push.
     - cron: "17 5 * * 1"
 
 jobs:
@@ -66,9 +67,10 @@ jobs:
       - name: Smoke install in a fresh venv
         run: |
           python -m venv "$RUNNER_TEMP/smoke"
-          "$RUNNER_TEMP/smoke/bin/pip" install "$(ls "$PWD"/dist/*.whl)"
+          "$RUNNER_TEMP/smoke/bin/pip" install "$(ls "$PWD"/dist/*.whl)[store]"
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/smoke/bin/python" -c "import company_corpus; print(company_corpus.__file__)"
+          "$RUNNER_TEMP/smoke/bin/python" -c "from open_data_store.writer import write_batch"
           "$RUNNER_TEMP/smoke/bin/python" -c "import importlib.resources as r; assert r.files('company_corpus.concepts').joinpath('tags/us_gaap.json').read_text(encoding='utf-8')"
           expected="$("$RUNNER_TEMP/smoke/bin/python" -c "import importlib.metadata as m; print(m.version('myopenfund-company-corpus'))")"
           shown="$("$RUNNER_TEMP/smoke/bin/company-corpus" --version)"

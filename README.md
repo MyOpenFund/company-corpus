@@ -155,13 +155,15 @@ the last archive fetch are missing from `filings` and their facts carry the fall
 
 Before PyPI, the store was installed under its former names (`my-open-data`, renamed 2026-11-22,
 then `open-data-store` from a git URL): run `pip uninstall -y open-data-store` (or `my-open-data`)
-before it is installed again as `myopenfund-open-data-store`, and rename `MYOPENDATA_*` variables to `OPEN_DATA_STORE_*` in your shell profile (an unset
-`OPEN_DATA_STORE_DATA_ROOT` turns the `--landing` below into `/landing`).
+before it is installed again as `myopenfund-open-data-store`, and rename `MYOPENDATA_*` variables to
+`OPEN_DATA_STORE_*` in your shell profile (an unset `OPEN_DATA_STORE_DATA_ROOT` turns the `--landing`
+below into `/landing`).
 Details: the store's
 [`docs/MIGRATION.md`](https://github.com/MyOpenFund/open-data-store/blob/main/docs/MIGRATION.md).
 
 ```bash
-pip install "myopenfund-company-corpus[store]"   # open-data-store writer (optional extra); publishing needs myopenfund-open-data-store[publisher]
+# open-data-store writer (optional extra); publishing needs myopenfund-open-data-store[publisher]
+pip install "myopenfund-company-corpus[store]"
 company-corpus --contact "$SEC_CONTACT" store-batches --universe sp_curated \
     --landing "$OPEN_DATA_STORE_DATA_ROOT/landing" --write
 open-data-store publish
@@ -591,7 +593,7 @@ into mojibake. There is no charset sniffing, which would mis-read genuine
 latin-1 pages as something else.
 
 **Belgium (FSMA STORI)** is the one exception, and it is opt-in
-(`pip install '.[be]'`) and off by default. The FSMA JSON API sits behind an F5
+(`pip install "myopenfund-company-corpus[be]"`) and off by default. The FSMA JSON API sits behind an F5
 BIG-IP ASM WAF that rejects plain HTTP clients, so `company_corpus/eu/sources/oam_be.py`
 reaches it through `curl_cffi` impersonating Chrome (`impersonate="chrome124"`)
 with browser-consistent `Origin`/`Referer` headers and a bootstrapped session

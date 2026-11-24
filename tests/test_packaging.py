@@ -287,13 +287,29 @@ def test_smoke_checks_cli_version_and_reads_packaged_data():
         assert '/bin/company-corpus" --version' in text, path
         assert "company_corpus.concepts" in text, path
         assert "importlib.resources" in text, path
+        assert 'dist/*.whl)[store]"' in text, path
+        assert "from open_data_store.writer import write_batch" in text, path
 
 
 def test_tests_workflow_keeps_its_jobs_adds_package_and_runs_weekly():
     workflow = _workflow(TESTS)
     assert {"unit", "store", "package"} <= set(workflow["jobs"])
-    assert workflow["on"]["schedule"] == [{"cron": workflow["on"]["schedule"][0]["cron"]}]
-    assert len(workflow["on"]["schedule"][0]["cron"].split()) == 5
+    (entry,) = workflow["on"]["schedule"]
+    minute, hour, day_of_month, month, day_of_week = entry["cron"].split()
+    assert day_of_month == "*" and month == "*"
+    assert day_of_week.isdigit() and 0 <= int(day_of_week) <= 7  # one weekday: weekly
     runs = " ".join(s.get("run", "") for s in workflow["jobs"]["package"]["steps"])
     assert "build==1.6.1 twine==7.0.0" in runs
     assert "twine check --strict" in runs
+
+
+def test_optional_extra_hints_name_the_published_distribution():
+    from company_corpus.eu import arelle_esef
+    from company_corpus.registers import ch_ixbrl, financials
+
+    for module in (arelle_esef, ch_ixbrl, financials):
+        text = Path(module.__file__).read_text(encoding="utf-8")
+        assert f"pip install '{DIST}[eu-financials]'" in text, module
+        assert "'.[eu-financials]'" not in text, module
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    assert "'.[be]'" not in readme and f'"{DIST}[be]"' in readme
