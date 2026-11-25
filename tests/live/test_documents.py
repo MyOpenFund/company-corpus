@@ -1,3 +1,4 @@
+import time
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -289,7 +290,8 @@ def test_short_consecutive_body_items_without_toc_keep_their_headings(fixture):
     doc = _doc(fixture, replace(REF, primary_document="exco-10k.htm"))
     assert [s.name for s in doc.sections] == ["Item 1", "Item 1A", "Item 7", "Item 7A", "Item 8"]
     assert _text(doc, "Item 7").startswith("**Item 7.") and "SHELLMDNA" in _text(doc, "Item 7")
-    assert "Not required" in _text(doc, "Item 1A") or fixture == "tenk_shell.htm"
+    expected = "Not required" if fixture == "tenk_smaller.htm" else "We describe this matter"
+    assert expected in _text(doc, "Item 1A")
 
 
 def test_10q_short_part_ii_items_without_toc_keep_their_headings():
@@ -338,3 +340,113 @@ def test_toc_cut_by_sub_entries_stays_a_toc():
 def test_items_and_prose_is_not_a_heading():
     md = f"Items 7 and 8 of this report are amended.\n\nItem 8. Statements\n\n{_BODY}\n"
     assert [s.name for s in find_sections(md, "10-K")] == ["Item 8"]
+
+
+_FULL = "1 1A 1B 1C 2 3 4 5 6 7 7A 8 9 9A 9B 9C 10 11 12 13 14 15".split()
+
+
+def _body(keys, short=()):
+    return "".join(f"Item {k}. Title {k}\n\n" + ("None." if k in short else _BODY) + "\n\n" for k in keys)
+
+
+def _names_and_places(md, form="10-K"):
+    return [(s.name, md[s.start]) for s in find_sections(md, form)]
+
+
+def test_trailing_cross_reference_index_does_not_take_the_sections():
+    short = ("1B", "1C", "2", "3", "4", "5", "6", "9", "9B", "9C", "10", "11", "12", "13", "14")
+    md = _body(_FULL, short) + "CROSS-REFERENCE INDEX\n\n" + _toc_rows(*_FULL)
+    assert _names_and_places(md) == [("Item 1", "I"), ("Item 1A", "I"), ("Item 7", "I"), ("Item 7A", "I"),
+                                     ("Item 8", "I")]
+
+
+def test_front_toc_with_few_body_headings_keeps_the_body_ones():
+    md = _toc_rows(*_FULL) + "\n" + _body(("1", "1A", "7", "7A", "8"))
+    assert _names_and_places(md) == [("Item 1", "I"), ("Item 1A", "I"), ("Item 7", "I"), ("Item 7A", "I"),
+                                     ("Item 8", "I")]
+
+
+def test_front_toc_without_body_headings_gives_no_sections():
+    md = _toc_rows(*_FULL) + "\n" + (_BODY + "\n\n") * 5
+    assert find_sections(md, "10-K") == ()
+
+
+def test_unexplained_dense_run_gives_no_sections_rather_than_wrong_ones():
+    # a plain-line TOC (not a table) that the body repeats for fewer than half of its items
+    toc = "".join(f"Item {k}. Title {k} {n}\n\n" for n, k in enumerate(_FULL, start=3))
+    md = toc + "INTRODUCTION " + _BODY + "\n\n" + _body(("1", "1A", "7"))
+    assert find_sections(md, "10-K") == ()
+
+
+def test_10q_toc_part_does_not_carry_into_a_body_without_part_i():
+    toc = ("|  |  |  |\n| --- | --- | --- |\n| PART I. FINANCIAL INFORMATION |  |  |\n"
+           + "".join(f"| Item {k}. | Title {k} | 3 |\n" for k in ("1", "2", "3", "4"))
+           + "| PART II. OTHER INFORMATION |  |  |\n"
+           + "".join(f"| Item {k}. | Title {k} | 30 |\n" for k in ("1", "1A", "6")))
+    md = toc + "\n" + _body(("1", "2", "3", "4")) + "PART II. OTHER INFORMATION\n\n" + _body(("1", "1A", "6"))
+    assert _names_and_places(md, "10-Q") == [
+        ("Part I Item 1", "I"), ("Part I Item 2", "I"), ("Part I Item 3", "I"), ("Part I Item 4", "I"),
+        ("Part II Item 1A", "I")]
+
+
+def test_10q_toc_with_sub_entries_stays_one_table():
+    toc = ("|  |  |  |\n| --- | --- | --- |\n| PART I |  |  |\n| Item 1. | Financial Statements | 3 |\n"
+           + "".join(f"|  | Condensed consolidated statement number {i} of the company | {i} |\n" for i in range(5))
+           + "".join(f"| Item {k}. | Title {k} | 9 |\n" for k in ("2", "3", "4"))
+           + "| PART II |  |  |\n" + "".join(f"| Item {k}. | Title {k} | 30 |\n" for k in ("1", "1A", "6")))
+    md = toc + "\nPART I\n\n" + _body(("1", "2", "3", "4")) + "PART II\n\n" + _body(("1", "1A", "6"))
+    assert [p for _, p in _names_and_places(md, "10-Q")] == ["I"] * 5
+
+
+def test_an_appendix_repeating_earlier_items_ends_the_last_section():
+    md = _toc_rows("1", "1A", "1B", "1C", "2", "3", "4") + "\n" + _body(("5", "6", "7", "7A", "8")) + _body(("1", "1A"))
+    s = {x.name: x for x in find_sections(md, "10-K")}
+    assert list(s) == ["Item 7", "Item 7A", "Item 8"]
+    assert md[s["Item 8"].end:].startswith("Item 1. Title 1")
+
+
+def test_combined_part_and_item_heading():
+    md = f"PART I \u2014 ITEM 1. BUSINESS\n\n{_BODY}\n\nPART II \u2014 ITEM 7. MD&A\n\n{_BODY}\n"
+    assert [s.name for s in find_sections(md, "10-K")] == ["Item 1", "Item 7"]
+
+
+def test_linked_toc_anchors_are_authoritative():
+    doc = _doc("tenk_anchored.htm", replace(REF, primary_document="exco-10k.htm"))
+    assert [s.name for s in doc.sections] == ["Item 1", "Item 1A", "Item 7", "Item 7A", "Item 8"]
+    for name, marker in (("Item 1", "ANCHOR_BUSINESS"), ("Item 7", "ANCHOR_MDNA"), ("Item 7A", "ANCHOR_MARKET"),
+                         ("Item 8", "ANCHOR_FS")):
+        text = _text(doc, name).replace("\\_", "_")
+        assert marker in text and text.count("ANCHOR_") == 1
+    assert "zqanchor" not in doc.markdown
+    assert _text(doc, "Item 7").startswith("**WHAT MANAGEMENT THINKS**")
+    assert "ACCOUNTANTS" not in _text(doc, "Item 8")
+    # without the anchors, the body has no Item headings: no sections rather than TOC rows
+    assert find_sections(doc.markdown, "10-K") == ()
+
+
+def test_unresolved_toc_link_falls_back_to_the_heuristics():
+    md = _toc_rows("1") + "| [Item 7.](#gone) | MD&A | 9 |\n\n" + _body(("1", "7", "8"))
+    assert find_sections(md, "10-K", anchors={"other": 0}) == find_sections(md, "10-K")
+    assert [s.name for s in find_sections(md, "10-K", anchors={"other": 0})] == ["Item 1", "Item 7", "Item 8"]
+
+
+def test_toc_classification_is_linear():
+    md = "".join(f"Item {k}. Title {k} 3\n\n" for _ in range(8000 // len(_FULL) + 1) for k in _FULL)
+    md = "\n\n".join(md.split("\n\n")[:8000])
+    started = time.perf_counter()
+    find_sections(md, "10-K")
+    assert time.perf_counter() - started < 5.0
+
+
+@pytest.mark.parametrize("start", ["\u00bd", "\u00b2", "abc"])
+def test_non_integer_list_start_is_dropped(start):
+    assert html_to_markdown(f'<ol start="{start}"><li>x</li></ol>'.encode()) == "1. x"
+
+
+def test_title_attribute_is_dropped():
+    assert html_to_markdown(b'<p><a href="a.htm" title="T">t</a></p>') == "[t](a.htm)"
+
+
+def test_declared_latin1_is_windows_1252():
+    html = b'<html><head><meta charset="iso-8859-1"></head><body><p>\x93q\x94 caf\xe9</p></body></html>'
+    assert "\u201cq\u201d caf\u00e9" in html_to_markdown(html)
