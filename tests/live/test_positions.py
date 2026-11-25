@@ -1,4 +1,5 @@
 import json
+import re
 from collections import Counter
 from dataclasses import replace
 from datetime import date, datetime, timezone
@@ -8,7 +9,7 @@ import pytest
 
 from company_corpus.config import Config
 from company_corpus.live.filings import FilingRef
-from company_corpus.live.positions import classify_report, filing_positions
+from company_corpus.live.positions import _tag_version, _walk, classify_report, filing_positions
 from company_corpus.live.sec import SecNotFound
 from company_corpus.opendata.statements import KEPT_STATEMENTS, statement_rows
 
@@ -60,6 +61,9 @@ def _expected():
     ("Consolidated Statements of Operations and Comprehensive Income", ("IS", False)),
     ("Consolidated Statements of Changes in Shareholders' Equity and Comprehensive Income", ("EQ", False)),
     ("Consolidated Statements of Earnings", ("IS", False)),
+    ("Consolidated Statements of Income and Comprehensive Income", ("IS", False)),
+    ("Consolidated Statements of Operations and Comprehensive Loss", ("IS", False)),
+    ("Consolidated Statements of Comprehensive Income (Loss)", ("CI", False)),
     ("Income Taxes (Details)", (None, False)),
 ])
 def test_classify_report_cases(short_name, expected):
@@ -190,11 +194,16 @@ def test_doctype_is_refused_before_parsing():
     bomb = (b'<?xml version="1.0"?><!DOCTYPE r [<!ENTITY a "aaaaaaaaaa">'
             b'<!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;">]><FilingSummary>&b;</FilingSummary>')
     external = b'<?xml version="1.0"?><!DOCTYPE r [<!ENTITY x SYSTEM "file:///etc/passwd">]><r>&x;</r>'
-    utf16 = external.decode().replace('version="1.0"', 'version="1.0" encoding="utf-16"').encode("utf-16")
-    for body in (bomb, external, utf16, b"\xff\xfe\x00"):
+    declared = bomb.decode().replace('version="1.0"', 'version="1.0" encoding="utf-16"')
+    undeclared = bomb.decode().replace('<?xml version="1.0"?>', "")
+    utf16 = [declared.encode("utf-16"),                                  # with BOM
+             declared.encode("utf-16-le"), declared.encode("utf-16-be"),  # BOM-less, declared
+             undeclared.encode("utf-16-le"), undeclared.encode("utf-16-be")]  # BOM-less, no declaration
+    # Were the entities expanded, the summary would parse and count no_statement_reports instead.
+    for body in (bomb, external, *utf16, b"\xff\xfe\x00", b'<!DOCTYPE FilingSummary><FilingSummary/>'):
         counters = Counter()
         assert filing_positions(REF, FakeSec(_routes(**{"FilingSummary.xml": body})), counters=counters) == []
-        assert counters["positions:malformed"] == 1
+        assert counters == Counter({"positions:malformed": 1}), body[:40]
 
 
 def test_no_statement_reports_returns_empty():
@@ -221,3 +230,93 @@ def test_statement_rows_accepts_the_positions():
     assert len(res.rows) == len(rows) and res.counters["statements_dropped:bad_period"] == 0
     r = res.rows[0]
     assert r["filing_ref"] == ACCN and r["valid_date"] == date(2024, 6, 30) and r["known_at"] == REF.accepted
+
+
+def _link(locs, arcs):
+    import xml.etree.ElementTree as ET
+    x = "http://www.w3.org/1999/xlink"
+    link = ET.Element("{http://www.xbrl.org/2003/linkbase}presentationLink")
+    for label in locs:
+        ET.SubElement(link, "{http://www.xbrl.org/2003/linkbase}loc",
+                      {f"{{{x}}}label": label, f"{{{x}}}href": f"s.xsd#p_{label}"})
+    for src, dst, order in arcs:
+        ET.SubElement(link, "{http://www.xbrl.org/2003/linkbase}presentationArc",
+                      {f"{{{x}}}from": src, f"{{{x}}}to": dst, "order": str(order)})
+    return link
+
+
+def test_walk_handles_a_deep_chain_without_recursion():
+    depth = 5000
+    labels = [f"n{i}" for i in range(depth)]
+    hrefs = _walk(_link(labels, [(labels[i], labels[i + 1], 1) for i in range(depth - 1)]))
+    assert hrefs == [f"s.xsd#p_{label}" for label in labels]
+
+
+def test_walk_expands_a_shared_locator_once_in_preorder():
+    # A diamond stacked 40 times: a path-only guard would visit 2**40 nodes.
+    layers = 40
+    locs, arcs = ["root"], []
+    prev = "root"
+    for i in range(layers):
+        a, b, join = f"a{i}", f"b{i}", f"j{i}"
+        locs += [a, b, join]
+        arcs += [(prev, a, 1), (prev, b, 2), (a, join, 1), (b, join, 1)]
+        prev = join
+    hrefs = _walk(_link(locs, arcs))
+    assert len(hrefs) == len(locs) == len(set(hrefs))
+    assert [h.split("_", 1)[1] for h in hrefs[:5]] == ["root", "a0", "j0", "a1", "j1"]
+    cyclic = _walk(_link(["r", "x", "y"], [("r", "x", 1), ("x", "y", 1), ("y", "x", 1)]))
+    assert cyclic == ["s.xsd#p_r", "s.xsd#p_x", "s.xsd#p_y"]
+
+
+def test_deep_presentation_chain_does_not_crash_the_filing():
+    pre = (FILING_DIR / PRE).read_text()
+    x = 'xlink:type="locator"'
+    deep = "".join(f'<link:loc {x} xlink:href="msft-20240630.xsd#msft_D{i}" xlink:label="d{i}"/>'
+                   for i in range(3000))
+    deep += "".join(f'<link:presentationArc xlink:type="arc" xlink:from="{"loc_us-gaap_StatementOfFinancialPositionAbstract" if i == 0 else f"d{i - 1}"}" xlink:to="d{i}" order="99"/>'
+                    for i in range(3000))
+    bs_open = '<link:presentationLink xlink:type="extended" xlink:role="http://www.microsoft.com/role/BalanceSheets">'
+    assert pre.count(bs_open) == 1
+    pre = pre.replace(bs_open, bs_open + deep)
+    rows = filing_positions(REF, FakeSec(_routes(**{PRE: pre.encode()})))
+    chain = sorted(r["line"] for r in rows if re.fullmatch(r"D\d+", r["tag"]))
+    assert len(chain) == 3000 and chain == list(range(chain[0], chain[0] + 3000))
+
+
+@pytest.mark.parametrize("href, version", [
+    ("https://xbrl.fasb.org/us-gaap/2024/elts/us-gaap-2024.xsd#us-gaap_Revenues", "us-gaap/2024"),
+    ("http://xbrl.fasb.org/us-gaap/2009/elts/us-gaap-2009-01-31.xsd#us-gaap_Revenues", "us-gaap/2009"),
+    ("http://taxonomies.xbrl.us/us-gaap/2009/elts/us-gaap-std-2009-01-31.xsd#us-gaap_Revenues", "us-gaap/2009"),
+    ("http://xbrl.us/us-gaap/1.0/elts/us-gaap-2008-03-31.xsd#us-gaap_Revenues", "us-gaap/2008"),
+    ("http://taxonomies.xbrl.us/us-gaap/2009/non-gaap/dei-2009-01-31.xsd#dei_DocumentType", "dei/2009"),
+    ("https://xbrl.fasb.org/srt/2024/elts/srt-2024.xsd#srt_ProductOrServiceAxis", "srt/2024"),
+    ("https://xbrl.sec.gov/dei/2024/dei-2024.xsd#dei_DocumentType", "dei/2024"),
+    ("https://xbrl.ifrs.org/taxonomy/2024-03-27/full_ifrs/full_ifrs-cor_2024-03-27.xsd#ifrs-full_Revenue",
+     "ifrs/2024"),
+    ("https://www.example.com/xbrl/abc-2024.xsd#abc_Widgets", ACCN),
+    ("https://www.example.com/us-gaap/2024/elts/us-gaap-2024.xsd#us-gaap_Revenues", ACCN),
+    ("abc-20240630.xsd#abc_Widgets", ACCN),
+])
+def test_version_by_known_taxonomy(href, version):
+    tag, got = _tag_version(href, ACCN)
+    assert got == version and tag == href.rsplit("_", 1)[1]
+
+
+def test_several_presentation_linkbases_pick_the_rendered_one():
+    index = json.loads((FILING_DIR / "index.json").read_text())
+    index["directory"]["item"].append({"name": "aaa-20240630_pre.xml", "type": "text.gif", "size": "1"})
+    sec = FakeSec(_routes(**{"index.json": json.dumps(index).encode()}))
+    assert filing_positions(REF, sec)
+    assert sec.calls[-1] == f"{FOLDER}/{PRE}"
+    # Without the linkbase in InputFiles, the stem of the rendered schema decides.
+    summary = (FILING_DIR / "FilingSummary.xml").read_text().replace(f"<File>{PRE}</File>", "")
+    sec = FakeSec(_routes(**{"index.json": json.dumps(index).encode(), "FilingSummary.xml": summary.encode()}))
+    assert filing_positions(REF, sec) and sec.calls[-1] == f"{FOLDER}/{PRE}"
+
+
+def test_statement_roles_absent_from_the_linkbase_count_no_rows():
+    pre = (FILING_DIR / PRE).read_text().replace("http://www.microsoft.com/role/", "http://other/role/")
+    counters = Counter()
+    assert filing_positions(REF, FakeSec(_routes(**{PRE: pre.encode()})), counters=counters) == []
+    assert counters == Counter({"positions:no_rows": 1})

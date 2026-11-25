@@ -28,23 +28,39 @@ Approximations (A6 measures them against FSDS on real issuers):
   ``Statements`` (or, in old summaries without a menu, whose long name says ``Statement``) count;
 * ``plabel`` is the empty string: the label linkbase is not fetched (a fourth, often 1 MB request)
   and nothing downstream reads ``plabel`` beyond storing it;
-* ``accepted`` is the acceptance wall clock as ``FilingRef`` carries it, minutes kept and seconds
-  zeroed (``2024-07-30 16:06:00.0``), the way ``sub.txt`` prints it; ``statement_rows`` takes the
-  acceptance time from its ``acceptance`` mapping, not from this field;
+* ``accepted`` is the UTC wall clock ``FilingRef`` carries, not FSDS's Eastern wall clock, in
+  ``sub.txt``'s format with seconds zeroed (``2024-07-30 16:06:00.0``); inert, since
+  ``statement_rows`` takes the acceptance time from its ``acceptance`` mapping;
+* a filing without ``report_date`` gets ``period = ""``, and ``statement_rows`` drops its rows
+  as ``statements_dropped:bad_period`` (the filing borrows positions instead);
+* each locator of a presentation tree is expanded once, at its first place in the depth-first
+  walk; a locator reached again from another parent is not repeated (bounds the work on
+  diamond-shaped or cyclic arcs; real statements use a distinct locator per place);
+* ``version`` is known only for the taxonomies of ``KNOWN_TAXONOMIES`` (by host and directory);
+  any other schema, absolute or relative, is treated as an extension (the accession);
 * prohibited arcs (``use="prohibited"``) are ignored rather than applied; a filing's own
   presentation linkbase seldom carries any;
+* presentation arcs embedded in the ``.xsd`` (no ``*_pre.xml`` file) are not read: the filing
+  counts ``positions:no_presentation`` and borrows positions;
+* with several ``*_pre.xml``, the one FilingSummary lists in ``InputFiles`` is used (else the one
+  sharing the stem of a listed ``.xsd``, else the first by name);
 * a period ending exactly between two month ends rounds to the later one.
 
 Failure mode: a file that is missing (404 or absent from ``index.json``), malformed, or carries a
-DOCTYPE gives no positions (``[]``) and one ``positions:<reason>`` count in ``counters``; it never
-raises. Network errors other than 404 (``SecUnavailable``, ``SecRefused``) propagate. XML is parsed
-with ``xml.etree.ElementTree`` after refusing any DOCTYPE, so no entity is ever expanded.
+DOCTYPE gives no positions (``[]``) and one ``positions:<reason>`` count in ``counters``
+(``no_index``, ``no_filing_summary``, ``no_statement_reports``, ``no_presentation``, ``malformed``,
+``no_rows`` when no statement role is in the linkbase); it never raises. Network errors other than
+404 (``SecUnavailable``, ``SecRefused``) propagate. XML is parsed by expat (the parser
+``xml.etree.ElementTree`` uses) into an ``ElementTree``, with handlers that refuse a DOCTYPE or an
+entity declaration as soon as expat reports it, whatever the document's encoding: no entity is ever
+declared, so none is expanded and nothing external is loaded.
 """
 from __future__ import annotations
 
 import json
 import re
 import xml.etree.ElementTree as ET
+from xml.parsers import expat
 from collections import Counter
 from datetime import date, timedelta
 from urllib.parse import urlsplit
@@ -58,14 +74,15 @@ SUMMARY_FILE = "FilingSummary.xml"
 PRESENTATION_SUFFIX = "_pre.xml"
 
 #: Ordered ``(statement, pattern)`` rules over a lower-cased report name; first match wins. A
-#: combined "operations and comprehensive income" statement is IS, an equity statement that also
-#: shows comprehensive income is EQ, as FSDS files them.
+#: combined "income/operations/earnings ... and comprehensive income" statement is IS, an equity
+#: statement that also shows comprehensive income is EQ, as FSDS files them.
 STATEMENT_RULES: tuple[tuple[str, str], ...] = (
     ("CF", r"cash\s*flows?"),
     ("BS", r"balance\s*sheets?|financial\s*(?:position|condition)|assets\s*and\s*liabilities"
            r"|statements?\s*of\s*condition"),
     ("EQ", r"\bequity\b|\bdeficit\b|\bcapital\b|net\s*assets"),
     ("IS", r"\boperations?\b|\bearnings\b"),
+    ("IS", r"\b(?:income|loss(?:es)?|profit)\b.*\bcomprehensive\b"),
     ("CI", r"comprehensive"),
     ("IS", r"\bincome\b|\bloss(?:es)?\b|\bprofit\b"),
 )
@@ -76,10 +93,17 @@ PARENTHETICAL = r"parenthetical"
 #: filings), a long name like ``"100030 - Statement - BALANCE SHEETS"``.
 STATEMENT_MENU = "Statements"
 STATEMENT_LONG_NAME = r"^\s*\d+\s*-\s*statement\s*-"
-#: Standard taxonomy schema file names -> FSDS ``version``; anything else is an extension.
-STANDARD_SCHEMAS: tuple[tuple[str, str], ...] = (
-    (r"^(?P<prefix>[a-z][a-z0-9-]*?)-(?P<year>\d{4})(?:-\d{2}-\d{2})?\.xsd$", "{prefix}/{year}"),
-    (r"^full_ifrs-cor_(?P<year>\d{4})-\d{2}-\d{2}\.xsd$", "ifrs/{year}"),
+#: Standard taxonomies -> FSDS ``version``: ``(hosts, pattern over the schema URL path, template)``,
+#: first match wins. Any other schema (relative, or absolute on another host) is an extension.
+_FASB_HOSTS = frozenset({"xbrl.fasb.org", "taxonomies.xbrl.us", "xbrl.us"})
+KNOWN_TAXONOMIES: tuple[tuple[frozenset[str], str, str], ...] = (
+    # 2009-2010 releases shipped dei inside the us-gaap tree: .../us-gaap/2009/non-gaap/dei-2009-01-31.xsd
+    (_FASB_HOSTS, r"^/us-gaap/(?P<year>\d{4})/non-gaap/dei-", "dei/{year}"),
+    (_FASB_HOSTS, r"^/(?P<ns>us-gaap|srt)/(?P<year>\d{4})/", "{ns}/{year}"),
+    # XBRL US 2008 release: /us-gaap/1.0/elts/us-gaap-2008-03-31.xsd
+    (_FASB_HOSTS, r"^/us-gaap/1\.0/.*-(?P<year>\d{4})-\d{2}-\d{2}\.xsd$", "us-gaap/{year}"),
+    (frozenset({"xbrl.sec.gov"}), r"^/(?P<ns>[a-z][a-z-]*)/(?P<year>\d{4})/", "{ns}/{year}"),
+    (frozenset({"xbrl.ifrs.org"}), r"^/taxonomy/(?P<year>\d{4})-\d{2}-\d{2}/", "ifrs/{year}"),
 )
 
 _LINK = "{http://www.xbrl.org/2003/linkbase}"
@@ -111,16 +135,32 @@ def classify_report(short_name: str, long_name: str, role: str) -> tuple[str | N
     return None, False
 
 
+def _refuse(*_):
+    raise _Malformed("DOCTYPE or entity declaration refused")
+
+
+def _qname(name: str) -> str:
+    return "{" + name if "}" in name else name
+
+
 def _parse_xml(body: bytes) -> ET.Element:
-    try:   # a UTF-16 document would hide its DOCTYPE from a byte search
-        head = body.decode("utf-16") if body[:2] in (b"\xff\xfe", b"\xfe\xff") else body.decode("latin-1")
-    except UnicodeDecodeError as exc:
-        raise _Malformed(str(exc)) from exc
-    if "<!DOCTYPE" in head.upper():
-        raise _Malformed("DOCTYPE refused")
+    """An ElementTree built by expat, refusing any DOCTYPE or entity declaration (in any encoding
+    expat detects) before anything in it is used."""
+    builder = ET.TreeBuilder()
+    parser = expat.ParserCreate(namespace_separator="}")
+    parser.StartDoctypeDeclHandler = _refuse
+    parser.EntityDeclHandler = _refuse
+    parser.UnparsedEntityDeclHandler = _refuse
+    parser.ExternalEntityRefHandler = _refuse
+    parser.StartElementHandler = lambda name, attrs: builder.start(
+        _qname(name), {_qname(k): v for k, v in attrs.items()})
+    parser.EndElementHandler = lambda name: builder.end(_qname(name))
+    parser.CharacterDataHandler = builder.data
+    parser.buffer_text = True
     try:
-        return ET.fromstring(body)
-    except ET.ParseError as exc:
+        parser.Parse(body, True)
+        return builder.close()
+    except (expat.ExpatError, LookupError, UnicodeError, AssertionError) as exc:
         raise _Malformed(str(exc)) from exc
 
 
@@ -143,11 +183,14 @@ def _index_names(body: bytes) -> list[str]:
         raise _Malformed(f"index.json: {exc}") from exc
 
 
-def _statement_reports(body: bytes) -> list[tuple[str, int, str]]:
-    """``(role, report number, statement)`` of the summary's kept, non-parenthetical statements."""
+def _statement_reports(body: bytes) -> tuple[list[tuple[str, int, str]], list[str]]:
+    """``(role, report number, statement)`` of the summary's kept, non-parenthetical statements,
+    and the summary's ``InputFiles`` names."""
     root = _parse_xml(body)
     if _local(root.tag) != "FilingSummary":
         raise _Malformed("FilingSummary.xml: unexpected root")
+    inputs = [(el.text or "").strip() for el in root.iter()
+              if _local(el.tag) == "File" and (el.text or "").strip()]
     out = []
     for report in root.iter():
         if _local(report.tag) != "Report":
@@ -162,7 +205,7 @@ def _statement_reports(body: bytes) -> list[tuple[str, int, str]]:
         number = _report_number(report)
         if number is not None:
             out.append((role, number, statement))
-    return out
+    return out, inputs
 
 
 def _report_number(report: ET.Element) -> int | None:
@@ -181,9 +224,9 @@ def _tag_version(href: str, accession: str) -> tuple[str, str] | None:
     tag = fragment.split("_", 1)[1] if "_" in fragment else fragment
     parts = urlsplit(schema)
     if parts.scheme in ("http", "https"):
-        name = parts.path.rsplit("/", 1)[-1]
-        for pattern, template in STANDARD_SCHEMAS:
-            m = re.match(pattern, name)
+        host = (parts.hostname or "").lower()
+        for hosts, pattern, template in KNOWN_TAXONOMIES:
+            m = re.match(pattern, parts.path) if host in hosts else None
             if m:
                 return tag, template.format(**m.groupdict())
     return tag, accession
@@ -215,17 +258,18 @@ def _walk(link: ET.Element) -> list[str]:
                 children.setdefault(src, []).append((_order(el), i, dst))
                 targets.add(dst)
     out: list[str] = []
-
-    def visit(label: str, path: frozenset[str]) -> None:
-        if label in path or label not in hrefs:
-            return
-        out.append(hrefs[label])
-        for _, _, child in sorted(children.get(label, ())):
-            visit(child, path | {label})
-
-    for label in labels:
-        if label not in targets:
-            visit(label, frozenset())
+    seen: set[str] = set()
+    for root in labels:
+        if root in targets:
+            continue
+        stack = [root]   # iterative preorder: no recursion limit on deep chains
+        while stack:
+            label = stack.pop()
+            if label in seen or label not in hrefs:
+                continue
+            seen.add(label)
+            out.append(hrefs[label])
+            stack.extend(child for _, _, child in sorted(children.get(label, ()), reverse=True))
     return out
 
 
@@ -254,6 +298,19 @@ def fsds_period(d: date | None) -> str:
     return (earlier if (d - earlier) < (later - d) else later).strftime("%Y%m%d")
 
 
+def _presentation_name(names: list[str], inputs: list[str]) -> str | None:
+    """The filing's presentation linkbase: the one FilingSummary rendered from, else the one
+    sharing the stem of a rendered schema, else the first by name."""
+    candidates = sorted(n for n in names if n.endswith(PRESENTATION_SUFFIX))
+    for n in inputs:
+        if n in candidates:
+            return n
+    for n in inputs:
+        if n.endswith(".xsd") and f"{n[:-4]}{PRESENTATION_SUFFIX}" in candidates:
+            return f"{n[:-4]}{PRESENTATION_SUFFIX}"
+    return candidates[0] if candidates else None
+
+
 def _fetch(sec: SecGet, url: str) -> bytes | None:
     try:
         return sec.get_bytes(url, max_age_s=None)
@@ -276,12 +333,12 @@ def filing_positions(ref: FilingRef, sec: SecGet, *, counters: Counter | None = 
         if summary is None:
             counters["positions:no_filing_summary"] += 1
             return []
-        reports = _statement_reports(summary)
+        reports, inputs = _statement_reports(summary)
         if not reports:
             counters["positions:no_statement_reports"] += 1
             return []
-        pre_names = sorted(n for n in names if n.endswith(PRESENTATION_SUFFIX))
-        pre = _fetch(sec, f"{base}/{pre_names[0]}") if pre_names else None
+        pre_name = _presentation_name(names, inputs)
+        pre = _fetch(sec, f"{base}/{pre_name}") if pre_name else None
         if pre is None:
             counters["positions:no_presentation"] += 1
             return []
@@ -303,4 +360,6 @@ def filing_positions(ref: FilingRef, sec: SecGet, *, counters: Counter | None = 
             if key not in kept or (number, line) < (kept[key]["report"], kept[key]["line"]):
                 kept[key] = {**submission, "statement": statement, "tag": tag, "version": version,
                              "plabel": "", "report": number, "line": line}
+    if not kept:
+        counters["positions:no_rows"] += 1
     return [kept[k] for k in sorted(kept)]
