@@ -49,10 +49,19 @@ class SecClient:
                  retries: int = 4, session: requests.Session | None = None):
         if not isinstance(contact, str) or not contact.strip():
             raise SecContactMissing("an SEC contact (e.g. an email address) is required")
+        if "\r" in contact or "\n" in contact:
+            raise SecContactMissing("the SEC contact must not contain line breaks")
+        if not max_rps > 0:
+            raise ValueError("max_rps must be > 0")
+        if retries < 0:
+            raise ValueError("retries must be >= 0")
+        if not timeout_s > 0:
+            raise ValueError("timeout_s must be > 0")
         # ``Config.min_delay_seconds`` is derived as 1 / requests_per_second.
         config = Config(contact=contact.strip(), requests_per_second=max_rps,
                         max_retries=retries, timeout=timeout_s)
-        self._fetcher = Fetcher(config, session, thread_safe=True)
+        self._fetcher = Fetcher(config, session, thread_safe=True,
+                                 throttle_key=lambda url: "sec")  # one cap across SEC hosts
 
     def get_bytes(self, url: str, *, max_age_s: float | None = None) -> bytes:
         try:

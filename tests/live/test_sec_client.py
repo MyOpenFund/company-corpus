@@ -115,15 +115,15 @@ def test_spacing_shared_across_threads(monkeypatch):
     monkeypatch.setattr(http_mod.time, "sleep", sleep)
 
     starts: list[float] = []
-
-    class TimedSession(FakeSession):
-        def get(self, url, **kw):
-            starts.append(monotonic())
-            _REAL_SLEEP(0.001)
-            return super().get(url, **kw)
-
-    session = TimedSession([_Resp(200, body=b"x")])
+    session = FakeSession([_Resp(200, body=b"x")])
     client = SecClient(CONTACT, max_rps=10.0, session=session)
+    orig = client._fetcher._throttle_unlocked
+
+    def recording(url):  # runs inside the lock: start time is deterministic
+        orig(url)
+        starts.append(monotonic())
+
+    client._fetcher._throttle_unlocked = recording
 
     def work():
         for _ in range(3):
@@ -137,5 +137,37 @@ def test_spacing_shared_across_threads(monkeypatch):
 
     assert len(starts) == 12
     starts.sort()
+    gaps = [b - a for a, b in zip(starts, starts[1:])]
+    assert min(gaps) >= 0.1 - 1e-9
+
+
+@pytest.mark.parametrize("kw", [{"max_rps": 0}, {"max_rps": -1.0}, {"retries": -1},
+                                {"timeout_s": 0}, {"timeout_s": -5.0}])
+def test_invalid_numeric_params_raise(kw):
+    with pytest.raises(ValueError):
+        SecClient(CONTACT, **kw)
+
+
+@pytest.mark.parametrize("contact", ["a@example.org\nX-Evil: 1", "a@example.org\r"])
+def test_contact_with_line_break_raises(contact):
+    with pytest.raises(SecContactMissing):
+        SecClient(contact)
+
+
+def test_rate_cap_shared_across_sec_hosts(monkeypatch):
+    now = [0.0]
+    monkeypatch.setattr(http_mod.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(http_mod.time, "sleep", lambda s: now.__setitem__(0, now[0] + s))
+    starts: list[float] = []
+
+    class TimedSession(FakeSession):
+        def get(self, url, **kw):
+            starts.append(now[0])
+            return super().get(url, **kw)
+
+    client = SecClient(CONTACT, max_rps=10.0, session=TimedSession([_Resp(200, body=b"x")]))
+    for i in range(6):
+        host = "data.sec.gov" if i % 2 == 0 else "www.sec.gov"
+        client.get_bytes(f"https://{host}/x{i}", max_age_s=None)
     gaps = [b - a for a, b in zip(starts, starts[1:])]
     assert min(gaps) >= 0.1 - 1e-9

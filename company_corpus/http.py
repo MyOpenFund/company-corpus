@@ -37,9 +37,12 @@ class Fetcher:
     """
 
     def __init__(self, config: Config | None = None, session: requests.Session | None = None,
-                 *, thread_safe: bool = False):
+                 *, thread_safe: bool = False,
+                 throttle_key: Callable[[str], str] | None = None):
         self.config = config or Config()
         self._throttle_lock = threading.Lock() if thread_safe else None
+        # Maps a URL to its spacing bucket; default is per host (netloc).
+        self._throttle_key = throttle_key or (lambda url: urlsplit(url).netloc)
         self.session = session or requests.Session()
         self.session.headers.update(
             {
@@ -66,7 +69,7 @@ class Fetcher:
             self._throttle_unlocked(url)
 
     def _throttle_unlocked(self, url: str) -> None:
-        host = urlsplit(url).netloc
+        host = self._throttle_key(url)
         delay = self.config.min_delay_seconds
         if delay <= 0:
             return
