@@ -59,29 +59,79 @@ class _IssuerFailed(RuntimeError):
     pass
 
 
-def _store_api() -> SimpleNamespace:
+def contracts_api(*, needed_by: str = "store-batches", extra: str = "store") -> SimpleNamespace:
+    """pyarrow and the four open-data-store contracts this producer fills (no writer)."""
     try:
         import pyarrow as pa
-        from open_data_store.contracts.rules import BatchInvalid, conform
         from open_data_store.contracts.standard import (
             ENTITY_OBSERVATIONS,
             FILING_STATEMENTS,
             FILINGS,
             FUNDAMENTALS,
         )
+    except ImportError as exc:
+        raise StoreUnavailable(
+            f"{needed_by} needs open-data-store: pip install 'myopenfund-company-corpus[{extra}]'") from exc
+    if FUNDAMENTALS.major != 3 or "ytd9" not in (FUNDAMENTALS.column("frequency").allowed or ()):
+        raise StoreUnavailable(
+            f"{needed_by} needs fundamentals 3.1 or later (frequency ytd9), "
+            f"found {FUNDAMENTALS.version}")
+    return SimpleNamespace(pa=pa, ENTITY_OBSERVATIONS=ENTITY_OBSERVATIONS,
+                           FUNDAMENTALS=FUNDAMENTALS, FILING_STATEMENTS=FILING_STATEMENTS,
+                           FILINGS=FILINGS)
+
+
+def _store_api() -> SimpleNamespace:
+    try:
+        from open_data_store.contracts.rules import BatchInvalid, conform
         from open_data_store.writer import write_batch
         from open_data_store.writer.batch import batch_id_for, content_hash
     except ImportError as exc:
         raise StoreUnavailable(
             "store-batches needs open-data-store: pip install 'myopenfund-company-corpus[store]'") from exc
-    if FUNDAMENTALS.major != 3 or "ytd9" not in (FUNDAMENTALS.column("frequency").allowed or ()):
-        raise StoreUnavailable(
-            f"store-batches needs fundamentals 3.1 or later (frequency ytd9), found {FUNDAMENTALS.version}")
-    return SimpleNamespace(pa=pa, BatchInvalid=BatchInvalid, conform=conform,
-                           ENTITY_OBSERVATIONS=ENTITY_OBSERVATIONS, FUNDAMENTALS=FUNDAMENTALS,
-                           FILING_STATEMENTS=FILING_STATEMENTS, FILINGS=FILINGS,
-                           write_batch=write_batch, batch_id_for=batch_id_for,
-                           content_hash=content_hash)
+    mod = contracts_api()
+    mod.BatchInvalid, mod.conform, mod.write_batch = BatchInvalid, conform, write_batch
+    mod.batch_id_for, mod.content_hash = batch_id_for, content_hash
+    return mod
+
+
+def contract_table(mod, contract, rows: list[dict]):
+    """One contract's Arrow table from its rows, typed by the contract's own schema."""
+    return mod.pa.Table.from_pylist(rows, schema=contract.schema)
+
+
+@dataclass
+class IssuerRows:
+    """The four tables' rows of one issuer, and the row functions' counters."""
+    identity: list[dict]
+    fundamentals: list[dict]
+    filings: list[dict]
+    statements: list[dict]
+    counters: Counter
+
+    def by_contract(self, mod) -> tuple[tuple[object, list[dict]], ...]:
+        return ((mod.ENTITY_OBSERVATIONS, self.identity), (mod.FUNDAMENTALS, self.fundamentals),
+                (mod.FILINGS, self.filings), (mod.FILING_STATEMENTS, self.statements))
+
+
+def issuer_rows(cik: str, archive, facts: dict, statements: list[dict], *,
+                manifest_doc_ids, config: Config, now: datetime) -> IssuerRows:
+    """The ``entity_observations``, ``fundamentals``, ``filings`` and ``filing_statements`` rows of
+    one issuer. Shared by ``store-batches`` and the live (no-store) mode, so both compute alike."""
+    acceptance = acceptance_times(archive)
+    ident = identity_rows(archive, country_codes=config.edgar_country_codes)
+    fund = fundamentals_rows(cik, facts, acceptance=acceptance,
+                             manifest_doc_ids=manifest_doc_ids, config=config, now=now)
+    placed = statement_rows(cik, statements, acceptance=acceptance,
+                            manifest_doc_ids=manifest_doc_ids, config=config, now=now)
+    filed = filings_rows(cik, archive, manifest_doc_ids=manifest_doc_ids, config=config, now=now)
+    counters: Counter = Counter()
+    counters.update(ident.counters)
+    counters.update(fund.counters)
+    counters.update(placed.counters)
+    counters.update({f"filings:{k}": v for k, v in filed.counters.items()})
+    return IssuerRows(identity=ident.rows, fundamentals=fund.rows, filings=filed.rows,
+                      statements=placed.rows, counters=counters)
 
 
 @dataclass
@@ -229,8 +279,8 @@ def _archive(out: IssuerOutcome, config: Config, *, facts, write, offline, refre
 
 def _coverage(out: IssuerOutcome, mod, fund_rows: list[dict], position_rows: list[dict]) -> None:
     """The reader's selection on this issuer's rows, for the run report only."""
-    facts = mod.pa.Table.from_pylist(fund_rows, schema=mod.FUNDAMENTALS.schema)
-    positions = mod.pa.Table.from_pylist(position_rows, schema=mod.FILING_STATEMENTS.schema)
+    facts = contract_table(mod, mod.FUNDAMENTALS, fund_rows)
+    positions = contract_table(mod, mod.FILING_STATEMENTS, position_rows)
     d = load_dictionary()
     on_statement = positioned_tags(((r["filing_ref"], r["tag"], r["tag_version"])
                                     for r in position_rows), d)
@@ -251,22 +301,14 @@ def _issuer(out: IssuerOutcome, mod, *, config, storage, landing, write, offline
                        fetcher=fetcher, now=now)
     if archive is None:
         return
-    ident = identity_rows(archive, country_codes=config.edgar_country_codes)
     manifest_doc_ids = set(storage.load_manifest(out.cik))
-    fund = fundamentals_rows(out.cik, facts, acceptance=acceptance_times(archive),
-                             manifest_doc_ids=manifest_doc_ids, config=config, now=now)
     statements = load_statements(config, out.cik)
     if statements is None:
         out.counters["statements_missing"] += 1
-    placed = statement_rows(out.cik, statements or [], acceptance=acceptance_times(archive),
-                            manifest_doc_ids=manifest_doc_ids, config=config, now=now)
-    filed = filings_rows(out.cik, archive, manifest_doc_ids=manifest_doc_ids, config=config,
-                         now=now)
-    out.counters.update(ident.counters)
-    out.counters.update(fund.counters)
-    out.counters.update(placed.counters)
-    out.counters.update({f"filings:{k}": v for k, v in filed.counters.items()})
-    _coverage(out, mod, fund.rows, placed.rows)
+    rows = issuer_rows(out.cik, archive, facts, statements or [],
+                       manifest_doc_ids=manifest_doc_ids, config=config, now=now)
+    out.counters.update(rows.counters)
+    _coverage(out, mod, rows.fundamentals, rows.statements)
     facts_rel = str(facts_path.relative_to(config.data_dir))
     inputs = [f"{facts_rel}@sha256:{hashlib.sha256(facts_bytes).hexdigest()}",
               *(f"{f.rel_path}@sha256:{f.sha256}" for f in archive.files)]
@@ -274,13 +316,11 @@ def _issuer(out: IssuerOutcome, mod, *, config, storage, landing, write, offline
         path = statements_path(config, out.cik)
         inputs.append(f"{path.relative_to(config.data_dir)}"
                       f"@sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}")
-    for contract, rows in ((mod.ENTITY_OBSERVATIONS, ident.rows), (mod.FUNDAMENTALS, fund.rows),
-                           (mod.FILINGS, filed.rows),
-                           (mod.FILING_STATEMENTS, placed.rows)):
-        out.rows[contract.table_name] = len(rows)
-        if not rows:
+    for contract, contract_rows in rows.by_contract(mod):
+        out.rows[contract.table_name] = len(contract_rows)
+        if not contract_rows:
             continue
-        table = mod.pa.Table.from_pylist(rows, schema=contract.schema)
+        table = contract_table(mod, contract, contract_rows)
         if write:
             ref = mod.write_batch(contract, table, landing_root=landing, run_id=run_id,
                                   producer=PRODUCER, source_inputs=inputs, now=now)
