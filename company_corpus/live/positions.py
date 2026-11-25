@@ -94,6 +94,10 @@ STATEMENT_RULES: tuple[tuple[str, str], ...] = (
 #: A report name matching one of these is never a statement (detail, table and policy reports).
 NOT_STATEMENT = (r"\((?:details?|tables?|polic(?:y|ies))\)", r"\s-\s(?:disclosure|document)\s-\s")
 PARENTHETICAL = r"parenthetical"
+#: A report named ``"<group> - <statement>"`` is classified on its last segment first (Novo
+#: Nordisk's "Income statement and Statement of comprehensive income - Statement of comprehensive
+#: income" is CI in FSDS), then on the whole name.
+SUB_REPORT_SEPARATOR = " - "
 #: Reports taken from FilingSummary: this menu category, or, when a summary has no menu (old
 #: filings), a long name like ``"100030 - Statement - BALANCE SHEETS"``.
 STATEMENT_MENU = "Statements"
@@ -127,16 +131,19 @@ def _role_words(role: str) -> str:
 
 def classify_report(short_name: str, long_name: str, role: str) -> tuple[str | None, bool]:
     """``(statement, parenthetical)`` of a rendered report: the short name decides, then the long
-    name, then the role URI's last segment; ``None`` when no rule matches or a name is a detail."""
+    name, then the role URI's last segment (each on its part after the last ``" - "`` first, see
+    ``SUB_REPORT_SEPARATOR``); ``None`` when no rule matches or a name is a detail."""
     texts = [t.lower().replace("’", "'") for t in (short_name or "", long_name or "",
                                                         _role_words(role or "")) if t]
     if any(re.search(p, t) for p in NOT_STATEMENT for t in texts):
         return None, False
     parenthetical = any(re.search(PARENTHETICAL, t) for t in texts)
     for text in texts:
-        for statement, pattern in STATEMENT_RULES:
-            if re.search(pattern, text):
-                return statement, parenthetical
+        # "<group> - <statement>" (IFRS sub-reports): the last segment decides when it matches.
+        for part in (text.rsplit(SUB_REPORT_SEPARATOR, 1)[-1], text):
+            for statement, pattern in STATEMENT_RULES:
+                if re.search(pattern, part):
+                    return statement, parenthetical
     return None, False
 
 

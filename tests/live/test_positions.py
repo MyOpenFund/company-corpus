@@ -65,6 +65,12 @@ def _expected():
     ("Consolidated Statements of Operations and Comprehensive Loss", ("IS", False)),
     ("Consolidated Statements of Comprehensive Income (Loss)", ("CI", False)),
     ("Income Taxes (Details)", (None, False)),
+    # IFRS filers (Novo Nordisk 20-F) title a sub-report "<group> - <statement>": the statement
+    # after the last " - " decides, as FSDS classifies it (CI here, not the group's IS).
+    ("Income statement and Statement of comprehensive income", ("IS", False)),
+    ("Income statement and Statement of comprehensive income - Statement of comprehensive income",
+     ("CI", False)),
+    ("Consolidated Statements of Cash Flows - Supplemental", ("CF", False)),
 ])
 def test_classify_report_cases(short_name, expected):
     assert classify_report(short_name, "", "") == expected
