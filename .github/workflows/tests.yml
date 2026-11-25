@@ -8,9 +8,10 @@ on:
     branches: [main]
   pull_request:
   schedule:
-    # Weekly: the sibling packages (open-data-store, vault-contract) resolve from PyPI within
-    # their ranges, so a sibling release that breaks this suite or the [store] smoke install
-    # shows up here without waiting for a push.
+    # Weekly. The unit and store jobs install the exact pins of requirements-*.txt, so they run
+    # the same sibling versions every week. The package job resolves the [store] range from PyPI
+    # and imports the writer: a sibling release inside the range that breaks that install shows
+    # up there without waiting for a push.
     - cron: "17 5 * * 1"
 
 jobs:
