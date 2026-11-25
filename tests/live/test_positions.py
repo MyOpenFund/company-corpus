@@ -183,6 +183,9 @@ def test_missing_index_returns_empty():
     ("index.json", b'{"directory": []}'),
     ("FilingSummary.xml", b"<FilingSummary><MyReports>"),
     (PRE, b"<link:linkbase xmlns:link='x'><unclosed>"),
+    ("FilingSummary.xml", b'<?xml version="1.0" encoding="shift_jis"?><FilingSummary/>'),
+    ("FilingSummary.xml", b'<?xml version="1.0" encoding="utf-32"?><FilingSummary/>'),
+    (PRE, b'<?xml version="1.0" encoding="gbk"?><link:linkbase xmlns:link="x"/>'),
 ])
 def test_malformed_files_give_no_positions_and_a_counter(name, body):
     counters = Counter()

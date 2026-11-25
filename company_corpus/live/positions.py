@@ -35,7 +35,9 @@ Approximations (A6 measures them against FSDS on real issuers):
   as ``statements_dropped:bad_period`` (the filing borrows positions instead);
 * each locator of a presentation tree is expanded once, at its first place in the depth-first
   walk; a locator reached again from another parent is not repeated (bounds the work on
-  diamond-shaped or cyclic arcs; real statements use a distinct locator per place);
+  diamond-shaped or cyclic arcs). A filer reusing one locator for a concept placed twice
+  (opening/closing cash) loses the second place, which can shift later ``line`` numbers against
+  FSDS: a known approximation, measured in A6;
 * ``version`` is known only for the taxonomies of ``KNOWN_TAXONOMIES`` (by host and directory);
   any other schema, absolute or relative, is treated as an extension (the accession);
 * prohibited arcs (``use="prohibited"``) are ignored rather than applied; a filing's own
@@ -160,7 +162,7 @@ def _parse_xml(body: bytes) -> ET.Element:
     try:
         parser.Parse(body, True)
         return builder.close()
-    except (expat.ExpatError, LookupError, UnicodeError, AssertionError) as exc:
+    except (expat.ExpatError, LookupError, ValueError, AssertionError) as exc:   # ValueError: unsupported encoding
         raise _Malformed(str(exc)) from exc
 
 
@@ -240,7 +242,12 @@ def _order(arc: ET.Element) -> float:
 
 
 def _walk(link: ET.Element) -> list[str]:
-    """Locator hrefs of one presentation link in depth-first order (children by ``order``)."""
+    """Locator hrefs of one presentation link in depth-first order (children by ``order``).
+
+    Each locator label is emitted once, at its first place in the walk. A filer can reuse one
+    locator for the same concept placed twice (opening and closing cash in a cash flow statement);
+    its second place is then skipped, which can shift the ``line`` of everything after it against
+    FSDS. Known approximation, to be measured in A6."""
     hrefs: dict[str, str] = {}
     labels: list[str] = []
     children: dict[str, list[tuple[float, int, str]]] = {}
