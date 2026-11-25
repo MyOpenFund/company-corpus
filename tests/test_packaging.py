@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 import yaml
 from packaging.requirements import Requirement
+from packaging.version import Version
 
 REPO = Path(__file__).resolve().parents[1]
 # This module's own source necessarily contains the forbidden strings (they're
@@ -95,7 +96,8 @@ def test_dynamic_version_from_init():
     assert "version" not in project
     assert cfg["tool"]["setuptools"]["dynamic"]["version"] == {"attr": "company_corpus.__version__"}
     assert cfg["build-system"]["requires"] == ["setuptools>=77"]
-    assert company_corpus.__version__ == "0.1.0"
+    # the attribute the build reads is the single source of the version: a valid PEP 440 release
+    assert str(Version(company_corpus.__version__)) == company_corpus.__version__
 
 
 def test_installed_version_matches_init():
@@ -162,9 +164,35 @@ def test_readme_links_are_absolute():
     assert f"{BLOB}LICENSE" in text
 
 
+def _next_breaking(floor: str) -> Version:
+    """The first version that may break a caller of `floor`: 0.m.x -> 0.(m+1); M.x.y -> M+1."""
+    v = Version(floor)
+    return Version(f"0.{v.minor + 1}") if v.major == 0 else Version(str(v.major + 1))
+
+
+def _assert_floor_and_cap(r: Requirement) -> None:
+    """Exactly `>=X.Y.Z` and the next breaking version as cap, consistent with the floor."""
+    ops = {s.operator: Version(s.version) for s in r.specifier}
+    assert len(r.specifier) == 2 and set(ops) == {">=", "<"}, r
+    assert ops["<"] == _next_breaking(str(ops[">="])), r
+
+
+def test_cap_rule_accepts_the_next_breaking_version_only():
+    import pytest
+
+    for ok in ("x>=0.1.0,<0.2", "x>=0.4.2,<0.5", "x>=1.1.0,<2", "x>=2.0,<3"):
+        _assert_floor_and_cap(Requirement(ok))
+    for bad in ("x>=0.1.0", "x>=0.1.0,<0.3", "x>=1.1.0,<1.2", "x==0.1.0", "x>=0.1.0,<0.2,!=0.1.5"):
+        with pytest.raises(AssertionError):
+            _assert_floor_and_cap(Requirement(bad))
+
+
 def test_store_extra_is_capped_and_published():
     extra = _pyproject()["project"]["optional-dependencies"]["store"]
-    assert extra == ["myopenfund-open-data-store[writer]>=0.1.0,<0.2"]
+    assert len(extra) == 1
+    r = Requirement(extra[0])
+    assert r.name == "myopenfund-open-data-store" and r.extras == {"writer"}
+    _assert_floor_and_cap(r)
 
 
 def test_no_git_urls_in_metadata():
@@ -183,16 +211,36 @@ def test_sibling_dependencies_are_capped():
     siblings = [r for r in reqs if r.name.startswith("myopenfund-")]
     assert siblings
     for r in siblings:
-        assert {(s.operator, s.version) for s in r.specifier} == {(">=", "0.1.0"), ("<", "0.2")}, r
+        _assert_floor_and_cap(r)
+
+
+def _pins(path: Path) -> dict[str, str]:
+    """name -> version of every `myopenfund-*==V` line of a requirements file."""
+    pins = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.split("#")[0].strip()
+        if line.startswith("myopenfund-"):
+            r = Requirement(line)
+            assert [s.operator for s in r.specifier] == ["=="], line
+            pins[r.name] = str(Version(next(iter(r.specifier)).version))
+    return pins
 
 
 def test_requirements_files_pin_siblings_exactly():
-    store = (REPO / "requirements-store.txt").read_text(encoding="utf-8")
-    dev = (REPO / "requirements-dev.txt").read_text(encoding="utf-8")
-    assert "myopenfund-open-data-store[publisher]==0.1.0" in store
-    assert "myopenfund-vault-contract==1.1.0" in dev
-    assert "git+" not in store and "git+" not in dev
-    assert any(line.startswith("pyyaml") for line in dev.splitlines())
+    store_file = REPO / "requirements-store.txt"
+    dev_file = REPO / "requirements-dev.txt"
+    store, dev = _pins(store_file), _pins(dev_file)
+    # unit/store jobs use exact pins; each must satisfy the range pyproject publishes
+    extra = Requirement(_pyproject()["project"]["optional-dependencies"]["store"][0])
+    assert set(store) == {extra.name}
+    assert extra.specifier.contains(store[extra.name])
+    # vault-contract is not a dependency of the package: only a valid exact pin
+    assert set(dev) == {"myopenfund-vault-contract"}
+    text = store_file.read_text(encoding="utf-8") + dev_file.read_text(encoding="utf-8")
+    assert "git+" not in text
+    assert any(
+        line.startswith("pyyaml") for line in dev_file.read_text(encoding="utf-8").splitlines()
+    )
 
 
 def test_install_hints_name_the_published_distribution():
@@ -394,6 +442,22 @@ def test_tests_workflow_keeps_its_jobs_adds_package_and_runs_weekly():
     assert "twine check --strict" in runs
 
 
+def test_schedule_comment_says_what_the_weekly_run_covers():
+    text = TESTS.read_text(encoding="utf-8")
+    comment = text.split("schedule:\n", 1)[1].split("- cron", 1)[0]
+    assert "exact pins" in comment  # the unit and store jobs
+    assert "package" in comment and "[store]" in comment and "imports the writer" in comment
+    assert "resolve from PyPI within" not in comment  # that was only true of the package job
+
+
+def test_how_to_release_names_the_version_source():
+    text = (REPO / "README.md").read_text(encoding="utf-8")
+    section = text.split("**How to release**", 1)[1].split("## Quick start", 1)[0]
+    assert "`__version__` in `company_corpus/__init__.py`" in section
+    assert "and `version`" not in section
+    assert "pip install -e ." in section and "sibling" in section
+
+
 def test_optional_extra_hints_name_the_published_distribution():
     from company_corpus.eu import arelle_esef
     from company_corpus.registers import ch_ixbrl, financials
@@ -404,3 +468,86 @@ def test_optional_extra_hints_name_the_published_distribution():
         assert "'.[eu-financials]'" not in text, module
     readme = (REPO / "README.md").read_text(encoding="utf-8")
     assert "'.[be]'" not in readme and f'"{DIST}[be]"' in readme
+
+
+# ---- fail-closed approval gate (release hardening) -------------------------
+
+
+def _gate_job():
+    job = _workflow(RELEASE)["jobs"]["build"]
+    gate = [i for i, s in enumerate(job["steps"]) if s.get("name") == "Check the approval gate"]
+    assert len(gate) == 1
+    return job, gate[0]
+
+
+def test_release_checks_the_approval_gate_before_building():
+    job, gate = _gate_job()
+    assert job["permissions"] == {"contents": "read", "actions": "read"}
+    step = job["steps"][gate]
+    run = step["run"]
+    assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert "inputs.target == 'testpypi'" in step["env"]["ENV_NAME"]
+    assert "'testpypi'" in step["env"]["ENV_NAME"] and "'pypi'" in step["env"]["ENV_NAME"]
+    assert 'gh api "repos/$GITHUB_REPOSITORY/environments/$ENV_NAME"' in run
+    assert "if ! " in run  # an API failure (non-200) is tested, not ignored
+    assert "required_reviewers" in run and "exit 1" in run
+    for i, other in enumerate(job["steps"]):
+        uses = other.get("uses", "")
+        building = uses.startswith(
+            ("actions/checkout@", "actions/setup-python@", "actions/upload-artifact@")
+        ) or "build" in other.get("run", "")
+        if i != gate and (building or other.get("name", "").startswith("Build")):
+            assert gate < i, other
+
+
+def _run_gate(tmp_path, response, status):
+    """Run the gate step against a stub `gh` that prints `response` and exits `status`."""
+    import os
+    import shutil
+    import subprocess
+
+    import pytest
+
+    if shutil.which("jq") is None or shutil.which("bash") is None:
+        pytest.skip("needs jq and bash")
+    job, gate = _gate_job()
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    stub = bin_dir / "gh"
+    stub.write_text(f"#!/bin/sh\ncat <<'JSON'\n{response}\nJSON\nexit {status}\n")
+    stub.chmod(0o755)
+    env = {
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "GITHUB_REPOSITORY": "MyOpenFund/example",
+        "ENV_NAME": "pypi",
+    }
+    return subprocess.run(
+        ["bash", "-e", "-c", job["steps"][gate]["run"]],
+        env=env, capture_output=True, text=True, timeout=30, check=False,
+    )
+
+
+def test_gate_passes_with_a_required_reviewer(tmp_path):
+    rules = (
+        '{"protection_rules": [{"type": "wait_timer"}, {"type": "required_reviewers",'
+        ' "reviewers": [{"type": "User", "reviewer": {"login": "release-approver"}}]}]}'
+    )
+    assert _run_gate(tmp_path, rules, 0).returncode == 0
+
+
+def test_gate_fails_without_a_required_reviewer(tmp_path):
+    for rules in (
+        '{"protection_rules": []}',
+        '{"protection_rules": [{"type": "required_reviewers", "reviewers": []}]}',
+        '{"protection_rules": [{"type": "branch_policy"}]}',
+        "{}",
+    ):
+        result = _run_gate(tmp_path, rules, 0)
+        assert result.returncode == 1, rules
+        assert "required reviewer" in result.stdout + result.stderr
+
+
+def test_gate_fails_closed_when_the_api_call_fails(tmp_path):
+    result = _run_gate(tmp_path, "gh: Not Found (HTTP 404)", 1)
+    assert result.returncode == 1
+    assert "HTTP 404" in result.stdout + result.stderr
