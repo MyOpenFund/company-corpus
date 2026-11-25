@@ -3,8 +3,9 @@
 Only the primary document of a filing is fetched, never an exhibit, and only an HTML one.
 
 **Conversion.** The bytes are decoded with the declared charset (``<meta charset>`` or the XML
-declaration; a declared Latin-1 is read as windows-1252, as HTML does); with none, or when the
-declared one fails, UTF-8, falling back to cp1252 when UTF-8 fails. Empty or unparseable HTML
+declaration; a declared Latin-1 is read as windows-1252 and a declared UTF-16 as UTF-8, as HTML
+does, whatever the spelling of the name); with none, or when the declared one fails, UTF-8,
+falling back to cp1252 when UTF-8 fails. Empty or unparseable HTML
 gives an empty Markdown. Documents larger than ``max_html_bytes`` are refused
 (:class:`DocumentTooLarge`) before any parsing. Measured worst case under the default 20 MB cap:
 about 45 s and over 1 GB on nested layout tables (to be re-measured on real filings). The HTML is
@@ -14,7 +15,8 @@ then cleaned and reduced before MarkItDown, which bounds its cost on table-dense
   attribute, and elements whose inline ``style`` has ``display:none`` or ``visibility:hidden``.
   Known limit: hiding through a CSS class (a stylesheet rule) is not detected;
 * the targets of in-document links get a text marker, removed after conversion, which gives
-  each anchor id its Markdown offset (start of the line where the target's text begins);
+  each anchor id its Markdown offset (start of the line where the target's text begins). The
+  Markdown does not depend on the markers: a paragraph holding only markers is removed whole;
 * inline-XBRL tags (``ix:*``), ``span`` and ``font`` are unwrapped (their text is kept), and
   every attribute other than ``href``, ``colspan``, ``rowspan``, ``src``, ``alt`` and an
   integer ``start`` is dropped.
@@ -27,12 +29,17 @@ document is indexed anyway; sections order the indexing and label hits). The rul
 (:data:`SECTION_RULES`, one entry per form family, every threshold a field):
 
 * linked table of contents (authoritative): when the TOC's Item lines link to in-document
-  anchors that all resolve, in item order, each listed item starts at its anchor; it ends at
-  the next anchor or at the next heading of another item (an item the TOC does not list);
+  anchors that all resolve, in item order, and all after the last linked TOC line (a target
+  inside the TOC is a broken link), each listed item starts at its anchor. The items the TOC
+  does not link get the boundaries of the heuristics below when those are consistent with the
+  anchors (all after the TOC, and in item order once merged); when they are not, or when the
+  heuristics give nothing, only the linked items are sections (known limit: a linked item then
+  runs to the next anchor, over an item the TOC does not list);
 * otherwise, headings: a line that, once Markdown markup, table pipes and non-breaking spaces
   are removed, starts with ``Item <key>`` (or ``Items <key> and <key>``, counted as the first
   item; or ``Part II - Item 7``) followed by punctuation, the end of the line or a capitalised
-  title (``Item 7 is not amended`` and ``Item 7, Management's...`` are prose), at most
+  title (``Item 7 is not amended`` and ``Item 7, Management's...`` are prose; ``Item 5.02`` is
+  another form's numbering, not Item 5; ``Item 5.A`` is Item 5A), at most
   ``max_heading_chars`` long. ``Item`` alone on a line is joined with the next non-blank line
   (``Item<br>7.``). ``Part <I-IV>`` lines are found the same way. A line linking to an anchor
   inside a pipe table is a TOC entry (``skip_table_anchor_links``);
@@ -40,11 +47,17 @@ document is indexed anyway; sections order the indexing and label hits). The rul
   pipe table), in item order, form a run; runs of at least ``toc_min_run`` lines are classified.
   A run whose lines are mostly rows of one table is a TOC or a cross-reference index, wherever
   it sits. Another run is a TOC when at least ``toc_min_later_share`` of its items occur again
-  later outside the tables (a plain-line TOC). A remaining run whose items occur nowhere else
-  is body (consecutive short items: ``None.``, ``[Reserved]``). Any other run is unexplained:
-  if a section boundary would land on it, **no sections** are returned. An item's identity is
-  its position under the Part in effect; a Part read inside a dense run does not carry past it.
-  Known limit: a plain-line (non-table) TOC with no Item headings in the body reads as body;
+  later outside the tables (a plain-line TOC). A remaining run is body (consecutive short
+  items: ``None.``, ``[Reserved]``) only when its items occur nowhere else **and** at least one
+  Item heading stands outside every dense run (a body has long items too; absence of a second
+  occurrence alone proves nothing). Any other run is unexplained: if a section boundary would
+  land on it, **no sections** are returned (so a plain-line TOC over a body without Item
+  headings, or a document whose items are all one-liners, has no sections). An item's identity
+  is its position under the Part in effect; a Part read inside a table run, or inside a run
+  listing at least ``toc_min_part_lines`` Parts (a TOC), does not carry past that run.
+  Known limits: a TOC shorter than ``toc_min_run`` lines over a body without Item headings is
+  read as headings; so is a plain-line TOC none of whose items has a body heading while the
+  body has a heading for an item the TOC does not list;
 * the items of a form are walked from the last to the first: an item's heading is its last
   occurrence before the heading chosen for the next item. When the item is repeated with no
   other item in between (running page headers), the first of that run wins;
@@ -53,8 +66,10 @@ document is indexed anyway; sections order the indexing and label hits). The rul
   whose heading is missing is skipped, except the first one, which then starts the document.
   Their sections are named with the Part (``Part I Item 2``);
 * ``Section.end`` is the start of the next chosen boundary (an item, emitted or not: Item 1A
-  stops at Item 1B; or a chosen Part heading), of the next heading of another item (e.g. an
-  appendix repeating earlier items), or the end of the document.
+  stops at Item 1B; or a chosen Part heading) or the end of the document. Only the last
+  boundary's section is cut short: at the next heading of another item of the form (an appendix
+  repeating earlier items). Headings between two boundaries never cut a section: sub-items
+  (20-F ``Item 5A``), keys the form does not have, stray Item-like lines.
 """
 from __future__ import annotations
 
@@ -121,6 +136,9 @@ class SectionRules:
     # A dense run is a TOC only when the body repeats it: at least this share of its items
     # occur again after the run (a run of short body items has no later occurrences).
     toc_min_later_share: float = 0.5
+    # A dense run listing at least this many Part lines is a TOC spanning Parts: the Part in
+    # effect is reset after it (a body run crosses one Part heading at most, and keeps its Part).
+    toc_min_part_lines: int = 2
     skip_table_anchor_links: bool = True
 
     @property
@@ -161,8 +179,8 @@ FORM_FAMILIES: dict[str, str] = {
 }
 
 _PART_ORDER = ("I", "II", "III", "IV")
-_TAIL = r"(?![0-9A-Za-z])(?:\s*[.:\-–—]|\s*$|\s+[A-Z(]"
-_ITEM = re.compile(r"^(?i:items?)\s*(\d{1,2}[A-Za-z]?)" + _TAIL
+_TAIL = r"(?![0-9A-Za-z])(?!\.\d)(?:\s*[.:\-–—]|\s*$|\s+[A-Z(]"
+_ITEM = re.compile(r"^(?i:items?)\s*(\d{1,2}(?:\.?[A-Za-z])?)" + _TAIL
                    + r"|\s+(?i:and|through|to)\s+\d{1,2}[A-Za-z]?" + _TAIL + r"))")
 _PART = re.compile(r"^(?i:part)\s+(IV|I{1,3})" + _TAIL + r")")
 _PART_THEN_ITEM = re.compile(r"^(?i:part)\s+(?:IV|I{1,3})\s*[.:,\-–—]?\s*(?=(?i:items?)\s*\d)")
@@ -174,11 +192,10 @@ _HIDDEN_STYLE = re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden", re.IGN
 _INTEGER = re.compile(r"-?\d+")
 _DECLARED = re.compile(rb"""<\?xml[^>]*encoding\s*=\s*["']([\w.:-]+)"""
                        rb"""|<meta[^>]*charset\s*=\s*["']?([\w.:-]+)""", re.IGNORECASE)
-# HTML rule: a declared Latin-1 is decoded as windows-1252.
-_CHARSET_ALIASES = {"iso-8859-1": "cp1252", "iso8859-1": "cp1252", "latin-1": "cp1252",
-                    "latin1": "cp1252", "l1": "cp1252",
-                    # HTML rule: a UTF-16 declaration in a byte-oriented document means UTF-8.
-                    "utf-16": "utf-8", "utf-16le": "utf-8", "utf-16be": "utf-8"}
+# HTML rules, keyed by the Python codec name (``codecs.lookup(declared).name``, so every alias
+# counts): a declared Latin-1 is decoded as windows-1252; a UTF-16 declaration read in a
+# byte-oriented document means UTF-8.
+_HTML_CHARSETS = {"iso8859-1": "cp1252", "utf-16": "utf-8", "utf-16-le": "utf-8", "utf-16-be": "utf-8"}
 # Python codecs that are not document charsets: a declaration naming one is ignored.
 _NOT_CHARSETS = frozenset({"undefined", "idna", "punycode", "unicode-escape", "raw-unicode-escape",
                            "unicode_escape", "raw_unicode_escape", "utf-7"})
@@ -238,7 +255,8 @@ def _scan(markdown: str, rules: SectionRules) -> list[_Cand]:
             text = text[combined.end():] if combined else ""
         item = _ITEM.match(text)
         if item:
-            found.append(_Cand(offsets[i], end, "item", item.group(1).upper(), target, in_table))
+            key = item.group(1).replace(".", "").upper()  # "Item 5.A" is Item 5A
+            found.append(_Cand(offsets[i], end, "item", key, target, in_table))
     return found
 
 
@@ -322,9 +340,12 @@ def _classify(markdown: str, cands: list[_Cand], rules: SectionRules
     """``(identities, table-of-contents lines, ambiguous lines)``. Linear in the candidates."""
     ident = _identities(cands, rules, set())
     dense = [r for r in _runs(markdown, cands, rules, ident) if len(r) >= rules.toc_min_run]
-    ident = _identities(cands, rules, {r[-1] for r in dense})
+    tabular = [_tabular(markdown, cands, run) for run in dense]
+    ident = _identities(cands, rules, {
+        run[-1] for run, table in zip(dense, tabular)
+        if table or sum(cands[n].kind == "part" for n in run) >= rules.toc_min_part_lines})
     # 1. tables of item rows (a TOC or a cross-reference index, wherever it sits)
-    toc = {n for run in dense if _tabular(markdown, cands, run) for n in run}
+    toc = {n for run, table in zip(dense, tabular) if table for n in run}
     # 2. other dense runs repeated later by the rest of the document (a plain-line TOC)
     _, last = _span(ident, toc)
     undecided = []
@@ -337,13 +358,23 @@ def _classify(markdown: str, cands: list[_Cand], rules: SectionRules
             toc.update(run)
         else:
             undecided.append(run)
+    # 3. body: none of the run's items occurs anywhere else, and the document has an Item
+    #    heading outside its dense runs (otherwise nothing says the run is not a TOC)
     first, last = _span(ident, toc)
+    inside = {n for run in dense for n in run}
+    corroborated = any(c.kind == "item" and n not in inside and not _toc_link(c, rules)
+                       for n, c in enumerate(cands))
     ambiguous: set[int] = set()
-    for run in undecided:  # body only when none of its items occurs anywhere else
-        if any(first[ident[n]] < run[0] or last[ident[n]] > run[-1]
-               for n in run if ident[n] is not None):
+    for run in undecided:
+        if not corroborated or any(first[ident[n]] < run[0] or last[ident[n]] > run[-1]
+                                   for n in run if ident[n] is not None):
             ambiguous.update(run)
     return ident, toc, ambiguous
+
+
+def _toc_link(c: _Cand, rules: SectionRules) -> bool:
+    """A line linking to an anchor inside a pipe table: a TOC entry, never a heading."""
+    return rules.skip_table_anchor_links and c.target is not None and c.in_table
 
 
 def _walk(cands: list[_Cand], idx: list[int], keys: list[str], lo: int, hi: int) -> list[tuple[int, int]]:
@@ -365,24 +396,52 @@ def _walk(cands: list[_Cand], idx: list[int], keys: list[str], lo: int, hi: int)
     return chosen
 
 
-def _sections(boundaries: list[tuple[int, str | None]], size: int) -> tuple[Section, ...]:
-    boundaries = sorted(boundaries, key=lambda b: b[0])
-    sections = []
-    for n, (start, name) in enumerate(boundaries):
-        if name is not None:
-            end = next((off for off, _ in boundaries[n + 1:] if off > start), size)
-            sections.append(Section(name=name, start=start, end=end))
-    return tuple(sections)
+# A boundary: (Markdown offset, order, section name or None). ``order`` is the item's index in
+# ``rules.positions``; a Part heading sits half a step before its first item.
+_Boundary = tuple[int, float, "str | None"]
 
 
-def _anchored(cands: list[_Cand], rules: SectionRules, anchors: Mapping[str, int],
-              size: int) -> tuple[Section, ...] | None:
-    """Sections from a linked table of contents: each listed item starts at its link target and
-    ends at the next target or at the next heading of another item, whichever comes first.
-    ``None`` (use the heuristics) when no item is linked forward, when a link does not resolve,
-    or when the targets are not in item order."""
-    entries: list[tuple[int, int]] = []  # (position, offset)
-    last_pos, part = -1, None
+def _heuristic(markdown: str, cands: list[_Cand], rules: SectionRules
+               ) -> tuple[list[_Boundary] | None, list[_Cand]]:
+    """``(boundaries chosen on the headings, Item heading lines)``; the boundaries are ``None``
+    when one of them sits on an unexplained dense run."""
+    size = len(markdown)
+    _, toc, ambiguous = _classify(markdown, cands, rules)
+    kept = [n for n, c in enumerate(cands) if n not in toc and not _toc_link(c, rules)]
+    items = [n for n in kept if cands[n].kind == "item"]
+    headings = [cands[n] for n in items]
+    chosen: list[tuple[int, float]] = []  # (index in cands, order)
+    if rules.segment_by_part:
+        parts = [n for n in kept if cands[n].kind == "part" and cands[n].key in rules.parts]
+        found = {rules.parts[pos]: n for n, pos in _walk(cands, parts, list(rules.parts), 0, size + 1)}
+        for k, part in enumerate(rules.parts):
+            own = [i for i, (p, _, _) in enumerate(rules.positions) if p == part]
+            if part in found:
+                lo = cands[found[part]].start
+                chosen.append((found[part], (own[0] if own else len(rules.positions)) - 0.5))
+            elif k == 0:
+                lo = 0
+            else:
+                continue
+            hi = min((cands[found[p]].start for p in rules.parts[k + 1:] if p in found), default=size + 1)
+            chosen += [(n, own[pos]) for n, pos in
+                       _walk(cands, items, [rules.positions[i][1] for i in own], lo, hi)]
+    else:
+        chosen += _walk(cands, items, [key for _, key, _ in rules.positions], 0, size + 1)
+    if any(n in ambiguous for n, _ in chosen):
+        return None, headings  # a heading on an unexplained dense run
+    return [(cands[n].start, order, rules.positions[int(order)][2] if order == int(order) else None)
+            for n, order in chosen], headings
+
+
+def _anchored(cands: list[_Cand], rules: SectionRules, anchors: Mapping[str, int]
+              ) -> tuple[list[_Boundary], int] | None:
+    """``(boundaries, start of the last linked TOC line)`` from a linked table of contents:
+    each listed item starts at its link target. ``None`` (use the heuristics) when no emitted
+    item is linked forward, when a link does not resolve, when the targets are not in item
+    order, or when a target is not after the last linked TOC line (a link into the TOC)."""
+    entries: list[_Boundary] = []
+    last_pos, part, toc_end = -1, None, -1
     for c in cands:
         if c.kind == "part":
             part = c.key
@@ -398,27 +457,45 @@ def _anchored(cands: list[_Cand], rules: SectionRules, anchors: Mapping[str, int
                     and (part is None or rules.positions[i][0] in (None, part))), None)
         if pos is None:
             continue
-        entries.append((pos, anchors[c.target]))
-        last_pos = pos
-    offsets = [off for _, off in entries]
-    if not any(rules.positions[pos][2] for pos, _ in entries) or any(
-            b <= a for a, b in zip(offsets, offsets[1:])):
+        entries.append((anchors[c.target], pos, rules.positions[pos][2]))
+        last_pos, toc_end = pos, c.start
+    if (not any(name for _, _, name in entries) or entries[0][0] <= toc_end
+            or any(b[0] <= a[0] for a, b in zip(entries, entries[1:]))):
         return None
-    # An item the TOC does not list still ends the section before it: its heading line.
-    headings = [c for c in cands if c.kind == "item" and not (c.target and c.in_table)]
-    return _cut(_sections([(off, rules.positions[pos][2]) for pos, off in entries], size), headings,
-                {off: rules.positions[pos][1] for pos, off in entries})
+    return entries, toc_end
 
 
-def _cut(sections: tuple[Section, ...], headings: list[_Cand], key_of: dict[int, str]) -> tuple[Section, ...]:
-    """Each section also ends at the first heading of another item inside it (an item not
-    chosen as a section boundary, e.g. an appendix repeating earlier items)."""
-    out = []
-    for section in sections:
-        stop = next((h.start for h in headings if section.start < h.start < section.end
-                     and h.key != key_of[section.start]), section.end)
-        out.append(Section(section.name, section.start, stop))
-    return tuple(out)
+def _merged(linked: list[_Boundary], toc_end: int, found: list[_Boundary] | None) -> list[_Boundary]:
+    """The anchors, plus the heuristic boundaries of the items the TOC does not link, when
+    the whole is consistent (after the TOC, in item order); else the anchors alone."""
+    orders = {order for _, order, _ in linked}
+    extra = [b for b in found or () if b[1] not in orders]
+    both = sorted(linked + extra, key=lambda b: b[:2])
+    if extra and all(b[0] > toc_end for b in extra) and all(
+            a[0] < b[0] and a[1] < b[1] for a, b in zip(both, both[1:])):
+        return both
+    return linked
+
+
+def _sections(boundaries: list[_Boundary], headings: list[_Cand], rules: SectionRules,
+              size: int) -> tuple[Section, ...]:
+    """Each named boundary runs to the next one. The last one runs to the end of the document,
+    or to the first heading after it of another item of the form (an appendix repeating
+    earlier items)."""
+    boundaries = sorted(boundaries, key=lambda b: b[:2])
+    known = {key for _, key, _ in rules.positions}
+    sections = []
+    for n, (start, order, name) in enumerate(boundaries):
+        if name is None:
+            continue
+        if n + 1 < len(boundaries):
+            end = boundaries[n + 1][0]
+        else:
+            own = rules.positions[int(order)][1]
+            end = next((h.start for h in headings if h.start > start and h.key in known and h.key != own),
+                       size)
+        sections.append(Section(name=name, start=start, end=end))
+    return tuple(sections)
 
 
 def find_sections(markdown: str, form: str, *, rules: SectionRules | None = None,
@@ -431,50 +508,22 @@ def find_sections(markdown: str, form: str, *, rules: SectionRules | None = None
     if rules is None:
         return ()
     cands = _scan(markdown, rules)
-    size = len(markdown)
-    if anchors:
-        anchored = _anchored(cands, rules, anchors, size)
-        if anchored is not None:
-            return anchored
-    _, toc, ambiguous = _classify(markdown, cands, rules)
-    kept = [n for n, c in enumerate(cands) if n not in toc
-            and not (rules.skip_table_anchor_links and c.target is not None and c.in_table)]
-    items = [n for n in kept if cands[n].kind == "item"]
-    chosen: list[tuple[int, str | None]] = []  # (index in cands, section name)
-    if rules.segment_by_part:
-        parts = [n for n in kept if cands[n].kind == "part" and cands[n].key in rules.parts]
-        found = {rules.parts[pos]: n for n, pos in _walk(cands, parts, list(rules.parts), 0, size + 1)}
-        chosen += [(n, None) for n in found.values()]
-        for k, part in enumerate(rules.parts):
-            if part in found:
-                lo = cands[found[part]].start
-            elif k == 0:
-                lo = 0
-            else:
-                continue
-            hi = min((cands[found[p]].start for p in rules.parts[k + 1:] if p in found), default=size + 1)
-            positions = [(key, name) for p, key, name in rules.positions if p == part]
-            chosen += [(n, positions[pos][1])
-                       for n, pos in _walk(cands, items, [key for key, _ in positions], lo, hi)]
-    else:
-        positions = [(key, name) for _, key, name in rules.positions]
-        chosen += [(n, positions[pos][1])
-                   for n, pos in _walk(cands, items, [key for key, _ in positions], 0, size + 1)]
-    if any(n in ambiguous for n, _ in chosen):
-        return ()  # a heading on an unexplained dense run: no section rather than a wrong one
-    return _cut(_sections([(cands[n].start, name) for n, name in chosen], size),
-                [cands[n] for n in items], {cands[n].start: cands[n].key for n, _ in chosen})
+    boundaries, headings = _heuristic(markdown, cands, rules)
+    linked = _anchored(cands, rules, anchors) if anchors else None
+    if linked is not None:
+        boundaries = _merged(*linked, boundaries)
+    if not boundaries:
+        return ()  # nothing found, or a heading on an unexplained run: no section rather than a wrong one
+    return _sections(boundaries, headings, rules, len(markdown))
 
 
 def _decode(html: bytes) -> str:
     m = _DECLARED.search(html[:4096])
     if m:
-        name = (m.group(1) or m.group(2)).decode("ascii").lower()
-        name = _CHARSET_ALIASES.get(name, name)
         try:
-            info = codecs.lookup(name)
+            info = codecs.lookup((m.group(1) or m.group(2)).decode("ascii").lower())
             if getattr(info, "_is_text_encoding", True) and info.name not in _NOT_CHARSETS:
-                return html.decode(info.name)
+                return html.decode(_HTML_CHARSETS.get(info.name, info.name))
         except (LookupError, UnicodeError):
             pass  # unknown codec name or wrong declaration: treated as undeclared
     try:
@@ -538,20 +587,27 @@ def _reduced_html(text: str) -> tuple[str, str, list[str]]:
 
 
 def _unmark(markdown: str, marker: str, ids: list[str]) -> tuple[str, dict[str, int]]:
-    """Markers removed; each anchor at the start of the first non-blank line from its marker."""
-    pattern = re.compile(re.escape(marker) + r"(\d+)" + re.escape(marker))
+    """Markers removed; each anchor at the start of the first non-blank line from its marker.
+    A paragraph holding only markers (an empty element, which an unmarked document does not
+    render at all) goes whole, with the blank lines after it."""
+    one = re.escape(marker) + r"(\d+)" + re.escape(marker)
+    pattern = re.compile(rf"(?P<line>(?:(?<=\n\n)|\A)[ \t]*(?:{one}[ \t]*)+(?:\n\n+|\Z))|{one}")
+    number = re.compile(one)
     pieces, where, last, length = [], {}, 0, 0
     for m in pattern.finditer(markdown):
         pieces.append(markdown[last:m.start()])
         length += m.start() - last
-        where[int(m.group(1))] = length
+        for n in number.finditer(m.group(0)):
+            where[int(n.group(1))] = length
         last = m.end()
+        if m.group("line") is not None and last == len(markdown):
+            pieces = ["".join(pieces).rstrip()]  # a marker-only last line: no trailing blank lines
     pieces.append(markdown[last:])
     clean = "".join(pieces)
     anchors = {}
     for n, at in where.items():
         if n < len(ids):
-            text = re.compile(r"\S").search(clean, at)
+            text = re.compile(r"\S").search(clean, min(at, len(clean)))
             at = text.start() if text else len(clean)
             anchors[ids[n]] = clean.rfind("\n", 0, at) + 1
     return clean, anchors

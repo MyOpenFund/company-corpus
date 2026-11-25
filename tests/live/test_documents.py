@@ -1,10 +1,11 @@
-import time
+import sys
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pytest
 
+from company_corpus.live import documents
 from company_corpus.live.documents import (
     SECTION_RULES,
     DocumentTooLarge,
@@ -430,12 +431,34 @@ def test_unresolved_toc_link_falls_back_to_the_heuristics():
     assert [s.name for s in find_sections(md, "10-K", anchors={"other": 0})] == ["Item 1", "Item 7", "Item 8"]
 
 
-def test_toc_classification_is_linear():
-    md = "".join(f"Item {k}. Title {k} 3\n\n" for _ in range(8000 // len(_FULL) + 1) for k in _FULL)
-    md = "\n\n".join(md.split("\n\n")[:8000])
-    started = time.perf_counter()
-    find_sections(md, "10-K")
-    assert time.perf_counter() - started < 5.0
+def _traced_steps(md: str) -> int:
+    """Line and call events of the documents module while finding sections: a deterministic
+    operation count (no clock)."""
+    steps, previous = 0, sys.gettrace()
+
+    def tracer(frame, event, arg):
+        nonlocal steps
+        if frame.f_code.co_filename != documents.__file__:
+            return None
+        steps += 1
+        return tracer
+
+    sys.settrace(tracer)
+    try:
+        find_sections(md, "10-K")
+    finally:
+        sys.settrace(previous)
+    return steps
+
+
+@pytest.mark.parametrize("separator", ["\n\n", "\n"])
+def test_section_finding_is_linear_in_the_heading_lines(separator):
+    def steps(lines):
+        return _traced_steps("".join(f"Item {_FULL[n % len(_FULL)]}. Title {n} 3{separator}" for n in range(lines)))
+
+    small, large = steps(500), steps(2000)
+    assert small > 500  # the tracer sees the work
+    assert large < 6 * small  # 4x the lines: 4x the steps when linear, 16x when quadratic
 
 
 @pytest.mark.parametrize("start", ["\u00bd", "\u00b2", "abc"])
@@ -450,3 +473,211 @@ def test_title_attribute_is_dropped():
 def test_declared_latin1_is_windows_1252():
     html = b'<html><head><meta charset="iso-8859-1"></head><body><p>\x93q\x94 caf\xe9</p></body></html>'
     assert "\u201cq\u201d caf\u00e9" in html_to_markdown(html)
+
+
+# --- fix round 4 ---------------------------------------------------------------------------
+
+def _inline(html: str, form: str = "10-K") -> FilingDocument:
+    body = f"<html><body>{html}</body></html>".encode()
+    return filing_document(replace(REF, form=form), FakeSec({f"{FOLDER}/{PRIMARY}": body}))
+
+
+_P = "<p>Body text long enough to be a real section rather than a table-of-contents entry, twice over.</p>"
+
+
+def _html_toc(keys=_FULL, href=lambda k: f"#i{k}", row_id=lambda k: ""):
+    rows = "".join(f"<tr{row_id(k)}><td>" + (f'<a href="{href(k)}">Item {k}.</a>' if href(k) else f"Item {k}.")
+                   + f"</td><td>Title {k}</td><td>{n}</td></tr>\n" for n, k in enumerate(keys, start=3))
+    return f'<p id="toc">TABLE OF CONTENTS</p><table>{rows}</table>\n'
+
+
+def _html_body(keys=_FULL, numbered=True):
+    return "".join(f'<p id="i{k}"><b>{f"Item {k}. " if numbered else ""}Title {k}</b></p><p>BODY{k}X</p>{_P}\n'
+                   for k in keys)
+
+
+def _summary(doc: FilingDocument):
+    """(name, the BODY tags inside the section) for each section."""
+    return [(s.name, [w for w in doc.markdown[s.start:s.end].split() if w.startswith("BODY")])
+            for s in doc.sections]
+
+
+_FIVE = [("Item 1", ["BODY1X"]), ("Item 1A", ["BODY1AX"]), ("Item 7", ["BODY7X"]), ("Item 7A", ["BODY7AX"]),
+         ("Item 8", ["BODY8X"])]
+
+
+@pytest.mark.parametrize("fixture", ["tenk_plain_toc.htm", "tenk_dotleader_toc.htm"])
+def test_plain_line_toc_without_body_headings_gives_no_sections(fixture):
+    # one line per Item (blank-line and dot-leader layouts), the body has no Item headings
+    doc = _doc(fixture, replace(REF, primary_document="exco-10k.htm"))
+    assert doc.markdown.count("\nItem ") == 10 and "PLAIN\\_MDNA" in doc.markdown
+    assert doc.sections == ()
+
+
+def test_dense_run_alone_is_not_corroborated_as_body():
+    # every item a one-liner: nothing tells this run from a table of contents
+    assert find_sections(_body(_FULL, short=_FULL), "10-K") == ()
+    # the same run after long items is body
+    md = _body(("1", "1A")) + _body(("1B", "1C", "2", "3", "4", "5", "6"), short=_FULL) + _body(("7",))
+    assert [s.name for s in find_sections(md, "10-K")] == ["Item 1", "Item 1A", "Item 7"]
+
+
+def test_20f_sub_item_headings_do_not_cut_item_5():
+    doc = _doc("twentyf_subitems.htm", replace(REF, form="20-F", primary_document="exco-20f.htm"))
+    assert [s.name for s in doc.sections] == ["Item 5", "Item 18"]
+    item5 = _text(doc, "Item 5").replace("\\_", "_")
+    assert item5.startswith("**Item\xa05. Operating")  # not at "Item 5.C"
+    for tag in ("OVERVIEW", "RESULTS", "LIQUIDITY", "RESEARCH", "TRENDS"):
+        assert f"SUBITEM_{tag}" in item5
+    assert "SUBITEM_BOARD" not in item5 and "SUBITEM_COMPANY" not in item5
+    item18 = _text(doc, "Item 18").replace("\\_", "_")
+    assert "SUBITEM_AUDIT" in item18 and "Articles of Association" not in item18
+
+
+@pytest.mark.parametrize("inside, stray", [
+    ("7", "Item 8. Financial Statements and Supplementary Data"),  # a known item, out of place
+    ("1", "Item 5.02 Departure of Directors"),                     # another form's numbering
+    ("7", "Item 7B. Something Else"),                              # a key the form does not have
+    ("8", "Item 5.02 Departure of Directors"),                     # in the last section
+    ("8", "Item 8A. Supplementary Schedules"),
+])
+def test_stray_item_like_line_does_not_cut_a_section(inside, stray):
+    keys = ("1", "1A", "7", "7A", "8")
+    clean = _body(keys)
+    md = clean.replace(f"Item {inside}. Title {inside}\n\n", f"Item {inside}. Title {inside}\n\nOverview.\n\n{stray}\n\n")
+    plain, got = find_sections(clean, "10-K"), find_sections(md, "10-K")
+    assert [s.name for s in got] == [s.name for s in plain] == [f"Item {k}" for k in keys]
+    extra = len(md) - len(clean)
+    for a, b in zip(plain, got):
+        assert b.end - b.start == a.end - a.start + (extra if a.name == f"Item {inside}" else 0)
+
+
+def test_item_with_a_dotted_letter_is_the_lettered_item():
+    md = f"Item 1. Business\n\n{_BODY}\n\nItem 1.A Risk Factors\n\n{_BODY}\n\nItem 7. MD&A\n\n{_BODY}\n"
+    assert [s.name for s in find_sections(md, "10-K")] == ["Item 1", "Item 1A", "Item 7"]
+
+
+def test_anchors_into_the_toc_are_not_trusted():
+    row_id = lambda k: f' id="r{k}"'  # noqa: E731
+    following = lambda k: f"#r{_FULL[min(_FULL.index(k) + 1, len(_FULL) - 1)]}"  # noqa: E731
+    # every link points at the next TOC row: the body headings decide
+    doc = _inline(_html_toc(href=following, row_id=row_id) + _html_body())
+    assert _summary(doc) == _FIVE
+    # the same over a body without Item headings: no sections
+    assert _inline(_html_toc(href=following, row_id=row_id) + _html_body(numbered=False)).sections == ()
+    # only Item 1 points into the TOC (at the row of Item 1A), the other links are right
+    wrong_first = lambda k: "#r1A" if k == "1" else f"#i{k}"  # noqa: E731
+    doc = _inline(_html_toc(href=wrong_first, row_id=row_id) + _html_body(numbered=False))
+    assert doc.sections == ()
+    assert _summary(_inline(_html_toc(href=wrong_first, row_id=row_id) + _html_body())) == _FIVE
+
+
+def test_out_of_order_anchors_fall_back_to_the_headings():
+    swapped = lambda k: "#" + {"7": "i8", "8": "i7"}.get(k, f"i{k}")  # noqa: E731
+    assert _summary(_inline(_html_toc(href=swapped) + _html_body())) == _FIVE
+    assert _inline(_html_toc(href=swapped) + _html_body(numbered=False)).sections == ()
+
+
+@pytest.mark.parametrize("linked", [("8",), ("1", "1A"), ("1", "7", "15")])
+def test_partially_linked_toc_is_completed_by_the_headings(linked):
+    doc = _inline(_html_toc(href=lambda k: f"#i{k}" if k in linked else None) + _html_body())
+    assert _summary(doc) == _FIVE
+
+
+def test_item_missing_from_a_linked_toc_is_found_on_its_heading():
+    doc = _inline(_html_toc(keys=[k for k in _FULL if k != "7A"]) + _html_body())
+    assert _summary(doc) == _FIVE
+
+
+def test_partially_linked_toc_over_an_unnumbered_body_keeps_the_anchors_only():
+    # nothing locates the unlinked items: the linked ones are the only sections (documented limit)
+    doc = _inline(_html_toc(href=lambda k: f"#i{k}" if k in ("7", "7A", "8", "9") else None)
+                  + _html_body(numbered=False))
+    assert _summary(doc) == _FIVE[2:]
+
+
+def test_headings_inconsistent_with_the_anchors_are_not_merged():
+    # Item 7A is not linked and its only heading stands before the anchor of Item 7
+    body = _html_body().replace('<p id="i7A"><b>Item 7A. Title 7A</b></p>', "")
+    body = body.replace('<p id="i7">', '<p><b>Item 7A. Title 7A</b></p><p id="i7">')
+    doc = _inline(_html_toc(keys=[k for k in _FULL if k != "7A"]) + body)
+    assert [s.name for s in doc.sections] == ["Item 1", "Item 1A", "Item 7", "Item 8"]
+    assert _text(doc, "Item 7").startswith("**Item 7. Title 7**")
+
+
+def test_linked_cross_reference_line_does_not_cut_an_anchored_section():
+    body = _html_body().replace("<p>BODY7X</p>", '<p>BODY7X</p><p>Item 8. Statements <a href="#i8">see here</a></p>'
+                                                 "<p>BODY7MOREX</p>")
+    doc = _inline(_html_toc() + body)
+    assert _summary(doc) == _FIVE[:2] + [("Item 7", ["BODY7X", "BODY7MOREX"])] + _FIVE[3:]
+
+
+def _q_html(numbered: bool, part_rows: bool = True):
+    one, two = ("1", "2", "3", "4"), ("1", "1A", "2", "5", "6")
+    rows = lambda p, keys: "".join(  # noqa: E731
+        f'<tr><td><a href="#{p}{k}">Item {k}.</a></td><td>Title</td></tr>' for k in keys)
+    toc = ("<table>" + ("<tr><td>PART I</td><td></td></tr>" if part_rows else "") + rows("a", one)
+           + ("<tr><td>PART II</td><td></td></tr>" if part_rows else "") + rows("b", two) + "</table>")
+    head = lambda k: f"Item {k}. Title" if numbered else "Title"  # noqa: E731
+    return (toc + "".join(f'<p id="a{k}"><b>{head(k)}</b></p><p>BODYI{k}X</p>{_P}' for k in one) + "<p>PART II</p>"
+            + "".join(f'<p id="b{k}"><b>{head(k)}</b></p><p>BODYII{k}X</p>{_P}' for k in two))
+
+
+@pytest.mark.parametrize("numbered", [True, False])
+@pytest.mark.parametrize("part_rows", [True, False])
+def test_anchored_10q(numbered, part_rows):
+    doc = _inline(_q_html(numbered, part_rows), "10-Q")
+    assert _summary(doc) == [("Part I Item 1", ["BODYI1X"]), ("Part I Item 2", ["BODYI2X"]),
+                             ("Part I Item 3", ["BODYI3X"]), ("Part I Item 4", ["BODYI4X"]),
+                             ("Part II Item 1A", ["BODYII1AX"])]
+    assert "PART II" not in _text(doc, "Part I Item 4")  # the Part heading bounds it too
+
+
+def test_10q_without_toc_short_part_i_items_then_a_long_part_ii_item():
+    # Part I Items 3 and 4, PART II and Part II Items 1, 1A, 2 are one dense run holding one
+    # Part line: the Part stays in effect for Part II Items 3 to 6
+    md = ("PART I\n\n" + "".join(f"Item {k}. T\n\nQI{k} {_BODY}\n\n" for k in "12")
+          + "Item 3. T\n\nNot applicable.\n\nItem 4. T\n\nShort.\n\nPART II\n\nItem 1. T\n\nNone.\n\n"
+          + f"Item 1A. T\n\nNo material changes.\n\nItem 2. T\n\n{_BODY}\n\n"
+          + "".join(f"Item {k}. T\n\nNone.\n\n" for k in "3456"))
+    s = {x.name: md[x.start:x.end] for x in find_sections(md, "10-Q")}
+    assert list(s) == ["Part I Item 1", "Part I Item 2", "Part I Item 3", "Part I Item 4", "Part II Item 1A"]
+    assert s["Part I Item 4"] == "Item 4. T\n\nShort.\n\n" and s["Part II Item 1A"].endswith("changes.\n\n")
+    rules = replace(SECTION_RULES["10-Q"], toc_min_part_lines=1)  # the threshold is a rule field
+    assert find_sections(md, "10-Q", rules=rules) == ()
+
+
+@pytest.mark.parametrize("name", ["ISO_8859-1", "latin_1", "cp819", "iso-8859-1:1987", "L1", "8859"])
+def test_every_spelling_of_latin1_is_windows_1252(name):
+    html = f'<html><head><meta charset="{name}"></head><body><p>'.encode() + b"\x93q\x94</p></body></html>"
+    assert html_to_markdown(html) == "“q”"
+
+
+@pytest.mark.parametrize("name", ["utf_16", "utf-16-le", "UTF-16BE", "utf-16", "utf16"])
+def test_every_spelling_of_utf16_on_a_byte_document_is_utf8(name):
+    html = f'<html><head><meta charset="{name}"></head><body><p>caf'.encode() + "é abcd</p></body></html>".encode()
+    html += b" " * (-len(html) % 4)  # an even length, so that a UTF-16 decoding would succeed
+    assert html_to_markdown(html) == "café abcd"
+
+
+@pytest.mark.parametrize("html", [
+    '<p>A</p><p><a name="x"></a></p><p>B <a href="#x">go</a></p>',
+    '<p>A</p><div id="x"><p>B</p></div><p><a href="#x">go</a></p>',
+    '<p><a href="#x">go</a></p><p>A</p><p id="x"></p>',
+    '<p id="x"></p><p>A <a href="#x">go</a></p>',
+    '<p><a href="#x">go</a></p><table><tr id="x"><td></td><td>c</td></tr></table>',
+    '<p><a href="#x">go</a></p><p>t<br id="x">u</p><h2 id="y">Head</h2><p><a href="#y">h</a></p>',
+    '<p><a href="#x">go</a></p><p>t<br id="x"><br>u</p><p>v<br><a name="y"></a><br>w <a href="#y">h</a></p>',
+    '<p><a href="#x">go</a> <a href="#y">h</a></p><p>A</p><p><a name="x"></a><a name="y"></a></p>',
+])
+def test_markdown_does_not_depend_on_what_is_linked(html):
+    unlinked = html.replace('href="#x"', 'href="#zz"').replace('href="#y"', 'href="#zz"')
+    marked = html_to_markdown(html.encode())
+    assert marked.replace("#x", "#zz").replace("#y", "#zz") == html_to_markdown(unlinked.encode())
+
+
+def test_anchor_on_an_empty_paragraph_is_the_next_text_line():
+    doc = _inline('<table><tr><td><a href="#x">Item 7.</a></td><td>MD&amp;A</td></tr></table>'
+                  f'<p>Preamble.</p><p><a name="x"></a></p><p><b>WHAT MANAGEMENT THINKS</b></p>{_P}')
+    (s7,) = doc.sections
+    assert doc.markdown[s7.start:].startswith("**WHAT MANAGEMENT THINKS**") and "\n\n\n" not in doc.markdown
