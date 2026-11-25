@@ -16,6 +16,9 @@ from collections import Counter
 
 import pytest
 
+from datetime import date
+
+from tests.live import recorded
 from tests.live.recorded import compare, load_inputs, manifest, recorded_ciks
 
 #: Least share of equal ``(concept, valid_date, frequency, value)`` between the selection on live
@@ -44,6 +47,16 @@ def test_every_recorded_filing_has_positions_on_both_sides(cik):
     assert {r["accn"] for r in inputs.fsds_positions} == accns
 
 
+@pytest.mark.parametrize("cik", recorded_ciks())
+def test_live_and_fsds_take_the_same_statement_reports(cik):
+    """Guards over-inclusion, which the value parity cannot see when an extra report repeats
+    tags the selection already finds: live classifies exactly the reports FSDS keeps."""
+    inputs = load_inputs(cik)
+    reports = lambda rows: {(r["accn"], r["statement"], r["report"]) for r in rows}  # noqa: E731
+    live, fsds = reports(inputs.live_positions), reports(inputs.fsds_positions)
+    assert live == fsds, f"live only {sorted(live - fsds)}, FSDS only {sorted(fsds - live)}"
+
+
 def test_recorded_set_covers_the_required_cases():
     forms = Counter(a["form"] for e in manifest()["issuers"].values() for a in e["accessions"])
     assert {"10-K", "10-Q", "10-K/A", "20-F"} <= set(forms)
@@ -62,3 +75,26 @@ def test_positions_match_fsds_on_every_line_fsds_lists():
             assert got is not None, (cik, r)
             assert (got["report"], got["version"], got["period"]) == \
                 (r["report"], r["version"], r["period"]), (cik, r, got)
+
+
+def _row(value, location, concept="Revenue"):
+    return {"concept": concept, "valid_date": date(2024, 6, 30), "frequency": "FY", "basis": "",
+            "source_code": "x", "value": value, "location": location, "on_statement": None,
+            "original_tag": "us-gaap:Revenues", "filing_ref": "a"}
+
+
+def test_compare_counts_a_one_sided_unknown_row_as_different(monkeypatch):
+    """Only a row ``unknown`` on both sides is left out; a row one side alone gives differs,
+    whatever its location."""
+    sides = {"live": [_row(1, "unknown"), _row(5, "unknown", "Both")],
+             "fsds": [_row(5, "unknown", "Both")]}
+    monkeypatch.setattr(recorded, "run_selection", lambda facts, statements: sides[statements])
+    inputs = recorded.Inputs("c", "n", None, [], [], "live", "fsds", None)
+    parity = compare(inputs)
+    assert (parity.equal, len(parity.differences)) == (0, 1)
+    assert parity.differences[0].concept == "Revenue" and parity.differences[0].fsds is None
+
+
+def test_load_inputs_is_built_once_per_issuer():
+    cik = recorded_ciks()[0]
+    assert load_inputs(cik) is load_inputs(cik)

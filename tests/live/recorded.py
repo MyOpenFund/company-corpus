@@ -87,8 +87,10 @@ def _table(rows: list[dict], schema: pa.Schema | None = None) -> pa.Table:
     return pa.Table.from_pylist(rows, schema=schema)
 
 
+@cache
 def load_inputs(cik: str) -> Inputs:
-    """The selection inputs of one recorded issuer, both position sources."""
+    """The selection inputs of one recorded issuer, both position sources (built once per CIK and
+    shared: callers must not mutate the result, copy it instead)."""
     entry = manifest()["issuers"][cik]
     now = datetime.fromisoformat(entry["recorded_at"])
     sec = RecordedSec(cik)
@@ -184,7 +186,7 @@ def compare(inputs: Inputs) -> Parity:
     out = Parity(inputs.cik, inputs.name)
     for key in sorted(set(lk) | set(fk), key=str):
         a, b = lk.get(key), fk.get(key)
-        if all(r is None or r["location"] == "unknown" for r in (a, b)):
+        if a is not None and b is not None and a["location"] == b["location"] == "unknown":
             continue
         if a is not None and b is not None and a["value"] == b["value"]:
             out.equal += 1
