@@ -12,7 +12,8 @@ Reproduced from FSDS:
   ``period``/``filed`` as ``YYYYMMDD``; ``report``/``line`` ints;
 * ``report`` is the R-file number of the rendered report (``R4.htm`` -> 4);
 * ``line`` is the 1-based position in the depth-first walk of the report's presentation tree
-  (children by numeric ``order``), every locator counted, abstracts included;
+  (children by numeric ``order``), every locator counted, abstracts included (FSDS numbers
+  differently, see below);
 * ``version`` is ``<prefix>/<year>`` for a standard taxonomy (``us-gaap/2024``, ``srt/2024``,
   ``dei/2024``, ``ifrs/2024``), read from the locator's schema URL, and the accession for an
   extension element;
@@ -21,8 +22,18 @@ Reproduced from FSDS:
 * only ``KEPT_STATEMENTS``, parenthetical reports dropped, one row per ``(accn, statement, tag)``
   keeping the lowest ``(report, line)``, rows ordered by that key.
 
-Approximations (A6 measures them against FSDS on real issuers):
+Approximations, measured in A6 against FSDS ``pre.txt`` on nine real issuers (one to three
+filings each, FSDS 2026q1 and 2026q3; ``tests/live/test_positions_parity.py``): every FSDS row
+is found on the same statement, report, version and period, and the selection gives the same
+values on 100 % of the rows the positions decide:
 
+* FSDS lists only the lines the SEC renderer shows with a value: never an abstract, table, axis,
+  member, domain or line-items element, nor a line without a fact in the filing (Oracle's 10-Q
+  presents ten such lines). The rows here list every presentation locator, so they hold more
+  (+25 % on the measured filings); the extra rows carry no fact of the filing itself;
+* FSDS ``line`` does not count the report's root and skips the hidden lines: ``line`` here is the
+  FSDS ``line`` + 1 on 96 % of the measured rows, more after hidden lines. Nothing downstream
+  selects on ``line``; only the ``(report, line)`` dedup reads it, and ordering is preserved;
 * ``stmt`` is DERA's own classification; here it comes from the report names by the ordered
   rules in ``STATEMENT_RULES`` (data, first match wins), and only reports in ``MenuCategory``
   ``Statements`` (or, in old summaries without a menu, whose long name says ``Statement``) count;
@@ -37,7 +48,7 @@ Approximations (A6 measures them against FSDS on real issuers):
   walk; a locator reached again from another parent is not repeated (bounds the work on
   diamond-shaped or cyclic arcs). A filer reusing one locator for a concept placed twice
   (opening/closing cash) loses the second place, which can shift later ``line`` numbers against
-  FSDS: a known approximation, measured in A6;
+  FSDS. Not observed in A6: the 18 measured linkbases give each place its own locator;
 * ``version`` is known only for the taxonomies of ``KNOWN_TAXONOMIES`` (by host and directory);
   any other schema, absolute or relative, is treated as an extension (the accession);
 * prohibited arcs (``use="prohibited"``) are ignored rather than applied; a filing's own
@@ -257,7 +268,7 @@ def _walk(link: ET.Element) -> list[str]:
     Each locator label is emitted once, at its first place in the walk. A filer can reuse one
     locator for the same concept placed twice (opening and closing cash in a cash flow statement);
     its second place is then skipped, which can shift the ``line`` of everything after it against
-    FSDS. Known approximation, to be measured in A6."""
+    FSDS. Known approximation, not observed on the A6 real filings."""
     hrefs: dict[str, str] = {}
     labels: list[str] = []
     children: dict[str, list[tuple[float, int, str]]] = {}

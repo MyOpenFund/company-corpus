@@ -8,7 +8,8 @@ does, whatever the spelling of the name); with none, or when the declared one fa
 falling back to cp1252 when UTF-8 fails. Empty or unparseable HTML
 gives an empty Markdown. Documents larger than ``max_html_bytes`` are refused
 (:class:`DocumentTooLarge`) before any parsing. Measured worst case under the default 20 MB cap:
-about 45 s and over 1 GB on nested layout tables (to be re-measured on real filings). The HTML is
+about 45 s and over 1 GB on nested layout tables (synthetic). Real 10-Ks (A6, eight issuers,
+2.0 to 12.9 MB of HTML): 0.6 to 5.5 s and at most 320 MB peak RSS per document. The HTML is
 then cleaned and reduced before MarkItDown, which bounds its cost on table-dense filings:
 
 * hidden content is dropped: the inline-XBRL ``ix:header`` block, elements with the ``hidden``
