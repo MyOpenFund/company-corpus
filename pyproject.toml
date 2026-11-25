@@ -46,7 +46,7 @@ store = ["myopenfund-open-data-store[writer]>=0.1.0,<0.2"]
 # MarkItDown for filing documents.
 live = [
     "myopenfund-open-data-store>=0.1.0,<0.2",
-    "markitdown>=0.1",
+    "markitdown>=0.1,<1",
 ]
 
 [project.urls]

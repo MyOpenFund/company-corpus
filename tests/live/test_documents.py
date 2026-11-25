@@ -5,13 +5,15 @@ from pathlib import Path
 import pytest
 
 from company_corpus.live.documents import (
-    PRIORITY_SECTIONS,
     SECTION_RULES,
+    DocumentTooLarge,
     FilingDocument,
     PrimaryDocumentNotFound,
+    UnsupportedDocument,
     filing_document,
     find_sections,
     html_to_markdown,
+    priority_sections,
 )
 from company_corpus.live.filings import FilingRef
 from company_corpus.live.sec import SecNotFound
@@ -153,7 +155,6 @@ def test_last_heading_occurrence_before_the_next_item_wins():
 
 
 def test_rules_are_data():
-    assert PRIORITY_SECTIONS == ("Item 7", "Item 5")
     assert {"10-K", "20-F"} <= set(SECTION_RULES)
     emitted = {name for r in SECTION_RULES.values() for name in r.emitted}
     assert {"Item 1", "Item 1A", "Item 7", "Item 7A", "Item 8", "Item 5", "Item 18"} <= emitted
@@ -175,3 +176,108 @@ def test_heading_longer_than_the_rule_is_not_a_heading():
     rules = replace(SECTION_RULES["10-K"], max_heading_chars=10)
     md = "Item 7. MANAGEMENT'S DISCUSSION\n\nItem 7A.\n\nrisk\n"
     assert [s.name for s in find_sections(md, "10-K", rules=rules)] == ["Item 7A"]
+
+
+def test_priority_sections_per_form_family():
+    assert priority_sections("10-K") == ("Item 7",) == priority_sections("10-K/A")
+    assert priority_sections("10-Q") == ("Part I Item 2",)
+    assert priority_sections("20-F") == ("Item 5",)
+    assert priority_sections("40-F") == () == priority_sections("8-K")
+    for rules in SECTION_RULES.values():
+        assert set(rules.priority) <= set(rules.emitted)
+
+
+def test_10q_sections_with_omitted_part_ii_items():
+    ref = replace(REF, form="10-Q", primary_document="exco-10q.htm")
+    doc = _doc("tenq.htm", ref)
+    assert [s.name for s in doc.sections] == [
+        "Part I Item 1", "Part I Item 2", "Part I Item 3", "Part I Item 4", "Part II Item 1A"]
+    mdna = _text(doc, "Part I Item 2")
+    assert "Liquidity and Capital Resources" in mdna and "no material changes" not in mdna
+    assert mdna.startswith("ITEM")  # the body heading, not the unlinked TOC row
+    item4 = _text(doc, "Part I Item 4")
+    assert "effective" in item4 and "PART II" not in item4  # stops at the Part II heading
+    assert "UNREGISTERED" not in _text(doc, "Part II Item 1A")
+    assert "HIDDENFACT10Q" not in doc.markdown
+
+
+_BODY = "Body text long enough to be a real section rather than a table-of-contents entry, " * 2
+
+
+def _toc_rows(*items):
+    return "|  |  |  |\n| --- | --- | --- |\n" + "".join(f"| Item {k}. | Title {k} | {n} |\n"
+                                                    for n, k in enumerate(items, start=3))
+
+
+def test_unlinked_toc_with_a_combined_body_heading():
+    md = (_toc_rows("1", "1A", "7", "7A", "8") + "\n"
+          f"Item 1. Business\n\n{_BODY}\n\nItem 1A. Risk Factors\n\n{_BODY}\n\n"
+          f"Items 7 and 7A. MD&A and Market Risk\n\n{_BODY}\n\nItem 8. Statements\n\n{_BODY}\n")
+    s = {x.name: x for x in find_sections(md, "10-K")}
+    assert list(s) == ["Item 1", "Item 1A", "Item 7", "Item 8"]
+    assert md[s["Item 1"].start:].startswith("Item 1. Business")
+    assert md[s["Item 7"].start:].startswith("Items 7 and 7A.")
+    assert s["Item 7"].end == s["Item 8"].start
+
+
+def test_unlinked_toc_with_a_missing_body_heading():
+    md = (_toc_rows("1", "1A", "7", "7A", "8") + "\n"
+          f"Item 1. Business\n\n{_BODY}\n\nItem 1A. Risk Factors\n\n{_BODY}\n\n"
+          f"Item 7. MD&A\n\n{_BODY}\n\nItem 8. Statements\n\n{_BODY}\n")
+    s = {x.name: x for x in find_sections(md, "10-K")}
+    assert list(s) == ["Item 1", "Item 1A", "Item 7", "Item 8"]
+    assert all(not md[x.start:].startswith("|") for x in s.values())
+
+
+def test_short_body_items_are_not_a_table_of_contents():
+    md = (f"Item 1. Business\n\n{_BODY}\n\nItem 1B. Unresolved\n\nNone.\n\nItem 1C. Cyber\n\n{_BODY}\n\n"
+          "Item 3. Legal\n\nNone.\n\nItem 4. Mine Safety\n\nNot applicable.\n\n"
+          f"Item 7. MD&A\n\n{_BODY}\n")
+    assert [s.name for s in find_sections(md, "10-K")] == ["Item 1", "Item 7"]
+
+
+def test_anchor_linked_heading_outside_a_table_is_kept():
+    md = f"| [Item 7.](#i7) | MD&A | 34 |\n\n[Item 7. MD&A](#toc)\n\n{_BODY}\n\nItem 8. Statements\n\nx\n"
+    (s7, _s8) = find_sections(md, "10-K")
+    assert md[s7.start:].startswith("[Item 7. MD&A](#toc)")
+
+
+def test_item_split_by_a_line_break():
+    md = html_to_markdown(b"<p><b>Item<br/>7.</b> MD&amp;A</p><p>body</p><p><b>ITEM 8.</b></p><p>x</p>")
+    (s7, _s8) = find_sections(md, "10-K")
+    assert s7.name == "Item 7" and "body" in md[s7.start:s7.end]
+
+
+def test_hidden_attribute_and_visibility_hidden_are_dropped():
+    md = html_to_markdown(b'<p>shown</p><div hidden>HIDDEN_ATTR</div>'
+                          b'<p style="visibility : Hidden">HIDDEN_VIS</p><p style="color:red">kept</p>')
+    assert "HIDDEN_ATTR" not in md and "HIDDEN_VIS" not in md and "shown" in md and "kept" in md
+
+
+def test_encoding_declared_utf8_then_cp1252():
+    assert "caf’" in html_to_markdown(b"<p>caf\x92</p>")  # undeclared, not UTF-8: cp1252
+    assert "café" in html_to_markdown("<p>café</p>".encode())  # undeclared UTF-8
+    latin = b'<html><head><meta charset="iso-8859-1"></head><body><p>caf\xe9</p></body></html>'
+    assert "café" in html_to_markdown(latin)
+
+
+def test_non_html_primary_document_is_refused_unfetched():
+    sec = FakeSec({})
+    with pytest.raises(UnsupportedDocument):
+        filing_document(replace(REF, primary_document="exco-10k.txt"), sec)
+    assert sec.calls == []
+
+
+def test_document_too_large_is_refused_before_conversion():
+    body = (DOCS / "tenk.htm").read_bytes()
+    sec = FakeSec({f"{FOLDER}/{PRIMARY}": body})
+    with pytest.raises(DocumentTooLarge):
+        filing_document(REF, sec, max_html_bytes=len(body) - 1)
+    assert filing_document(REF, sec, max_html_bytes=len(body)).sections
+
+
+def test_reduction_drops_presentation_attributes_and_keeps_links_and_spans():
+    md = html_to_markdown(b'<table><tr><td colspan="2" style="width:10%"><span class="x">A</span>'
+                          b'<span></span></td></tr><tr><td>1</td><td><a href="ex21.htm" style="c">2</a></td>'
+                          b'</tr></table>')
+    assert "| A |" in md.replace("  ", " ") and "[2](ex21.htm)" in md and "style" not in md
