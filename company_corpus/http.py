@@ -17,6 +17,7 @@ Parallels ``cb_corpus.http``. Provides a small :class:`Fetcher` that:
 from __future__ import annotations
 
 import random
+import threading
 import time
 from typing import Callable
 from urllib.parse import urlsplit
@@ -29,14 +30,16 @@ from .config import Config
 class Fetcher:
     """Polite, throttled HTTP client shared across discovery and download.
 
-    Not thread-safe: the per-host throttle state is unguarded, so a single
-    ``Fetcher`` is meant to be reused *sequentially* within one thread. The
-    pipeline is single-threaded, so no lock is needed; if concurrent crawling is
-    ever added, give each worker its own ``Fetcher`` or guard ``_throttle``.
+    Not thread-safe by default: the per-host throttle state is unguarded, so a
+    ``Fetcher`` is meant to be reused *sequentially* within one thread (the
+    pipeline is single-threaded). Pass ``thread_safe=True`` to run ``_throttle``
+    under a lock so request spacing is shared across threads.
     """
 
-    def __init__(self, config: Config | None = None, session: requests.Session | None = None):
+    def __init__(self, config: Config | None = None, session: requests.Session | None = None,
+                 *, thread_safe: bool = False):
         self.config = config or Config()
+        self._throttle_lock = threading.Lock() if thread_safe else None
         self.session = session or requests.Session()
         self.session.headers.update(
             {
@@ -56,6 +59,13 @@ class Fetcher:
         self._last_request: dict[str, float] = {}
 
     def _throttle(self, url: str) -> None:
+        if self._throttle_lock is None:
+            self._throttle_unlocked(url)
+            return
+        with self._throttle_lock:
+            self._throttle_unlocked(url)
+
+    def _throttle_unlocked(self, url: str) -> None:
         host = urlsplit(url).netloc
         delay = self.config.min_delay_seconds
         if delay <= 0:
