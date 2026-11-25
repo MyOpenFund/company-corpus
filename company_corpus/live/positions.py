@@ -56,9 +56,11 @@ values on 100 % of the rows the positions decide:
 * with several ``*_pre.xml``, the one FilingSummary lists in ``InputFiles`` is used (else the one
   sharing the stem of a listed ``.xsd``, else the first by name);
 * a filing without ``*_pre.xml`` (filer agents such as DFIN embed every linkbase in the schema:
-  Microsoft and Oracle since 2025) is read from its ``.xsd`` (the one ``InputFiles`` lists, else
-  the first by name): the ``presentationLink`` elements of its appinfo are walked alike. A schema
-  without any counts ``positions:no_presentation``;
+  Microsoft and Oracle since 2025), or whose ``*_pre.xml`` is missing (404) or holds no
+  presentation link, is read from its ``.xsd`` files (suffixes in any case; the ones
+  ``InputFiles`` lists first, then the others by name), the first one embedding a
+  ``presentationLink`` being walked alike. Each extra file tried is one more request. A filing
+  where no file carries a presentation link counts ``positions:no_presentation``;
 * a period ending exactly between two month ends rounds to the later one.
 
 Failure mode: a file that is missing (404 or absent from ``index.json``), malformed, or carries a
@@ -107,8 +109,17 @@ NOT_STATEMENT = (r"\((?:details?|tables?|polic(?:y|ies))\)", r"\s-\s(?:disclosur
 PARENTHETICAL = r"parenthetical"
 #: A report named ``"<group> - <statement>"`` is classified on its last segment first (Novo
 #: Nordisk's "Income statement and Statement of comprehensive income - Statement of comprehensive
-#: income" is CI in FSDS), then on the whole name.
+#: income" is CI in FSDS), then on the whole name. Only a spaced hyphen separates (an en dash or an
+#: unspaced hyphen leaves the name whole).
 SUB_REPORT_SEPARATOR = " - "
+#: The last segment decides only when it reads as a statement title itself ("statement(s) of ...",
+#: or a name ending in "statement", "balance sheet(s)", "financial position/condition", before any
+#: parenthesised remark). A line or topic after an unambiguous title ("Consolidated Statements of
+#: Cash Flows - Capital expenditures", "Balance Sheets - X Income Fund", "Statements of Income -
+#: Balance Sheet Data") leaves the classification to the whole name, i.e. to its head.
+STATEMENT_TITLE = (r"\bstatements?\s+of\b"
+                   r"|\b(?:statements?|balance\s*sheets?|financial\s*(?:position|condition))"
+                   r"\s*(?:\([^)]*\)\s*)*$")
 #: Reports taken from FilingSummary: this menu category, or, when a summary has no menu (old
 #: filings), a long name like ``"100030 - Statement - BALANCE SHEETS"``.
 STATEMENT_MENU = "Statements"
@@ -142,16 +153,19 @@ def _role_words(role: str) -> str:
 
 def classify_report(short_name: str, long_name: str, role: str) -> tuple[str | None, bool]:
     """``(statement, parenthetical)`` of a rendered report: the short name decides, then the long
-    name, then the role URI's last segment (each on its part after the last ``" - "`` first, see
-    ``SUB_REPORT_SEPARATOR``); ``None`` when no rule matches or a name is a detail."""
+    name, then the role URI's last segment (each on its part after the last ``" - "`` first when
+    that part is a statement title, see ``SUB_REPORT_SEPARATOR`` and ``STATEMENT_TITLE``); ``None``
+    when no rule matches or a name is a detail."""
     texts = [t.lower().replace("’", "'") for t in (short_name or "", long_name or "",
                                                         _role_words(role or "")) if t]
     if any(re.search(p, t) for p in NOT_STATEMENT for t in texts):
         return None, False
     parenthetical = any(re.search(PARENTHETICAL, t) for t in texts)
     for text in texts:
-        # "<group> - <statement>" (IFRS sub-reports): the last segment decides when it matches.
-        for part in (text.rsplit(SUB_REPORT_SEPARATOR, 1)[-1], text):
+        # "<group> - <statement>" (IFRS sub-reports): the last segment decides when it is a title.
+        _, sep, last = text.rpartition(SUB_REPORT_SEPARATOR)
+        parts = (last, text) if sep and re.search(STATEMENT_TITLE, last.strip()) else (text,)
+        for part in parts:
             for statement, pattern in STATEMENT_RULES:
                 if re.search(pattern, part):
                     return statement, parenthetical
@@ -330,27 +344,41 @@ def fsds_period(d: date | None) -> str:
     return (earlier if (d - earlier) < (later - d) else later).strftime("%Y%m%d")
 
 
+def _has_suffix(name: str, suffix: str) -> bool:
+    return name.lower().endswith(suffix)
+
+
+def _stem(name: str, suffix: str) -> str:
+    return name[:-len(suffix)]
+
+
 def _presentation_name(names: list[str], inputs: list[str]) -> str | None:
     """The filing's presentation linkbase: the one FilingSummary rendered from, else the one
     sharing the stem of a rendered schema, else the first by name."""
-    candidates = sorted(n for n in names if n.endswith(PRESENTATION_SUFFIX))
+    candidates = sorted(n for n in names if _has_suffix(n, PRESENTATION_SUFFIX))
+    by_stem = {_stem(n, PRESENTATION_SUFFIX).lower(): n for n in candidates}
     for n in inputs:
         if n in candidates:
             return n
     for n in inputs:
-        if n.endswith(".xsd") and f"{n[:-4]}{PRESENTATION_SUFFIX}" in candidates:
-            return f"{n[:-4]}{PRESENTATION_SUFFIX}"
+        if _has_suffix(n, SCHEMA_SUFFIX) and _stem(n, SCHEMA_SUFFIX).lower() in by_stem:
+            return by_stem[_stem(n, SCHEMA_SUFFIX).lower()]
     return candidates[0] if candidates else None
 
 
-def _schema_name(names: list[str], inputs: list[str]) -> str | None:
-    """The filing's schema, read when no ``*_pre.xml`` exists (embedded linkbases): the one
-    FilingSummary rendered from, else the first by name."""
-    candidates = sorted(n for n in names if n.endswith(SCHEMA_SUFFIX))
-    for n in inputs:
-        if n in candidates:
-            return n
-    return candidates[0] if candidates else None
+def _schema_names(names: list[str], inputs: list[str]) -> list[str]:
+    """The filing's schemas (suffix in any case), in the order they are tried for embedded
+    presentation links: the ones FilingSummary rendered from, then the others by name."""
+    candidates = sorted(n for n in names if _has_suffix(n, SCHEMA_SUFFIX))
+    listed = [n for n in candidates if n in inputs]
+    return listed + [n for n in candidates if n not in listed]
+
+
+def _presentation_documents(names: list[str], inputs: list[str]) -> list[str]:
+    """Files to read for the presentation, in order, until one carries a presentation link: the
+    ``*_pre.xml`` (see ``_presentation_name``), then the schemas (``_schema_names``)."""
+    pre = _presentation_name(names, inputs)
+    return ([pre] if pre else []) + _schema_names(names, inputs)
 
 
 def _fetch(sec: SecGet, url: str) -> bytes | None:
@@ -379,13 +407,15 @@ def filing_positions(ref: FilingRef, sec: SecGet, *, counters: Counter | None = 
         if not reports:
             counters["positions:no_statement_reports"] += 1
             return []
-        pre_name = _presentation_name(names, inputs) or _schema_name(names, inputs)
-        pre = _fetch(sec, f"{base}/{pre_name}") if pre_name else None
-        if pre is None:
-            counters["positions:no_presentation"] += 1
-            return []
-        hrefs, has_links = _presentation_hrefs(pre, {role for role, _, _ in reports})
-        if not has_links:
+        roles = {role for role, _, _ in reports}
+        hrefs = None
+        for name in _presentation_documents(names, inputs):
+            body = _fetch(sec, f"{base}/{name}")
+            found, has_links = _presentation_hrefs(body, roles) if body is not None else ({}, False)
+            if has_links:
+                hrefs = found
+                break
+        if hrefs is None:
             counters["positions:no_presentation"] += 1
             return []
     except _Malformed:

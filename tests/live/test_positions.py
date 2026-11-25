@@ -76,6 +76,35 @@ def test_classify_report_cases(short_name, expected):
     assert classify_report(short_name, "", "") == expected
 
 
+@pytest.mark.parametrize("short_name, expected", [
+    # The last " - " segment decides only when it reads as a statement title itself; a line or
+    # topic name after an unambiguous statement title keeps the head's classification.
+    ("CONSOLIDATED STATEMENTS OF CASH FLOWS - Capital expenditures", ("CF", False)),
+    ("Statement of Financial Position - Loss allowance", ("BS", False)),
+    ("Balance Sheet - Equity", ("BS", False)),
+    ("Cash flow statement - Profit", ("CF", False)),
+    ("Statement of changes in equity - Retained earnings", ("EQ", False)),
+    ("Consolidated Statements of Comprehensive Income - Net income", ("CI", False)),
+    ("Consolidated Statements of Stockholders' Equity - Comprehensive Income", ("EQ", False)),
+    ("Balance Sheets - X Income Fund", ("BS", False)),
+    ("Consolidated Balance Sheet - Parent Company - Equity", ("BS", False)),
+    ("Statement - Consolidated Balance Sheets", ("BS", False)),
+    # Only a spaced hyphen separates: an en dash or an unspaced hyphen reads the whole name.
+    ("Income statement and Statement of comprehensive income \u2013 Statement of comprehensive income",
+     ("IS", False)),
+    ("Income statement and Statement of comprehensive income-Statement of comprehensive income",
+     ("IS", False)),
+])
+def test_classify_report_last_segment_decides_only_as_a_statement_title(short_name, expected):
+    assert classify_report(short_name, "", "") == expected
+
+
+def test_classify_report_long_name_with_a_bare_statement_segment_falls_back():
+    assert classify_report("", "100040 - Statement - Statement",
+                           "http://x/role/ConsolidatedStatementsOfIncome") == ("IS", False)
+    assert classify_report("", "0000004 - Statement - CONSOLIDATED BALANCE SHEETS", "") == ("BS", False)
+
+
 def test_classify_report_falls_back_on_long_name_then_role():
     assert classify_report("", "100030 - Statement - BALANCE SHEETS", "") == ("BS", False)
     assert classify_report("Statement 3", "", "http://www.example.com/role/CashFlowsStatements") == ("CF", False)
@@ -372,3 +401,66 @@ def test_statement_roles_absent_from_the_linkbase_count_no_rows():
     counters = Counter()
     assert filing_positions(REF, FakeSec(_routes(**{PRE: pre.encode()})), counters=counters) == []
     assert counters == Counter({"positions:no_rows": 1})
+
+
+def _index_with(*names: str, drop_pre: bool = False) -> bytes:
+    index = json.loads((FILING_DIR / "index.json").read_text())
+    if drop_pre:
+        index["directory"]["item"] = [i for i in index["directory"]["item"]
+                                      if not i["name"].endswith("_pre.xml")]
+    index["directory"]["item"] += [{"name": n, "type": "text.gif", "size": "1"} for n in names]
+    return json.dumps(index).encode()
+
+
+def _summary_without(*names: str) -> bytes:
+    summary = (FILING_DIR / "FilingSummary.xml").read_text()
+    for n in names:
+        summary = summary.replace(f"<File>{n}</File>", "")
+    return summary.encode()
+
+
+def test_listed_presentation_linkbase_missing_falls_back_on_the_schema():
+    """A ``*_pre.xml`` listed in index.json but 404 on EDGAR: the embedding schema is read."""
+    sec = FakeSec(_routes(**{PRE: None, SCHEMA: _schema_embedding((FILING_DIR / PRE).read_text())}))
+    counters = Counter()
+    assert filing_positions(REF, sec, counters=counters) == filing_positions(REF, FakeSec(_routes()))
+    assert sec.calls[-2:] == [f"{FOLDER}/{PRE}", f"{FOLDER}/{SCHEMA}"] and not counters
+
+
+def test_presentation_linkbase_without_links_falls_back_on_the_schema():
+    empty = ('<link:linkbase xmlns:link="http://www.xbrl.org/2003/linkbase">'
+             '<link:roleRef roleURI="http://x/role"/></link:linkbase>').encode()
+    sec = FakeSec(_routes(**{PRE: empty, SCHEMA: _schema_embedding((FILING_DIR / PRE).read_text())}))
+    counters = Counter()
+    assert filing_positions(REF, sec, counters=counters) == filing_positions(REF, FakeSec(_routes()))
+    assert not counters
+
+
+def test_neither_linkbase_nor_schema_counts_no_presentation_once():
+    counters = Counter()
+    assert filing_positions(REF, FakeSec(_routes(**{PRE: None})), counters=counters) == []
+    assert counters == Counter({"positions:no_presentation": 1})
+
+
+def test_schema_suffix_is_case_insensitive():
+    upper = "MSFT-20240630.XSD"
+    index = json.loads(_index_with(upper, drop_pre=True))
+    index["directory"]["item"] = [i for i in index["directory"]["item"] if i["name"] != SCHEMA]
+    sec = FakeSec(_routes(**{"index.json": json.dumps(index).encode(), PRE: None,
+                             "FilingSummary.xml": _summary_without(PRE, SCHEMA),
+                             upper: _schema_embedding((FILING_DIR / PRE).read_text())}))
+    assert filing_positions(REF, sec) == filing_positions(REF, FakeSec(_routes()))
+    assert sec.calls[-1] == f"{FOLDER}/{upper}"
+
+
+def test_several_schemas_without_input_files_prefer_the_one_with_presentation_links():
+    """Without ``InputFiles``, the first schema by name (an exhibit's, say) may embed no
+    presentation: the next one that does is read."""
+    no_links = _schema_embedding('<link:linkbase xmlns:link="http://www.xbrl.org/2003/linkbase"/>')
+    sec = FakeSec(_routes(**{"index.json": _index_with("aaa-20240630.xsd", drop_pre=True), PRE: None,
+                             "FilingSummary.xml": _summary_without(PRE, SCHEMA),
+                             "aaa-20240630.xsd": no_links,
+                             SCHEMA: _schema_embedding((FILING_DIR / PRE).read_text())}))
+    counters = Counter()
+    assert filing_positions(REF, sec, counters=counters) == filing_positions(REF, FakeSec(_routes()))
+    assert sec.calls[-2:] == [f"{FOLDER}/aaa-20240630.xsd", f"{FOLDER}/{SCHEMA}"] and not counters
