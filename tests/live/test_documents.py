@@ -281,3 +281,60 @@ def test_reduction_drops_presentation_attributes_and_keeps_links_and_spans():
                           b'<span></span></td></tr><tr><td>1</td><td><a href="ex21.htm" style="c">2</a></td>'
                           b'</tr></table>')
     assert "| A |" in md.replace("  ", " ") and "[2](ex21.htm)" in md and "style" not in md
+
+
+@pytest.mark.parametrize("fixture", ["tenk_shell.htm", "tenk_smaller.htm"])
+def test_short_consecutive_body_items_without_toc_keep_their_headings(fixture):
+    # Items 2-6 (and 1A/1C for a smaller reporting company) one line each, PART II between them
+    doc = _doc(fixture, replace(REF, primary_document="exco-10k.htm"))
+    assert [s.name for s in doc.sections] == ["Item 1", "Item 1A", "Item 7", "Item 7A", "Item 8"]
+    assert _text(doc, "Item 7").startswith("**Item 7.") and "SHELLMDNA" in _text(doc, "Item 7")
+    assert "Not required" in _text(doc, "Item 1A") or fixture == "tenk_shell.htm"
+
+
+def test_10q_short_part_ii_items_without_toc_keep_their_headings():
+    doc = _doc("tenq_short_part2.htm", replace(REF, form="10-Q", primary_document="exco-10q.htm"))
+    assert [s.name for s in doc.sections] == [
+        "Part I Item 1", "Part I Item 2", "Part I Item 3", "Part I Item 4", "Part II Item 1A"]
+    item4 = _text(doc, "Part I Item 4")
+    assert "QCONTROLS" in item4 and "PART II" not in item4
+    assert "no material changes" in _text(doc, "Part II Item 1A")
+
+
+@pytest.mark.parametrize("line", ["Item 7, Management's Discussion, is incorporated by reference.",
+                                  "Part I, Item 1A of our Annual Report describes these risks."])
+def test_comma_after_the_key_is_prose(line):
+    md = f"{line}\n\nItem 7A. Market risk\n\nrisk\n"
+    assert [s.name for s in find_sections(md, "10-K")] == ["Item 7A"]
+    assert find_sections(f"{line}\n\nPART II\n\nItem 1A. Risks\n\nx\n", "10-Q")[-1].name == "Part II Item 1A"
+
+
+@pytest.mark.parametrize("html", [b"", b"   \n", b"<!-- only a comment -->"])
+def test_empty_html_gives_empty_markdown(html):
+    assert html_to_markdown(html) == ""
+
+
+def test_ordered_list_start_is_kept():
+    assert "5. fifth" in html_to_markdown(b'<ol start="5" style="x"><li>fifth</li></ol>')
+
+
+def test_wrong_declared_charset_falls_back():
+    wrong = b'<html><head><meta charset="utf-8"></head><body><p>caf\x92</p></body></html>'
+    assert "caf’" in html_to_markdown(wrong)
+
+
+def test_toc_cut_by_sub_entries_stays_a_toc():
+    rows = _toc_rows("1", "1A", "7", "7A", "8").rstrip("\n")
+    subs = "".join(f"\n|  | Consolidated statement number {i} of the Company | {50 + i} |" for i in range(6))
+    tail = "".join(f"\n| Item {k}. | Title {k} | 99 |" for k in ("9", "9A", "10", "11", "15"))
+    md = (rows + subs + tail + "\n\n"
+          f"Item 1. Business\n\n{_BODY}\n\nItem 1A. Risk Factors\n\n{_BODY}\n\n"
+          f"Item 7. MD&A\n\n{_BODY}\n\nItem 8. Statements\n\n{_BODY}\n")
+    s = {x.name: x for x in find_sections(md, "10-K")}
+    assert list(s) == ["Item 1", "Item 1A", "Item 7", "Item 8"]
+    assert all(not md[x.start:].startswith("|") for x in s.values())
+
+
+def test_items_and_prose_is_not_a_heading():
+    md = f"Items 7 and 8 of this report are amended.\n\nItem 8. Statements\n\n{_BODY}\n"
+    assert [s.name for s in find_sections(md, "10-K")] == ["Item 8"]

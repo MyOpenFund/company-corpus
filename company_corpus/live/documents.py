@@ -3,15 +3,19 @@
 Only the primary document of a filing is fetched, never an exhibit, and only an HTML one.
 
 **Conversion.** The bytes are decoded with the declared charset (``<meta charset>`` or the XML
-declaration); with none, UTF-8, falling back to cp1252 when UTF-8 fails. Documents larger than
-``max_html_bytes`` are refused (:class:`DocumentTooLarge`) before any parsing. The HTML is then
+declaration); with none, or when the declared one fails, UTF-8, falling back to cp1252 when
+UTF-8 fails. Empty or unparseable HTML gives an empty Markdown. Documents larger than
+``max_html_bytes`` are refused (:class:`DocumentTooLarge`) before any parsing. Measured worst
+case under the default 20 MB cap: about 45 s and over 1 GB on nested layout tables (to be
+re-measured on real filings). The HTML is then
 cleaned and reduced before MarkItDown, which bounds its cost on table-dense filings:
 
 * hidden content is dropped: the inline-XBRL ``ix:header`` block, elements with the ``hidden``
   attribute, and elements whose inline ``style`` has ``display:none`` or ``visibility:hidden``.
   Known limit: hiding through a CSS class (a stylesheet rule) is not detected;
 * inline-XBRL tags (``ix:*``), ``span`` and ``font`` are unwrapped (their text is kept), and
-  every attribute other than ``href``, ``colspan``, ``rowspan``, ``src`` and ``alt`` is dropped.
+  every attribute other than ``href``, ``colspan``, ``rowspan``, ``src``, ``alt``, ``start`` and
+  ``title`` is dropped.
 
 MarkItDown's HTML converter then renders tables as pipe tables.
 
@@ -27,8 +31,12 @@ family, every threshold a field) so they can be tuned on real filings:
   way;
 * table of contents: consecutive heading lines (items and parts) separated by at most
   ``toc_max_gap_chars`` characters of text, in document order (a run restarts when the order
-  goes back), form a run; a run of at least ``toc_min_run`` lines is a table of contents and
-  none of its lines is a heading. A line linking to an in-document anchor inside a pipe table
+  goes back), form a run. A run of at least ``toc_min_run`` lines is a table of contents, and
+  none of its lines is a heading, only when the body repeats it: at least
+  ``toc_min_later_share`` of its items (an item is its position under the Part in effect) occur
+  again after the run. Consecutive short body items (``None.``, ``[Reserved]``) have no later
+  occurrence and stay headings. A run that directly follows a table-of-contents run and goes on
+  in its item order (a TOC cut by sub-entries) is part of it. A line linking to an in-document anchor inside a pipe table
   (``| [Item 7.](#item_7) | ... |``) is a table-of-contents entry too
   (``skip_table_anchor_links``); a linked heading outside a table is kept;
 * the items of a form are walked from the last to the first: an item's heading is its last
@@ -46,6 +54,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+import lxml.etree
 import lxml.html
 from bs4 import BeautifulSoup
 from markitdown.converters import HtmlConverter
@@ -57,7 +66,7 @@ from .sec import SecGet
 MAX_HTML_BYTES = 20_000_000
 
 _HTML_SUFFIXES = (".htm", ".html")
-_KEPT_ATTRIBUTES = frozenset({"href", "colspan", "rowspan", "src", "alt"})
+_KEPT_ATTRIBUTES = frozenset({"href", "colspan", "rowspan", "src", "alt", "start", "title"})
 _UNWRAPPED_TAGS = frozenset({"span", "font"})
 
 
@@ -100,6 +109,9 @@ class SectionRules:
     max_heading_chars: int = 300  # longest EDGAR Item title with its table-row pipes, with margin
     toc_min_run: int = 5  # a TOC lists most items; a filing body rarely has 5 near-empty items in a row
     toc_max_gap_chars: int = 80  # text between two TOC lines: a title and a page number at most
+    # A dense run is a TOC only when the body repeats it: at least this share of its items
+    # occur again after the run (a run of short body items has no later occurrences).
+    toc_min_later_share: float = 0.5
     skip_table_anchor_links: bool = True
 
     @property
@@ -140,8 +152,9 @@ FORM_FAMILIES: dict[str, str] = {
 }
 
 _PART_ORDER = ("I", "II", "III", "IV")
-_TAIL = r"(?![0-9A-Za-z])(?:\s*[.:,\-–—]|\s*$|\s+[A-Z(]"
-_ITEM = re.compile(r"^(?i:items?)\s*(\d{1,2}[A-Za-z]?)" + _TAIL + r"|\s+(?i:and|through|to)\s+\d)")
+_TAIL = r"(?![0-9A-Za-z])(?:\s*[.:\-–—]|\s*$|\s+[A-Z(]"
+_ITEM = re.compile(r"^(?i:items?)\s*(\d{1,2}[A-Za-z]?)" + _TAIL
+                   + r"|\s+(?i:and|through|to)\s+\d{1,2}[A-Za-z]?" + _TAIL + r"))")
 _PART = re.compile(r"^(?i:part)\s+(IV|I{1,3})" + _TAIL + r")")
 _BARE_WORD = re.compile(r"(?i)items?|part")
 _MARKUP = re.compile(r"[*_|#>\\[]")
@@ -215,28 +228,49 @@ def _order(rules: SectionRules, part: str | None, key: str) -> int | None:
 
 def _toc_lines(markdown: str, cands: list[_Cand], rules: SectionRules) -> set[int]:
     """Indices of ``cands`` in a table-of-contents run (see the module docstring)."""
-    toc: set[int] = set()
-    run: list[int] = []
-    part = last_part = last_item = None
-    for n, c in enumerate(cands):
-        split = not run or len(_norm(markdown[cands[n - 1].end:c.start])) > rules.toc_max_gap_chars
+    # An item's identity is its position under the Part in effect at that point of the
+    # document (10-Q: Part I Item 3 and Part II Item 3 differ); a Part line has none.
+    ident: list[int | str | None] = []
+    doc_part = None
+    for c in cands:
         if c.kind == "part":
-            idx = _PART_ORDER.index(c.key)
-            split = split or (last_part is not None and idx <= last_part)
+            doc_part = c.key
+            ident.append(None)
         else:
-            idx = _order(rules, part, c.key)
-            split = split or (idx is not None and last_item is not None and idx <= last_item)
-        if split:
-            if len(run) >= rules.toc_min_run:
-                toc.update(run)
-            run, part, last_part, last_item = [], None, None, None
-        run.append(n)
+            idx = _order(rules, doc_part, c.key)
+            ident.append(idx if idx is not None else c.key)
+    runs: list[list[int]] = []
+    last_part = last_item = None
+    for n, c in enumerate(cands):
+        split = not runs or len(_norm(markdown[cands[n - 1].end:c.start])) > rules.toc_max_gap_chars
+        order = _PART_ORDER.index(c.key) if c.kind == "part" else ident[n]
         if c.kind == "part":
-            part, last_part = c.key, _PART_ORDER.index(c.key)
-        elif idx is not None:
-            last_item = idx
-    if len(run) >= rules.toc_min_run:
-        toc.update(run)
+            split = split or (last_part is not None and order <= last_part)
+        elif isinstance(order, int):
+            split = split or (last_item is not None and order <= last_item)
+        if split:
+            runs.append([])
+            last_part = last_item = None
+        runs[-1].append(n)
+        if c.kind == "part":
+            last_part = order
+        elif isinstance(order, int):
+            last_item = order
+    toc: set[int] = set()
+    previous_last: int | None = None  # last item order of the previous run, when it is a TOC
+    for run in runs:
+        orders = [ident[n] for n in run if isinstance(ident[n], int)]
+        items = {ident[n] for n in run if ident[n] is not None}
+        later = {ident[m] for m in range(run[-1] + 1, len(cands)) if ident[m] is not None}
+        corroborated = (len(run) >= rules.toc_min_run and bool(items)
+                        and len(items & later) >= rules.toc_min_later_share * len(items))
+        # a TOC cut by a long gap (sub-entries under an item) goes on in item order
+        continued = previous_last is not None and bool(orders) and orders[0] > previous_last
+        if corroborated or continued:
+            toc.update(run)
+            previous_last = orders[-1] if orders else previous_last
+        else:
+            previous_last = None
     return toc
 
 
@@ -304,9 +338,9 @@ def _decode(html: bytes) -> str:
     m = _DECLARED.search(html[:4096])
     if m:
         try:
-            return html.decode((m.group(1) or m.group(2)).decode("ascii"), errors="replace")
-        except LookupError:
-            pass  # unknown codec name: treated as undeclared
+            return html.decode((m.group(1) or m.group(2)).decode("ascii"))
+        except (LookupError, UnicodeDecodeError):
+            pass  # unknown codec name or wrong declaration: treated as undeclared
     try:
         return html.decode("utf-8")
     except UnicodeDecodeError:
@@ -339,7 +373,14 @@ def html_to_markdown(html: bytes, *, max_html_bytes: int = MAX_HTML_BYTES) -> st
     """EDGAR HTML -> Markdown, without hidden content (see the module docstring)."""
     if len(html) > max_html_bytes:
         raise DocumentTooLarge(f"{len(html)} bytes > max_html_bytes={max_html_bytes}")
-    return HtmlConverter().convert_string(_reduced_html(_decode(html))).markdown
+    text = _decode(html)
+    if not text.strip():
+        return ""
+    try:
+        reduced = _reduced_html(text)
+    except lxml.etree.ParserError:  # nothing parseable (e.g. only a comment)
+        return ""
+    return HtmlConverter().convert_string(reduced).markdown
 
 
 def _cell_text(cell) -> str:
