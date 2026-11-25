@@ -75,6 +75,13 @@ Clone the repos side by side and install this package editable over the PyPI ver
 consumer's environment: `pip install -e ../company-corpus`. A consumer change that needs an
 unreleased version waits for this package's release before the consumer's PR merges.
 
+**How to release**
+
+Bump `__version__` and `version` in a PR. After it merges, go to Actions, then release, then Run workflow: pick the `main` branch and target `pypi`. Approve the `pypi` deployment. The workflow builds the package, checks it, publishes it, then creates the tag `v<version>` and the GitHub Release itself.
+It fails before publishing if it is not run on the default branch or if that tag already exists. Target `testpypi` is a rehearsal: it publishes to TestPyPI and creates no tag and no release.
+Pushing a tag `v<version>` by hand still works: the workflow checks that the tag equals the package version and is on the default branch, then publishes and attaches the files to the Release.
+If PyPI got the package but the tag or the Release is missing, re-run the failed `github-release` job from Actions; do not push the tag by hand (the re-run would fail at the PyPI upload).
+
 ## Quick start
 
 ```bash
