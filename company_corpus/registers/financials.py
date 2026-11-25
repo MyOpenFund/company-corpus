@@ -185,7 +185,7 @@ def build_ch_financials(
         except ImportError as exc:
             raise ImportError(
                 "UK Companies House iXBRL parsing needs Arelle — install the optional "
-                "extra: pip install '.[eu-financials]'"
+                "extra: pip install 'myopenfund-company-corpus[eu-financials]'"
             ) from exc
         cntlr = _ArelleCntlr.Cntlr(logFileName="logToBuffer")
 

@@ -1,6 +1,6 @@
 """Tier B — parse a local ESEF report-package .zip into an OIM xBRL-JSON dict using
 Arelle (the same shape filings.xbrl.org's json_url returns, so flatten_oim_json
-consumes it). Arelle is an OPTIONAL dependency: pip install '.[eu-financials]'.
+consumes it). Arelle is an OPTIONAL dependency: pip install 'myopenfund-company-corpus[eu-financials]'.
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def oim_from_esef_zip(zip_path: str, *, cntlr=None, config=None) -> dict:
     except ImportError as exc:  # optional dependency
         raise ImportError(
             "Tier B ESEF parsing needs Arelle — install the optional extra: "
-            "pip install '.[eu-financials]'"
+            "pip install 'myopenfund-company-corpus[eu-financials]'"
         ) from exc
 
     with zipfile.ZipFile(zip_path) as zf:

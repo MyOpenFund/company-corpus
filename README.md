@@ -1,5 +1,7 @@
 # company-corpus
 
+Created and maintained by [Marc Jeulin](https://github.com/jeulinmarc), part of [MyOpenFund](https://github.com/MyOpenFund).
+
 An exhaustive, replicable, **open-data** corpus of **company** primary-source
 documents — the *bottom-up / micro* layer that complements
 [`central-bank-corpus`](https://github.com/MyOpenFund/central-bank-corpus). Both feed the
@@ -18,7 +20,7 @@ file. No proprietary datasets, no machine translation, no model-generated text.
 |---|---|---|---|---|
 | **🇺🇸 SEC** | United States | EDGAR | CIK | complete (reports, ownership, XBRL financials) |
 | **🇪🇺 EU** | 14 jurisdictions | national OAMs + Euronext + FCA NSM | LEI / ISIN | 13 backend keys / 12 classes (`IE` reuses `GB`) + Euronext for `PT` |
-| **Register** | 8 countries | national business registers | local entity ID | 8 registers merged — [`REGISTER_FINANCIALS.md`](docs/REGISTER_FINANCIALS.md) |
+| **Register** | 8 countries | national business registers | local entity ID | 8 registers merged — [`REGISTER_FINANCIALS.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/REGISTER_FINANCIALS.md) |
 
 All three pillars share the same discipline (official sources only, stable ids,
 exhaustive discovery, never silently partial) and feed the same RAG contract. The
@@ -28,13 +30,13 @@ targets the credit and private-company universe of non-listed entities.
 ### Structured financials
 
 Beyond raw filings, a shared engine (`financials.py`) extracts curated metrics into
-a unified per-period row schema (see [`docs/FINANCIALS.md`](docs/FINANCIALS.md)):
+a unified per-period row schema (see [`docs/FINANCIALS.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/FINANCIALS.md)):
 
 | Layer | Universe | Source | Status |
 |---|---|---|---|
 | **SEC XBRL** | US listed issuers | EDGAR `companyfacts` | ✅ done |
-| **EU ESEF / IFRS** (Pillar B) | EU listed issuers | `filings.xbrl.org` json_url + Arelle (Tier B) | ✅ done — [`EU_FINANCIALS.md`](docs/EU_FINANCIALS.md) |
-| **Register financials** | Private / credit universe (non-listed) | 8 national registers: 🇳🇴 NO · 🇬🇧 UK · 🇧🇪 BE · 🇱🇺 LU · 🇫🇮 FI · 🇩🇰 DK · 🇪🇪 EE · 🇸🇰 SK | ✅ all eight registers merged — [`REGISTER_FINANCIALS.md`](docs/REGISTER_FINANCIALS.md) |
+| **EU ESEF / IFRS** (Pillar B) | EU listed issuers | `filings.xbrl.org` json_url + Arelle (Tier B) | ✅ done — [`EU_FINANCIALS.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/EU_FINANCIALS.md) |
+| **Register financials** | Private / credit universe (non-listed) | 8 national registers: 🇳🇴 NO · 🇬🇧 UK · 🇧🇪 BE · 🇱🇺 LU · 🇫🇮 FI · 🇩🇰 DK · 🇪🇪 EE · 🇸🇰 SK | ✅ all eight registers merged — [`REGISTER_FINANCIALS.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/REGISTER_FINANCIALS.md) |
 
 The register pillar targets issuers that never file ESEF — bond obligors, private
 companies, bank counterparties. Output lands in `data/financials_register/` (never
@@ -46,11 +48,45 @@ because registers differ — some expose real financial borrowings (BE/LU/SK/DK-
 others only total liabilities (NO/UK/EE/DK-FSA) — so consumers cannot compare
 `debt_to_equity` across registers without knowing the basis.
 
+## Install
+
+```
+pip install "myopenfund-company-corpus"           # the corpus tool and the `company-corpus` command
+pip install "myopenfund-company-corpus[store]"    # + the open-data-store writer, for `store-batches`
+```
+
+The PyPI distribution is `myopenfund-company-corpus` (the `myopenfund-` prefix groups the MyOpenFund
+packages); the import name (`company_corpus`), the command (`company-corpus`) and the repository
+name are unchanged. Other extras: `[be]` (Belgium backend) and `[eu-financials]` (Arelle).
+
+If this environment installed the old distribution (`company-corpus`, from a clone or a git URL), run
+`pip uninstall -y company-corpus` before installing `myopenfund-company-corpus`: both own the same
+import package.
+
+To try the latest `main` before a release (dependencies still come from PyPI):
+
+```
+pip install "myopenfund-company-corpus @ git+https://github.com/MyOpenFund/company-corpus"
+```
+
+**Working across repos**
+
+Clone the repos side by side and install this package editable over the PyPI version in the
+consumer's environment: `pip install -e ../company-corpus`. A consumer change that needs an
+unreleased version waits for this package's release before the consumer's PR merges.
+
+**How to release**
+
+Bump `__version__` and `version` in a PR. After it merges, go to Actions, then release, then Run workflow: pick the `main` branch and target `pypi`. Approve the `pypi` deployment. The workflow builds the package, checks it, publishes it, then creates the tag `v<version>` and the GitHub Release itself.
+It fails before publishing if it is not run on the default branch or if that tag already exists. Target `testpypi` is a rehearsal: it publishes to TestPyPI and creates no tag and no release.
+Pushing a tag `v<version>` by hand still works: the workflow checks that the tag equals the package version and is on the default branch, then publishes and attaches the files to the Release.
+If PyPI got the package but the tag or the Release is missing, re-run the failed `github-release` job from Actions; do not push the tag by hand (the re-run would fail at the PyPI upload).
+
 ## Quick start
 
 ```bash
 pip install -r requirements.txt           # runtime-only
-pip install -r requirements-dev.txt       # adds pytest-socket, the pinned vault-contract (tests only)
+pip install -r requirements-dev.txt       # adds pytest-socket, the pinned myopenfund-vault-contract (tests only)
 python -m pytest -q                       # network-free test suite
 
 export COMPANY_CORPUS_CONTACT="you@example.com"   # required before any live crawl
@@ -101,9 +137,9 @@ python -m vault_contract.check data/manifest --corpus company --vocabulary data/
 
 After `--write`, only code that knows the contract may run with `--write` on that corpus;
 rollback = restore the backup, never check out older code. The counters and the provenance
-check: [`docs/INGESTION_RAG.md`](docs/INGESTION_RAG.md#migrating-a-corpus-written-before-the-contract).
+check: [`docs/INGESTION_RAG.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/INGESTION_RAG.md#migrating-a-corpus-written-before-the-contract).
 
-Details, the artefact rule and the checks: [`docs/INGESTION_RAG.md`](docs/INGESTION_RAG.md).
+Details, the artefact rule and the checks: [`docs/INGESTION_RAG.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/INGESTION_RAG.md).
 
 ## Feeding open-data-store (`store-batches`)
 
@@ -115,7 +151,7 @@ statement) and one `filings` 1.0.0 batch (each report filing's form and `reportD
 submissions archive), always the full history; replaying the same inputs is a no-op in the store.
 `company-corpus statements --universe <name> --write` first archives the SEC bulk files
 (5.7 GB under `raw/_sec_statements/`) and extracts the positions per issuer. Which tag answers
-which concept is decided when reading: see [`docs/FINANCIALS.md`](docs/FINANCIALS.md).
+which concept is decided when reading: see [`docs/FINANCIALS.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/FINANCIALS.md).
 `store-batches` writes into a landing zone and never publishes: you run
 `open-data-store publish` afterwards. It is a dry run unless `--write`.
 A `fundamentals.filing_ref` can lack a `filings` row when EDGAR lists the filing under another
@@ -124,15 +160,17 @@ accession number than the one companyfacts cites (3 of 40,049 on the 672-issuer 
 Run with `--write` and without `--offline` to refresh stale archives: offline, filings made after
 the last archive fetch are missing from `filings` and their facts carry the fallback `known_at`.
 
-Upgrading from the store's former name (`my-open-data`, renamed 2026-11-22): run
-`pip uninstall -y my-open-data` in the venv before `pip install ".[store]"` (both distributions
-would otherwise stay installed), and rename `MYOPENDATA_*` variables to `OPEN_DATA_STORE_*` in your
-shell profile (an unset `OPEN_DATA_STORE_DATA_ROOT` turns the `--landing` below into `/landing`).
+Before PyPI, the store was installed under its former names (`my-open-data`, renamed 2026-11-22,
+then `open-data-store` from a git URL): run `pip uninstall -y open-data-store` (or `my-open-data`)
+before it is installed again as `myopenfund-open-data-store`, and rename `MYOPENDATA_*` variables to
+`OPEN_DATA_STORE_*` in your shell profile (an unset `OPEN_DATA_STORE_DATA_ROOT` turns the `--landing`
+below into `/landing`).
 Details: the store's
 [`docs/MIGRATION.md`](https://github.com/MyOpenFund/open-data-store/blob/main/docs/MIGRATION.md).
 
 ```bash
-pip install ".[store]"          # open-data-store writer (optional extra); publishing needs open-data-store[publisher]
+# open-data-store writer (optional extra); publishing needs myopenfund-open-data-store[publisher]
+pip install "myopenfund-company-corpus[store]"
 company-corpus --contact "$SEC_CONTACT" store-batches --universe sp_curated \
     --landing "$OPEN_DATA_STORE_DATA_ROOT/landing" --write
 open-data-store publish
@@ -503,7 +541,7 @@ itself produced — the way to rebuild a report after narrowing a universe.
 The corpus pulls filings through three pillars — SEC EDGAR, the EU/OAM network
 (13 national mechanisms + the filings.xbrl.org aggregator), and 8 national
 company registers — and
-[`company_corpus/source_codes.py`](company_corpus/source_codes.py) is the
+[`company_corpus/source_codes.py`](https://github.com/MyOpenFund/company-corpus/blob/main/company_corpus/source_codes.py) is the
 canonical registry mapping every one of those **23 codes** to its real-world
 regulatory authority, never to a module, class, or file-format variant (e.g.
 `erst-fsa` and `erst-ifrs` are both the Danish `erst` authority; the finer
@@ -523,14 +561,14 @@ possible lie.
 
 | Doc | What's inside |
 |---|---|
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Layer map, data model, corpus lifecycle, issuer-resolution waterfall, design invariants |
-| [`docs/SEC_PILLAR.md`](docs/SEC_PILLAR.md) | 🇺🇸 SEC guide: taxonomy, storage layout & naming, the full CLI, identity (rename/merger), ownership & XBRL financials |
-| [`docs/EU_PILLAR.md`](docs/EU_PILLAR.md) | 🇪🇺 EU guide: the "European EDGAR" — `OamSource` architecture, identity resolution (LEI/ISIN/OpenFIGI/name), listing dispatch, cross-backend dedup, the `eu-acquire` command / `acquire()` |
-| [`docs/EU_BACKENDS.md`](docs/EU_BACKENDS.md) | Per-country backend reference (source API, identity key, doc types, pagination caps) |
-| [`docs/FINANCIALS.md`](docs/FINANCIALS.md) | The shared financials engine (reported + derived metrics, 71 curated concepts) |
-| [`docs/EU_FINANCIALS.md`](docs/EU_FINANCIALS.md) | Structured EU ESEF/IFRS financials — json_url stdlib (Tier A) + Arelle (Tier B) |
-| [`docs/REGISTER_FINANCIALS.md`](docs/REGISTER_FINANCIALS.md) | Statutory financials from 8 national registers (🇳🇴 NO · 🇬🇧 UK · 🇧🇪 BE · 🇱🇺 LU · 🇫🇮 FI · 🇩🇰 DK · 🇪🇪 EE · 🇸🇰 SK); no-false-data gate; `leverage_basis` field |
-| [`docs/INGESTION_RAG.md`](docs/INGESTION_RAG.md) | The vault `documents` contract the manifests follow, the RAG artefact rule, `vocabulary.json`, F1 out of the vault, `migrate-contract` |
+| [`docs/ARCHITECTURE.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/ARCHITECTURE.md) | Layer map, data model, corpus lifecycle, issuer-resolution waterfall, design invariants |
+| [`docs/SEC_PILLAR.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/SEC_PILLAR.md) | 🇺🇸 SEC guide: taxonomy, storage layout & naming, the full CLI, identity (rename/merger), ownership & XBRL financials |
+| [`docs/EU_PILLAR.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/EU_PILLAR.md) | 🇪🇺 EU guide: the "European EDGAR" — `OamSource` architecture, identity resolution (LEI/ISIN/OpenFIGI/name), listing dispatch, cross-backend dedup, the `eu-acquire` command / `acquire()` |
+| [`docs/EU_BACKENDS.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/EU_BACKENDS.md) | Per-country backend reference (source API, identity key, doc types, pagination caps) |
+| [`docs/FINANCIALS.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/FINANCIALS.md) | The shared financials engine (reported + derived metrics, 71 curated concepts) |
+| [`docs/EU_FINANCIALS.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/EU_FINANCIALS.md) | Structured EU ESEF/IFRS financials — json_url stdlib (Tier A) + Arelle (Tier B) |
+| [`docs/REGISTER_FINANCIALS.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/REGISTER_FINANCIALS.md) | Statutory financials from 8 national registers (🇳🇴 NO · 🇬🇧 UK · 🇧🇪 BE · 🇱🇺 LU · 🇫🇮 FI · 🇩🇰 DK · 🇪🇪 EE · 🇸🇰 SK); no-false-data gate; `leverage_basis` field |
+| [`docs/INGESTION_RAG.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/INGESTION_RAG.md) | The vault `documents` contract the manifests follow, the RAG artefact rule, `vocabulary.json`, F1 out of the vault, `migrate-contract` |
 
 ## Core principles
 
@@ -562,7 +600,7 @@ into mojibake. There is no charset sniffing, which would mis-read genuine
 latin-1 pages as something else.
 
 **Belgium (FSMA STORI)** is the one exception, and it is opt-in
-(`pip install '.[be]'`) and off by default. The FSMA JSON API sits behind an F5
+(`pip install "myopenfund-company-corpus[be]"`) and off by default. The FSMA JSON API sits behind an F5
 BIG-IP ASM WAF that rejects plain HTTP clients, so `company_corpus/eu/sources/oam_be.py`
 reaches it through `curl_cffi` impersonating Chrome (`impersonate="chrome124"`)
 with browser-consistent `Origin`/`Referer` headers and a bootstrapped session
@@ -572,10 +610,10 @@ stays behind an explicit extra rather than being on by default.
 
 ## License
 
-Code is licensed under the [MIT license](LICENSE). The metadata files
+Code is licensed under the [MIT license](https://github.com/MyOpenFund/company-corpus/blob/main/LICENSE). The metadata files
 committed under `data/` and the manifests/tables this tool produces are
-licensed under [CC BY 4.0](DATA_LICENSE); the underlying filings remain under
+licensed under [CC BY 4.0](https://github.com/MyOpenFund/company-corpus/blob/main/DATA_LICENSE); the underlying filings remain under
 each issuing authority's own terms. The recorded response fixtures under
 `tests/fixtures/` are reproductions of each authority's own output for
 regression testing and are not covered by either license — see
-[DATA_LICENSE](DATA_LICENSE) for the per-directory provenance.
+[DATA_LICENSE](https://github.com/MyOpenFund/company-corpus/blob/main/DATA_LICENSE) for the per-directory provenance.

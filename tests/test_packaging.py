@@ -1,9 +1,17 @@
-"""Packaging identity of company-corpus (renamed from the private bottom_up_corpus, clean break)."""
+"""Packaging identity of company-corpus (renamed from the private bottom_up_corpus, clean break).
+
+Published on PyPI as `myopenfund-company-corpus`; the import name (`company_corpus`), the command
+(`company-corpus`) and the repository name never change.
+"""
 from __future__ import annotations
+import importlib.metadata
+import re
 import subprocess, tomllib
 from pathlib import Path
 
 import pytest
+import yaml
+from packaging.requirements import Requirement
 
 REPO = Path(__file__).resolve().parents[1]
 # This module's own source necessarily contains the forbidden strings (they're
@@ -27,9 +35,30 @@ def _pyproject() -> dict:
         return tomllib.load(fh)
 
 
+DIST = "myopenfund-company-corpus"
+CREDIT = (
+    "Created and maintained by [Marc Jeulin](https://github.com/jeulinmarc), "
+    "part of [MyOpenFund](https://github.com/MyOpenFund)."
+)
+RELEASE = REPO / ".github" / "workflows" / "release.yml"
+TESTS = REPO / ".github" / "workflows" / "tests.yml"
+BLOB = "https://github.com/MyOpenFund/company-corpus/blob/main/"
+
+
+def _workflow(path: Path) -> dict:
+    # PyYAML reads the bare key `on` as the boolean True.
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data["on"] = data.pop(True, data.get("on"))
+    return data
+
+
+def _upload_index(steps: list) -> list:
+    return [i for i, s in enumerate(steps) if s.get("uses", "").startswith("actions/upload-artifact@")]
+
+
 def test_distribution_and_script_names():
     p = _pyproject()["project"]
-    assert p["name"] == "company-corpus"
+    assert p["name"] == DIST
     assert p["scripts"] == {"company-corpus": "company_corpus.cli:main"}
 
 
@@ -58,11 +87,320 @@ def test_cli_prog_name_is_company_corpus():
     assert "company-corpus" in parser.format_usage()
 
 
-def test_store_extra_and_ci_requirements_pin_the_same_commit():
-    import re
+def test_dynamic_version_from_init():
+    import company_corpus
+    cfg = _pyproject()
+    project = cfg["project"]
+    assert "version" in project["dynamic"]
+    assert "version" not in project
+    assert cfg["tool"]["setuptools"]["dynamic"]["version"] == {"attr": "company_corpus.__version__"}
+    assert cfg["build-system"]["requires"] == ["setuptools>=77"]
+    assert company_corpus.__version__ == "0.1.0"
 
+
+def test_installed_version_matches_init():
+    import company_corpus
+    try:
+        installed = importlib.metadata.version(DIST)
+    except importlib.metadata.PackageNotFoundError:
+        pytest.skip("the project is run from a checkout, not installed (CI installs requirements only)")
+    assert installed == company_corpus.__version__
+
+
+def test_credit_metadata():
+    project = _pyproject()["project"]
+    assert project["authors"] == [{"name": "Marc Jeulin"}]
+    assert project["maintainers"] == [{"name": "Marc Jeulin"}]
+    assert "myopenfund" in project["keywords"]
+    urls = project["urls"]
+    assert urls["Organization"] == "https://github.com/MyOpenFund"
+    assert urls["Homepage"] == "https://github.com/MyOpenFund/company-corpus"
+    assert urls["Source"] == "https://github.com/MyOpenFund/company-corpus"
+    assert urls["Issues"] == "https://github.com/MyOpenFund/company-corpus/issues"
+    assert "Changelog" not in urls  # no CHANGELOG in this repo
+    assert project["readme"] == "README.md"
+
+
+def test_license_spdx_files_and_classifiers():
+    cfg = _pyproject()
+    project = cfg["project"]
+    assert project["license"] == "MIT"
+    assert project["license-files"] == ["LICENSE", "DATA_LICENSE"]
+    assert not [c for c in project["classifiers"] if c.startswith("License ::")]
+    assert "Development Status :: 3 - Alpha" in project["classifiers"]
+    for version in ("3.11", "3.12", "3.13"):
+        assert f"Programming Language :: Python :: {version}" in project["classifiers"]
+
+
+def test_license_copyright():
+    assert "Copyright (c) 2026 Marc Jeulin" in (REPO / "LICENSE").read_text(encoding="utf-8")
+    assert (REPO / "DATA_LICENSE").is_file()
+
+
+def test_readme_credit_install_and_migration():
+    text = (REPO / "README.md").read_text(encoding="utf-8")
+    lines = text.splitlines()
+    assert lines[0] == "# company-corpus"
+    assert [line for line in lines[1:] if line.strip()][0] == CREDIT
+    assert f'pip install "{DIST}"' in text
+    assert f'pip install "{DIST}[store]"' in text
+    assert "pip install \"company-corpus" not in text
+    assert "pip uninstall -y company-corpus" in text
+    assert "git+https://github.com/MyOpenFund/company-corpus" in text
+    assert "**Working across repos**" in text
+
+
+def test_readme_links_are_absolute():
+    # README.md is the PyPI description: relative links and anchors would 404 there.
+    text = (REPO / "README.md").read_text(encoding="utf-8")
+    assert "](#" not in text
+    targets = re.findall(r"\]\(([^)\s]+)\)", text)
+    assert targets
+    relative = [t for t in targets if not t.startswith("https://")]
+    assert not relative, relative
+    assert f"{BLOB}docs/FINANCIALS.md" in text
+    assert f"{BLOB}LICENSE" in text
+
+
+def test_store_extra_is_capped_and_published():
     extra = _pyproject()["project"]["optional-dependencies"]["store"]
-    ci = (REPO / "requirements-store.txt").read_text()
-    pins = re.findall(r"open-data-store\[\w+\] @ git\+https://github\.com/MyOpenFund/"
-                      r"open-data-store@([0-9a-f]{40})", " ".join(extra) + "\n" + ci)
-    assert len(pins) == 2 and pins[0] == pins[1]
+    assert extra == ["myopenfund-open-data-store[writer]>=0.1.0,<0.2"]
+
+
+def test_no_git_urls_in_metadata():
+    project = _pyproject()["project"]
+    deps = list(project["dependencies"])
+    for extra in project["optional-dependencies"].values():
+        deps += extra
+    assert not [d for d in deps if "git+" in d or "@" in d]
+
+
+def test_sibling_dependencies_are_capped():
+    project = _pyproject()["project"]
+    reqs = [Requirement(d) for d in project["dependencies"]]
+    for extra in project["optional-dependencies"].values():
+        reqs += [Requirement(d) for d in extra]
+    siblings = [r for r in reqs if r.name.startswith("myopenfund-")]
+    assert siblings
+    for r in siblings:
+        assert {(s.operator, s.version) for s in r.specifier} == {(">=", "0.1.0"), ("<", "0.2")}, r
+
+
+def test_requirements_files_pin_siblings_exactly():
+    store = (REPO / "requirements-store.txt").read_text(encoding="utf-8")
+    dev = (REPO / "requirements-dev.txt").read_text(encoding="utf-8")
+    assert "myopenfund-open-data-store[publisher]==0.1.0" in store
+    assert "myopenfund-vault-contract==1.1.0" in dev
+    assert "git+" not in store and "git+" not in dev
+    assert any(line.startswith("pyyaml") for line in dev.splitlines())
+
+
+def test_install_hints_name_the_published_distribution():
+    import company_corpus.opendata as opendata
+    from company_corpus.opendata import batches
+
+    hint = f"pip install '{DIST}[store]'"
+    assert hint in Path(batches.__file__).read_text(encoding="utf-8")
+    assert f"``{DIST}[store]``" in (opendata.__doc__ or "")
+    for module in (batches, opendata):
+        assert "'company-corpus[" not in Path(module.__file__).read_text(encoding="utf-8")
+        assert "``company-corpus[" not in Path(module.__file__).read_text(encoding="utf-8")
+
+
+def test_dependabot_covers_pip_and_github_actions_weekly():
+    config = yaml.safe_load((REPO / ".github" / "dependabot.yml").read_text(encoding="utf-8"))
+    assert sorted((u["package-ecosystem"], u["schedule"]["interval"]) for u in config["updates"]) == [
+        ("github-actions", "weekly"), ("pip", "weekly")
+    ]
+
+
+def test_release_workflow_publishes_through_environment():
+    workflow = _workflow(RELEASE)
+    assert workflow["permissions"] == {}
+    assert workflow["on"]["push"]["tags"] == ["v*"]
+    assert list(workflow["on"]["workflow_dispatch"]["inputs"]) == ["target"]
+    publish = workflow["jobs"]["publish"]
+    assert publish["environment"] == (
+        "${{ (github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi')"
+        " && 'testpypi' || 'pypi' }}"
+    )
+    assert publish["permissions"] == {"id-token": "write"}
+    with_id_token = [
+        name for name, job in workflow["jobs"].items() if "id-token" in job.get("permissions", {})
+    ]
+    assert with_id_token == ["publish"]
+    assert publish["needs"] in ("build", ["build"])
+
+
+def test_actions_pinned_by_sha():
+    package = yaml.safe_dump(_workflow(TESTS)["jobs"]["package"])
+    for text in (RELEASE.read_text(encoding="utf-8"), package):
+        uses = re.findall(r"^\s*(?:-\s+)?uses:\s*(\S+)", text, re.M)
+        assert uses
+        for ref in uses:
+            assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", ref), ref
+
+
+def test_tag_check_present_with_prefix_v():
+    steps = _workflow(RELEASE)["jobs"]["build"]["steps"]
+    checks = [i for i, s in enumerate(steps) if "tag_version" in s.get("run", "") and "exit 1" in s["run"]]
+    assert len(checks) == 1
+    assert steps[checks[0]]["if"] == "github.event_name == 'push'"
+    assert "${GITHUB_REF_NAME#v}" in steps[checks[0]]["run"]
+    assert DIST in steps[checks[0]]["run"]
+    upload = _upload_index(steps)
+    assert upload and checks[0] < upload[0]
+
+
+def test_build_checks_tag_is_on_default_branch():
+    steps = _workflow(RELEASE)["jobs"]["build"]["steps"]
+    checks = [i for i, s in enumerate(steps) if "merge-base --is-ancestor" in s.get("run", "")]
+    assert len(checks) == 1
+    assert "origin/main" in steps[checks[0]]["run"]
+    assert steps[checks[0]]["if"] == "github.event_name == 'push'"
+    checkout = [s for s in steps if s.get("uses", "").startswith("actions/checkout@")]
+    assert checkout[0]["with"]["fetch-depth"] == 0
+    upload = _upload_index(steps)
+    assert upload and checks[0] < upload[0]
+
+
+def test_testpypi_publish_skips_existing_but_pypi_does_not():
+    steps = {s["name"]: s for s in _workflow(RELEASE)["jobs"]["publish"]["steps"] if "name" in s}
+    assert steps["Publish to TestPyPI"]["with"]["skip-existing"] is True
+    assert "skip-existing" not in steps["Publish to PyPI"].get("with", {})
+
+
+def test_concurrency_group():
+    assert _workflow(RELEASE)["concurrency"]["group"] == "release-${{ github.ref }}"
+
+
+def test_dispatch_inputs():
+    inputs = _workflow(RELEASE)["on"]["workflow_dispatch"]["inputs"]
+    assert list(inputs) == ["target"]
+    assert inputs["target"]["type"] == "choice"
+    assert inputs["target"]["options"] == ["pypi", "testpypi"]
+    assert inputs["target"]["default"] == "pypi"
+    assert inputs["target"]["required"] is True
+
+
+def test_build_dispatch_runs_on_default_branch_only():
+    steps = _workflow(RELEASE)["jobs"]["build"]["steps"]
+    guard = [s for s in steps if "refs/heads/main" in s.get("run", "")]
+    assert len(guard) == 1
+    assert guard[0]["if"] == "github.event_name == 'workflow_dispatch'"
+    assert "exit 1" in guard[0]["run"]
+    assert steps.index(guard[0]) == 0
+
+
+def test_build_computes_tag_and_refuses_an_existing_pypi_tag():
+    job = _workflow(RELEASE)["jobs"]["build"]
+    step = [s for s in job["steps"] if s.get("id") == "tag"]
+    assert len(step) == 1
+    run = step[0]["run"]
+    assert step[0]["if"] == "github.event_name == 'workflow_dispatch'"
+    assert "importlib.metadata" in run and DIST in run
+    assert 'tag="v$version"' in run
+    assert 'git ls-remote --tags origin "refs/tags/$tag"' in run
+    assert '"$INPUT_TARGET" = "pypi"' in run
+    assert "already exists" in run and "exit 1" in run
+    upload = _upload_index(job["steps"])
+    assert job["steps"].index(step[0]) < upload[0]
+    assert job["outputs"]["tag"] == "${{ steps.tag.outputs.tag || github.ref_name }}"
+    assert job["outputs"]["sha"] == "${{ github.sha }}"
+
+
+def test_testpypi_only_for_testpypi_target():
+    steps = {s["name"]: s for s in _workflow(RELEASE)["jobs"]["publish"]["steps"] if "name" in s}
+    assert "inputs.target == 'testpypi'" in steps["Publish to TestPyPI"]["if"]
+    assert "inputs.target == 'testpypi'" in steps["Publish to PyPI"]["if"]
+    assert steps["Publish to PyPI"]["if"].startswith("${{ !(")
+
+
+def _release_job():
+    job = _workflow(RELEASE)["jobs"]["github-release"]
+    assert job["if"] == (
+        "github.event_name == 'push' || "
+        "(github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')"
+    )
+    assert job["permissions"] == {"contents": "write"}
+    assert set(job["needs"]) == {"build", "publish"}
+    return job
+
+
+def _assert_tag_created_and_pushed(run):
+    # the publication gate forbids a personal address in tracked files: the tagger is the actor
+    assert 'user.name="Marc Jeulin"' in run
+    assert 'user.email="${GITHUB_ACTOR_ID}+${GITHUB_ACTOR}@users.noreply.github.com"' in run
+    assert 'tag -a "$TAG"' in run and '"$SHA"' in run
+    assert 'git push origin "refs/tags/$TAG"' in run
+
+
+def test_github_release_creates_and_pushes_the_tag_on_dispatch_not_testpypi():
+    job = _release_job()
+    checkout = [s for s in job["steps"] if s.get("uses", "").startswith("actions/checkout@")]
+    assert len(checkout) == 1
+    assert checkout[0]["if"] == "github.event_name == 'workflow_dispatch'"
+    assert checkout[0]["with"]["persist-credentials"] is True
+    assert checkout[0]["with"]["ref"] == "${{ needs.build.outputs.sha }}"
+    tag = [s for s in job["steps"] if "git push" in s.get("run", "")]
+    assert len(tag) == 1
+    assert tag[0]["if"] == "github.event_name == 'workflow_dispatch'"
+    _assert_tag_created_and_pushed(tag[0]["run"])
+
+
+def test_dispatch_tag_step_is_idempotent():
+    run = next(s for s in _release_job()["steps"] if "git push" in s.get("run", ""))["run"]
+    lookup = run.index('git ls-remote origin "refs/tags/$TAG" "refs/tags/$TAG^{}"')
+    assert lookup < run.index("git push")
+    assert '"$remote_sha" = "$SHA"' in run  # already there at the built commit: skip
+    assert "already exists" in run and "exit 1" in run  # there, but elsewhere: fail
+    assert '[ -z "$remote_sha" ]' in run  # absent: create
+
+
+def test_github_release_is_created_or_completed_on_both_paths():
+    job = _release_job()
+    release = [s for s in job["steps"] if "gh release create" in s.get("run", "")]
+    assert len(release) == 1
+    assert "if" not in release[0]
+    run = release[0]["run"]
+    assert 'gh release view "$TAG"' in run
+    assert 'gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber' in run
+    assert '--target "$SHA"' in run and '--title "$TAG"' in run
+    assert "--verify-tag" in run
+    assert "--generate-notes" in run
+
+
+
+
+def test_smoke_checks_cli_version_and_reads_packaged_data():
+    for path in (RELEASE, TESTS):
+        text = path.read_text(encoding="utf-8")
+        assert '/bin/company-corpus" --version' in text, path
+        assert "company_corpus.concepts" in text, path
+        assert "importlib.resources" in text, path
+        assert 'dist/*.whl)[store]"' in text, path
+        assert "from open_data_store.writer import write_batch" in text, path
+
+
+def test_tests_workflow_keeps_its_jobs_adds_package_and_runs_weekly():
+    workflow = _workflow(TESTS)
+    assert {"unit", "store", "package"} <= set(workflow["jobs"])
+    (entry,) = workflow["on"]["schedule"]
+    minute, hour, day_of_month, month, day_of_week = entry["cron"].split()
+    assert day_of_month == "*" and month == "*"
+    assert day_of_week.isdigit() and 0 <= int(day_of_week) <= 7  # one weekday: weekly
+    runs = " ".join(s.get("run", "") for s in workflow["jobs"]["package"]["steps"])
+    assert "build==1.6.1 twine==7.0.0" in runs
+    assert "twine check --strict" in runs
+
+
+def test_optional_extra_hints_name_the_published_distribution():
+    from company_corpus.eu import arelle_esef
+    from company_corpus.registers import ch_ixbrl, financials
+
+    for module in (arelle_esef, ch_ixbrl, financials):
+        text = Path(module.__file__).read_text(encoding="utf-8")
+        assert f"pip install '{DIST}[eu-financials]'" in text, module
+        assert "'.[eu-financials]'" not in text, module
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    assert "'.[be]'" not in readme and f'"{DIST}[be]"' in readme

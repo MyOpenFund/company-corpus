@@ -73,7 +73,7 @@ def _store_api() -> SimpleNamespace:
         from open_data_store.writer.batch import batch_id_for, content_hash
     except ImportError as exc:
         raise StoreUnavailable(
-            "store-batches needs open-data-store: pip install 'company-corpus[store]'") from exc
+            "store-batches needs open-data-store: pip install 'myopenfund-company-corpus[store]'") from exc
     if FUNDAMENTALS.major != 3 or "ytd9" not in (FUNDAMENTALS.column("frequency").allowed or ()):
         raise StoreUnavailable(
             f"store-batches needs fundamentals 3.1 or later (frequency ytd9), found {FUNDAMENTALS.version}")

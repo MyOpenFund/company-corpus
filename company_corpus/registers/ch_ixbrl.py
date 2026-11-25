@@ -8,7 +8,7 @@ difference is that Companies House supplies a bare ``.html`` file (inline-XBRL
 with the FRC taxonomy), not a report-package ``.zip``, so we load the file
 directly without any zip unpacking or inner-report lookup.
 
-Arelle is an OPTIONAL dependency: pip install '.[eu-financials]'.
+Arelle is an OPTIONAL dependency: pip install 'myopenfund-company-corpus[eu-financials]'.
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def oim_from_ch_html(html_path: str, *, cntlr=None) -> dict:
     except ImportError as exc:  # optional dependency
         raise ImportError(
             "UK Companies House iXBRL parsing needs Arelle — install the optional "
-            "extra: pip install '.[eu-financials]'"
+            "extra: pip install 'myopenfund-company-corpus[eu-financials]'"
         ) from exc
 
     own = cntlr is None
