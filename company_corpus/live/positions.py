@@ -4,7 +4,7 @@
 Statement Data Sets (``_read_quarter`` then the ``_extract`` dedup), so they flow through
 ``statement_rows`` and the concept selection unchanged. Three requests per filing: the folder
 ``index.json``, ``FilingSummary.xml`` (the rendered R reports) and the ``*_pre.xml`` presentation
-linkbase.
+linkbase (or the ``.xsd`` that embeds it).
 
 Reproduced from FSDS:
 
@@ -42,10 +42,12 @@ Approximations (A6 measures them against FSDS on real issuers):
   any other schema, absolute or relative, is treated as an extension (the accession);
 * prohibited arcs (``use="prohibited"``) are ignored rather than applied; a filing's own
   presentation linkbase seldom carries any;
-* presentation arcs embedded in the ``.xsd`` (no ``*_pre.xml`` file) are not read: the filing
-  counts ``positions:no_presentation`` and borrows positions;
 * with several ``*_pre.xml``, the one FilingSummary lists in ``InputFiles`` is used (else the one
   sharing the stem of a listed ``.xsd``, else the first by name);
+* a filing without ``*_pre.xml`` (filer agents such as DFIN embed every linkbase in the schema:
+  Microsoft and Oracle since 2025) is read from its ``.xsd`` (the one ``InputFiles`` lists, else
+  the first by name): the ``presentationLink`` elements of its appinfo are walked alike. A schema
+  without any counts ``positions:no_presentation``;
 * a period ending exactly between two month ends rounds to the later one.
 
 Failure mode: a file that is missing (404 or absent from ``index.json``), malformed, or carries a
@@ -74,6 +76,7 @@ from .sec import SecGet, SecNotFound
 INDEX_FILE = "index.json"
 SUMMARY_FILE = "FilingSummary.xml"
 PRESENTATION_SUFFIX = "_pre.xml"
+SCHEMA_SUFFIX = ".xsd"
 
 #: Ordered ``(statement, pattern)`` rules over a lower-cased report name; first match wins. A
 #: combined "income/operations/earnings ... and comprehensive income" statement is IS, an equity
@@ -280,16 +283,20 @@ def _walk(link: ET.Element) -> list[str]:
     return out
 
 
-def _presentation_hrefs(body: bytes, roles: set[str]) -> dict[str, list[str]]:
+def _presentation_hrefs(body: bytes, roles: set[str]) -> tuple[dict[str, list[str]], bool]:
+    """Hrefs of the statement roles' presentation links, and whether the document has any
+    presentation link. Reads a linkbase, or a schema embedding its linkbases in its appinfo."""
     root = _parse_xml(body)
-    if _local(root.tag) != "linkbase":
+    if _local(root.tag) not in ("linkbase", "schema"):
         raise _Malformed("presentation linkbase: unexpected root")
     out: dict[str, list[str]] = {}
+    found = False
     for link in root.iter(f"{_LINK}presentationLink"):
+        found = True
         role = link.get(f"{_XLINK}role")
         if role in roles:
             out.setdefault(role, []).extend(_walk(link))
-    return out
+    return out, found
 
 
 def _month_end(d: date) -> date:
@@ -315,6 +322,16 @@ def _presentation_name(names: list[str], inputs: list[str]) -> str | None:
     for n in inputs:
         if n.endswith(".xsd") and f"{n[:-4]}{PRESENTATION_SUFFIX}" in candidates:
             return f"{n[:-4]}{PRESENTATION_SUFFIX}"
+    return candidates[0] if candidates else None
+
+
+def _schema_name(names: list[str], inputs: list[str]) -> str | None:
+    """The filing's schema, read when no ``*_pre.xml`` exists (embedded linkbases): the one
+    FilingSummary rendered from, else the first by name."""
+    candidates = sorted(n for n in names if n.endswith(SCHEMA_SUFFIX))
+    for n in inputs:
+        if n in candidates:
+            return n
     return candidates[0] if candidates else None
 
 
@@ -344,12 +361,15 @@ def filing_positions(ref: FilingRef, sec: SecGet, *, counters: Counter | None = 
         if not reports:
             counters["positions:no_statement_reports"] += 1
             return []
-        pre_name = _presentation_name(names, inputs)
+        pre_name = _presentation_name(names, inputs) or _schema_name(names, inputs)
         pre = _fetch(sec, f"{base}/{pre_name}") if pre_name else None
         if pre is None:
             counters["positions:no_presentation"] += 1
             return []
-        hrefs = _presentation_hrefs(pre, {role for role, _, _ in reports})
+        hrefs, has_links = _presentation_hrefs(pre, {role for role, _, _ in reports})
+        if not has_links:
+            counters["positions:no_presentation"] += 1
+            return []
     except _Malformed:
         counters["positions:malformed"] += 1
         return []

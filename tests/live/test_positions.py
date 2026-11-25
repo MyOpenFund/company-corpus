@@ -172,6 +172,49 @@ def test_missing_presentation_linkbase_returns_empty():
     assert counters["positions:no_presentation"] == 1
 
 
+SCHEMA = "msft-20240630.xsd"
+
+
+def _schema_embedding(linkbase: str) -> bytes:
+    """A filing schema carrying ``linkbase`` in its appinfo, as some filer agents ship it (no
+    separate ``*_pre.xml``)."""
+    body = re.sub(r"^<\?xml[^>]*\?>\s*", "", linkbase)
+    return ('<?xml version="1.0" encoding="US-ASCII"?>\n'
+            '<xsd:schema xmlns:xsd="http://www.w3.org/2001/XMLSchema" '
+            'xmlns:link="http://www.xbrl.org/2003/linkbase" targetNamespace="http://example.com/x">'
+            f'<xsd:annotation><xsd:appinfo>{body}</xsd:appinfo></xsd:annotation>'
+            '<xsd:element name="Widgets" id="abc_Widgets"/></xsd:schema>').encode("ascii")
+
+
+def _index_without_pre() -> bytes:
+    index = json.loads((FILING_DIR / "index.json").read_text())
+    index["directory"]["item"] = [i for i in index["directory"]["item"] if not i["name"].endswith("_pre.xml")]
+    return json.dumps(index).encode()
+
+
+def test_presentation_embedded_in_the_schema_is_read():
+    """Filer agents such as DFIN embed every linkbase in the ``.xsd`` (Microsoft and Oracle filings
+    since 2025): the rows are the ones the separate linkbase gives."""
+    summary = (FILING_DIR / "FilingSummary.xml").read_text().replace(f"<File>{PRE}</File>", "")
+    sec = FakeSec(_routes(**{"index.json": _index_without_pre(), PRE: None,
+                             "FilingSummary.xml": summary.encode(),
+                             SCHEMA: _schema_embedding((FILING_DIR / PRE).read_text())}))
+    counters = Counter()
+    assert filing_positions(REF, sec, counters=counters) == filing_positions(REF, FakeSec(_routes()))
+    assert sec.calls == [f"{FOLDER}/index.json", f"{FOLDER}/FilingSummary.xml", f"{FOLDER}/{SCHEMA}"]
+    assert not counters
+
+
+def test_schema_without_presentation_counts_no_presentation():
+    linkbase = ('<link:linkbase xmlns:link="http://www.xbrl.org/2003/linkbase">'
+                '<link:roleRef roleURI="http://x/role"/></link:linkbase>')
+    counters = Counter()
+    sec = FakeSec(_routes(**{"index.json": _index_without_pre(), PRE: None,
+                             SCHEMA: _schema_embedding(linkbase)}))
+    assert filing_positions(REF, sec, counters=counters) == []
+    assert counters == Counter({"positions:no_presentation": 1})
+
+
 def test_missing_index_returns_empty():
     counters = Counter()
     assert filing_positions(REF, FakeSec({}), counters=counters) == []
