@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -61,9 +62,14 @@ def main_name(cik: str) -> str:
 
 
 def _page_names(main: dict, config: Config) -> list[str]:
+    return page_names(main, max_length=config.max_path_component_length)
+
+
+def page_names(main: dict, *, max_length: int) -> list[str]:
+    """The history-page file names ``filings.files`` lists; unusable names raise ValueError."""
     files = (main.get("filings") or {}).get("files") or []
     return [safe_component(f.get("name") if isinstance(f, dict) else None,
-                           max_length=config.max_path_component_length) for f in files]
+                           max_length=max_length) for f in files]
 
 
 def fetch_archive(config: Config, cik: str, fetcher, *,
@@ -82,6 +88,27 @@ def fetch_archive(config: Config, cik: str, fetcher, *,
     for name, file_url, text in [*pages, (main_name(cik), url, main_text)]:
         _write(d / name, text, file_url, fetched_at)
     return load_archive(config, cik)
+
+
+def archive_from_bytes(cik: str, main: bytes, pages: Sequence[tuple[str, bytes]], *,
+                       fetched_at: datetime, url_of: Callable[[str], str]) -> SubmissionsArchive:
+    """Build an archive in memory from fetched bytes; nothing is written.
+
+    ``pages`` is ``(file name, bytes)`` in ``filings.files`` order; ``url_of(name)`` gives each
+    file's URL, which also serves as its ``rel_path``. ``fetched_at`` must be tz-aware."""
+    if fetched_at.tzinfo is None:
+        raise ValueError("fetched_at must be timezone-aware")
+    cik = normalize_cik(cik)
+    fetched_at = fetched_at.astimezone(timezone.utc)
+    files, bodies = [], []
+    for name, raw in [(main_name(cik), main), *pages]:
+        body = json.loads(raw)
+        if not isinstance(body, dict):
+            raise ValueError(f"{name}: not a JSON object")
+        url = url_of(name)
+        files.append(ArchivedFile(name, url, hashlib.sha256(raw).hexdigest(), url, fetched_at))
+        bodies.append(body)
+    return SubmissionsArchive(cik=cik, main=bodies[0], pages=bodies[1:], files=files)
 
 
 def _write(path: Path, text: str, url: str, fetched_at: datetime) -> None:

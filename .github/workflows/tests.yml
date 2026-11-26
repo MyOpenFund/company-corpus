@@ -47,7 +47,9 @@ jobs:
       - name: Store tests
         env:
           REQUIRE_DUCKLAKE: "1"   # the end-to-end test must run: a skip is a failure here
-        run: pytest -q tests/opendata
+        # tests/live too: the issuer-table parity tests need the open-data-store contracts, which
+        # only this job installs (the unit job skips them).
+        run: pytest -q tests/opendata tests/live
 
   package:
     # The same build, `twine check` and smoke install as release.yml, without the tag check and
@@ -79,3 +81,12 @@ jobs:
             echo "company-corpus --version printed '$shown' but the wheel is $expected"
             exit 1
           fi
+      - name: Smoke install of the live extra in a fresh venv
+        run: |
+          python -m venv "$RUNNER_TEMP/smoke-live"
+          "$RUNNER_TEMP/smoke-live/bin/pip" install "$(ls "$PWD"/dist/*.whl)[live]"
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/smoke-live/bin/python" -c "import company_corpus.live.documents"
+          "$RUNNER_TEMP/smoke-live/bin/python" -c "import company_corpus.live.issuer"
+          "$RUNNER_TEMP/smoke-live/bin/python" -c "from company_corpus.live.documents import _html_converter; _html_converter()"
+          "$RUNNER_TEMP/smoke-live/bin/python" -c 'from company_corpus.opendata.batches import contracts_api; contracts_api(needed_by="smoke", extra="live")'

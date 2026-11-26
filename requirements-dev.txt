@@ -16,3 +16,6 @@ pytest-socket>=0.8
 myopenfund-vault-contract==1.1.0
 # The packaging tests parse the workflow files.
 pyyaml
+# The live mode's filing documents (tests/live/test_documents.py) convert HTML with MarkItDown,
+# the [live] extra's converter; same range as the extra.
+markitdown>=0.1,<1

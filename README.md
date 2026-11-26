@@ -53,6 +53,7 @@ others only total liabilities (NO/UK/EE/DK-FSA) — so consumers cannot compare
 ```
 pip install "myopenfund-company-corpus"           # the corpus tool and the `company-corpus` command
 pip install "myopenfund-company-corpus[store]"    # + the open-data-store writer, for `store-batches`
+pip install "myopenfund-company-corpus[live]"     # + contract schemas and MarkItDown, for live mode
 ```
 
 The PyPI distribution is `myopenfund-company-corpus` (the `myopenfund-` prefix groups the MyOpenFund
@@ -318,6 +319,34 @@ Publication dates are read in New York time (`publication_tz`); the module docst
 where they can differ from F1's by a few days. Without an SIC, pass `sector_known=False`:
 `sector_relevant` is then null rather than false.
 
+## Live mode (no store)
+
+`company_corpus.live` builds one issuer's rows straight from the SEC, on demand: no corpus on
+disk, no vault, no open-data-store instance (install the `[live]` extra). `issuer_tables` returns
+the `entity_observations`, `fundamentals`, `filings` and `filing_statements` tables
+`store-batches` would write, typed by the same contracts; `filing_document` returns a filing's
+primary document as Markdown with its Item sections; `resolver_rows` and `list_filings` cover
+company resolution and filing lists.
+
+```python
+from datetime import datetime, timezone
+from company_corpus import Config
+from company_corpus.live.sec import SecClient
+from company_corpus.live.issuer import issuer_tables
+
+sec = SecClient("you@example.org")    # the SEC contact: required, never read from the environment
+t = issuer_tables("320193", sec, config=Config(), now=datetime.now(timezone.utc),
+                  positions_from=None, positions_to=None,
+                  facts_max_age_s=None, submissions_max_age_s=None)
+```
+
+The contact is mandatory (`SecContactMissing`), sent only in the `User-Agent` and never logged.
+Requests are capped at 5 per second by default (`max_rps`, at most 10). Errors form one taxonomy
+(`SecError`: `SecRefused`, `SecUnavailable`, `SecNotFound`, `SecHttpError`). There is no cache:
+a cold issuer costs one request per submissions page and three per report filing, and a
+document conversion can take seconds (refused above `max_html_bytes`). Details, error handling
+and measured costs: [`docs/LIVE.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/LIVE.md).
+
 ## Operations
 
 **Doctrine, in one sentence:** every work command folds its own counters into a
@@ -569,6 +598,7 @@ possible lie.
 | [`docs/FINANCIALS.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/FINANCIALS.md) | The shared financials engine (reported + derived metrics, 71 curated concepts) |
 | [`docs/EU_FINANCIALS.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/EU_FINANCIALS.md) | Structured EU ESEF/IFRS financials — json_url stdlib (Tier A) + Arelle (Tier B) |
 | [`docs/REGISTER_FINANCIALS.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/REGISTER_FINANCIALS.md) | Statutory financials from 8 national registers (🇳🇴 NO · 🇬🇧 UK · 🇧🇪 BE · 🇱🇺 LU · 🇫🇮 FI · 🇩🇰 DK · 🇪🇪 EE · 🇸🇰 SK); no-false-data gate; `leverage_basis` field |
+| [`docs/LIVE.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/LIVE.md) | Live mode (no store): the `company_corpus.live` API, the SEC contact, rate cap, error taxonomy, request and conversion costs |
 | [`docs/INGESTION_RAG.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/INGESTION_RAG.md) | The vault `documents` contract the manifests follow, the RAG artefact rule, `vocabulary.json`, F1 out of the vault, `migrate-contract` |
 
 ## Core principles

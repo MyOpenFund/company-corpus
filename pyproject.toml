@@ -42,6 +42,12 @@ eu-financials = ["arelle-release"]
 # capped below the next breaking 0.x. The CI job "store" also installs the publisher
 # (requirements-store.txt).
 store = ["myopenfund-open-data-store[writer]>=0.1.0,<0.2"]
+# Live (no-store) mode: the contract schemas only (same range as [store], no writer), and
+# MarkItDown for filing documents.
+live = [
+    "myopenfund-open-data-store>=0.1.0,<0.2",
+    "markitdown>=0.1,<1",
+]
 
 [project.urls]
 Homepage = "https://github.com/MyOpenFund/company-corpus"

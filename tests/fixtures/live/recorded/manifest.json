@@ -1,0 +1,379 @@
+{
+ "forms": [
+  "10-K",
+  "10-Q",
+  "20-F",
+  "40-F"
+ ],
+ "fsds_url": "https://www.sec.gov/files/dera/data/financial-statement-data-sets/{quarter}.zip",
+ "issuers": {
+  "0000019617": {
+   "accessions": [
+    {
+     "accn": "0001628280-26-054343",
+     "filed": "2026-08-06",
+     "form": "10-Q",
+     "report_date": "2026-06-30"
+    },
+    {
+     "accn": "0001628280-26-008131",
+     "filed": "2026-02-13",
+     "form": "10-K",
+     "report_date": "2025-12-31"
+    }
+   ],
+   "companyfacts": "dictionary tags only; selection inputs equal",
+   "files": {
+    "https://data.sec.gov/api/xbrl/companyfacts/CIK0000019617.json": "0000019617/companyfacts.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-001.json": "0000019617/submissions/CIK0000019617-submissions-001.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-002.json": "0000019617/submissions/CIK0000019617-submissions-002.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-003.json": "0000019617/submissions/CIK0000019617-submissions-003.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-004.json": "0000019617/submissions/CIK0000019617-submissions-004.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-005.json": "0000019617/submissions/CIK0000019617-submissions-005.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-006.json": "0000019617/submissions/CIK0000019617-submissions-006.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-007.json": "0000019617/submissions/CIK0000019617-submissions-007.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-008.json": "0000019617/submissions/CIK0000019617-submissions-008.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-009.json": "0000019617/submissions/CIK0000019617-submissions-009.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-010.json": "0000019617/submissions/CIK0000019617-submissions-010.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-011.json": "0000019617/submissions/CIK0000019617-submissions-011.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-012.json": "0000019617/submissions/CIK0000019617-submissions-012.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-013.json": "0000019617/submissions/CIK0000019617-submissions-013.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-014.json": "0000019617/submissions/CIK0000019617-submissions-014.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-015.json": "0000019617/submissions/CIK0000019617-submissions-015.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-016.json": "0000019617/submissions/CIK0000019617-submissions-016.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-017.json": "0000019617/submissions/CIK0000019617-submissions-017.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-018.json": "0000019617/submissions/CIK0000019617-submissions-018.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-019.json": "0000019617/submissions/CIK0000019617-submissions-019.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-020.json": "0000019617/submissions/CIK0000019617-submissions-020.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-021.json": "0000019617/submissions/CIK0000019617-submissions-021.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-022.json": "0000019617/submissions/CIK0000019617-submissions-022.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-023.json": "0000019617/submissions/CIK0000019617-submissions-023.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-024.json": "0000019617/submissions/CIK0000019617-submissions-024.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-025.json": "0000019617/submissions/CIK0000019617-submissions-025.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-026.json": "0000019617/submissions/CIK0000019617-submissions-026.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-027.json": "0000019617/submissions/CIK0000019617-submissions-027.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-028.json": "0000019617/submissions/CIK0000019617-submissions-028.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-029.json": "0000019617/submissions/CIK0000019617-submissions-029.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-030.json": "0000019617/submissions/CIK0000019617-submissions-030.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-031.json": "0000019617/submissions/CIK0000019617-submissions-031.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-032.json": "0000019617/submissions/CIK0000019617-submissions-032.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-033.json": "0000019617/submissions/CIK0000019617-submissions-033.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-034.json": "0000019617/submissions/CIK0000019617-submissions-034.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-035.json": "0000019617/submissions/CIK0000019617-submissions-035.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-036.json": "0000019617/submissions/CIK0000019617-submissions-036.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-037.json": "0000019617/submissions/CIK0000019617-submissions-037.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-038.json": "0000019617/submissions/CIK0000019617-submissions-038.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-039.json": "0000019617/submissions/CIK0000019617-submissions-039.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-040.json": "0000019617/submissions/CIK0000019617-submissions-040.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-041.json": "0000019617/submissions/CIK0000019617-submissions-041.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-042.json": "0000019617/submissions/CIK0000019617-submissions-042.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-043.json": "0000019617/submissions/CIK0000019617-submissions-043.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-044.json": "0000019617/submissions/CIK0000019617-submissions-044.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-045.json": "0000019617/submissions/CIK0000019617-submissions-045.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-046.json": "0000019617/submissions/CIK0000019617-submissions-046.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-047.json": "0000019617/submissions/CIK0000019617-submissions-047.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-048.json": "0000019617/submissions/CIK0000019617-submissions-048.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-049.json": "0000019617/submissions/CIK0000019617-submissions-049.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-050.json": "0000019617/submissions/CIK0000019617-submissions-050.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-051.json": "0000019617/submissions/CIK0000019617-submissions-051.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-052.json": "0000019617/submissions/CIK0000019617-submissions-052.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-053.json": "0000019617/submissions/CIK0000019617-submissions-053.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-054.json": "0000019617/submissions/CIK0000019617-submissions-054.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-055.json": "0000019617/submissions/CIK0000019617-submissions-055.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-056.json": "0000019617/submissions/CIK0000019617-submissions-056.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-057.json": "0000019617/submissions/CIK0000019617-submissions-057.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-058.json": "0000019617/submissions/CIK0000019617-submissions-058.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-059.json": "0000019617/submissions/CIK0000019617-submissions-059.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-060.json": "0000019617/submissions/CIK0000019617-submissions-060.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-061.json": "0000019617/submissions/CIK0000019617-submissions-061.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-062.json": "0000019617/submissions/CIK0000019617-submissions-062.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-063.json": "0000019617/submissions/CIK0000019617-submissions-063.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-064.json": "0000019617/submissions/CIK0000019617-submissions-064.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-065.json": "0000019617/submissions/CIK0000019617-submissions-065.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-066.json": "0000019617/submissions/CIK0000019617-submissions-066.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-067.json": "0000019617/submissions/CIK0000019617-submissions-067.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-068.json": "0000019617/submissions/CIK0000019617-submissions-068.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-069.json": "0000019617/submissions/CIK0000019617-submissions-069.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-070.json": "0000019617/submissions/CIK0000019617-submissions-070.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-071.json": "0000019617/submissions/CIK0000019617-submissions-071.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617-submissions-072.json": "0000019617/submissions/CIK0000019617-submissions-072.json.gz",
+    "https://data.sec.gov/submissions/CIK0000019617.json": "0000019617/submissions/CIK0000019617.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/19617/000162828026008131/FilingSummary.xml": "0000019617/000162828026008131/FilingSummary.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/19617/000162828026008131/index.json": "0000019617/000162828026008131/index.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/19617/000162828026008131/jpm-20251231_pre.xml": "0000019617/000162828026008131/jpm-20251231_pre.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/19617/000162828026054343/FilingSummary.xml": "0000019617/000162828026054343/FilingSummary.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/19617/000162828026054343/index.json": "0000019617/000162828026054343/index.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/19617/000162828026054343/jpm-20260630_pre.xml": "0000019617/000162828026054343/jpm-20260630_pre.xml.gz"
+   },
+   "fsds": "0000019617/fsds.jsonl.gz",
+   "name": "JPMORGAN CHASE & CO",
+   "recorded_at": "2026-11-25T21:01:55+00:00",
+   "submissions": "filings of the companyfacts accessions and the recorded ones; selection inputs equal"
+  },
+  "0000027419": {
+   "accessions": [
+    {
+     "accn": "0000027419-26-000042",
+     "filed": "2026-08-28",
+     "form": "10-Q",
+     "report_date": "2026-08-01"
+    },
+    {
+     "accn": "0000027419-26-000016",
+     "filed": "2026-03-11",
+     "form": "10-K",
+     "report_date": "2026-01-31"
+    }
+   ],
+   "companyfacts": "dictionary tags only; selection inputs equal",
+   "files": {
+    "https://data.sec.gov/api/xbrl/companyfacts/CIK0000027419.json": "0000027419/companyfacts.json.gz",
+    "https://data.sec.gov/submissions/CIK0000027419-submissions-001.json": "0000027419/submissions/CIK0000027419-submissions-001.json.gz",
+    "https://data.sec.gov/submissions/CIK0000027419.json": "0000027419/submissions/CIK0000027419.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/27419/000002741926000016/FilingSummary.xml": "0000027419/000002741926000016/FilingSummary.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/27419/000002741926000016/index.json": "0000027419/000002741926000016/index.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/27419/000002741926000016/tgt-20260131_pre.xml": "0000027419/000002741926000016/tgt-20260131_pre.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/27419/000002741926000042/FilingSummary.xml": "0000027419/000002741926000042/FilingSummary.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/27419/000002741926000042/index.json": "0000027419/000002741926000042/index.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/27419/000002741926000042/tgt-20260801_pre.xml": "0000027419/000002741926000042/tgt-20260801_pre.xml.gz"
+   },
+   "fsds": "0000027419/fsds.jsonl.gz",
+   "name": "TARGET CORPORATION",
+   "recorded_at": "2026-11-25T21:01:55+00:00",
+   "submissions": "filings of the companyfacts accessions and the recorded ones; selection inputs equal"
+  },
+  "0000078814": {
+   "accessions": [
+    {
+     "accn": "0001628280-26-050908",
+     "filed": "2026-07-30",
+     "form": "10-Q",
+     "report_date": "2026-06-30"
+    },
+    {
+     "accn": "0001628280-26-009921",
+     "filed": "2026-02-20",
+     "form": "10-K/A",
+     "report_date": "2025-12-31"
+    },
+    {
+     "accn": "0001628280-26-009650",
+     "filed": "2026-02-19",
+     "form": "10-K",
+     "report_date": "2025-12-31"
+    }
+   ],
+   "companyfacts": "dictionary tags only; selection inputs equal",
+   "files": {
+    "https://data.sec.gov/api/xbrl/companyfacts/CIK0000078814.json": "0000078814/companyfacts.json.gz",
+    "https://data.sec.gov/submissions/CIK0000078814-submissions-001.json": "0000078814/submissions/CIK0000078814-submissions-001.json.gz",
+    "https://data.sec.gov/submissions/CIK0000078814.json": "0000078814/submissions/CIK0000078814.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/78814/000162828026009650/FilingSummary.xml": "0000078814/000162828026009650/FilingSummary.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/78814/000162828026009650/index.json": "0000078814/000162828026009650/index.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/78814/000162828026009650/pbi-20251231_pre.xml": "0000078814/000162828026009650/pbi-20251231_pre.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/78814/000162828026009921/FilingSummary.xml": "0000078814/000162828026009921/FilingSummary.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/78814/000162828026009921/index.json": "0000078814/000162828026009921/index.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/78814/000162828026009921/pbi-20251231_pre.xml": "0000078814/000162828026009921/pbi-20251231_pre.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/78814/000162828026050908/FilingSummary.xml": "0000078814/000162828026050908/FilingSummary.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/78814/000162828026050908/index.json": "0000078814/000162828026050908/index.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/78814/000162828026050908/pbi-20260630_pre.xml": "0000078814/000162828026050908/pbi-20260630_pre.xml.gz"
+   },
+   "fsds": "0000078814/fsds.jsonl.gz",
+   "name": "PITNEY BOWES INC",
+   "recorded_at": "2026-11-25T21:01:55+00:00",
+   "submissions": "filings of the companyfacts accessions and the recorded ones; selection inputs equal"
+  },
+  "0000353278": {
+   "accessions": [
+    {
+     "accn": "0000353278-26-000012",
+     "filed": "2026-02-04",
+     "form": "20-F",
+     "report_date": "2025-12-31"
+    }
+   ],
+   "companyfacts": "dictionary tags only; selection inputs equal",
+   "files": {
+    "https://data.sec.gov/api/xbrl/companyfacts/CIK0000353278.json": "0000353278/companyfacts.json.gz",
+    "https://data.sec.gov/submissions/CIK0000353278-submissions-001.json": "0000353278/submissions/CIK0000353278-submissions-001.json.gz",
+    "https://data.sec.gov/submissions/CIK0000353278.json": "0000353278/submissions/CIK0000353278.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/353278/000035327826000012/FilingSummary.xml": "0000353278/000035327826000012/FilingSummary.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/353278/000035327826000012/index.json": "0000353278/000035327826000012/index.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/353278/000035327826000012/nvo-20251231_pre.xml": "0000353278/000035327826000012/nvo-20251231_pre.xml.gz"
+   },
+   "fsds": "0000353278/fsds.jsonl.gz",
+   "name": "NOVO NORDISK A/S",
+   "recorded_at": "2026-11-25T21:01:55+00:00",
+   "submissions": "filings of the companyfacts accessions and the recorded ones; selection inputs equal"
+  },
+  "0000789019": {
+   "accessions": [
+    {
+     "accn": "0001193125-26-323660",
+     "filed": "2026-07-29",
+     "form": "10-K",
+     "report_date": "2026-06-30"
+    },
+    {
+     "accn": "0001193125-26-027207",
+     "filed": "2026-01-28",
+     "form": "10-Q",
+     "report_date": "2025-12-31"
+    }
+   ],
+   "companyfacts": "dictionary tags only; selection inputs equal",
+   "files": {
+    "https://data.sec.gov/api/xbrl/companyfacts/CIK0000789019.json": "0000789019/companyfacts.json.gz",
+    "https://data.sec.gov/submissions/CIK0000789019-submissions-001.json": "0000789019/submissions/CIK0000789019-submissions-001.json.gz",
+    "https://data.sec.gov/submissions/CIK0000789019-submissions-002.json": "0000789019/submissions/CIK0000789019-submissions-002.json.gz",
+    "https://data.sec.gov/submissions/CIK0000789019.json": "0000789019/submissions/CIK0000789019.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/789019/000119312526027207/FilingSummary.xml": "0000789019/000119312526027207/FilingSummary.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/789019/000119312526027207/index.json": "0000789019/000119312526027207/index.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/789019/000119312526027207/msft-20251231.xsd": "0000789019/000119312526027207/msft-20251231.xsd.gz",
+    "https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/FilingSummary.xml": "0000789019/000119312526323660/FilingSummary.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/index.json": "0000789019/000119312526323660/index.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft-20260630.xsd": "0000789019/000119312526323660/msft-20260630.xsd.gz"
+   },
+   "fsds": "0000789019/fsds.jsonl.gz",
+   "name": "MICROSOFT CORP",
+   "recorded_at": "2026-11-25T21:01:55+00:00",
+   "submissions": "filings of the companyfacts accessions and the recorded ones; selection inputs equal"
+  },
+  "0001018724": {
+   "accessions": [
+    {
+     "accn": "0001018724-26-000026",
+     "filed": "2026-07-31",
+     "form": "10-Q",
+     "report_date": "2026-06-30"
+    },
+    {
+     "accn": "0001018724-26-000004",
+     "filed": "2026-02-06",
+     "form": "10-K",
+     "report_date": "2025-12-31"
+    }
+   ],
+   "companyfacts": "dictionary tags only; selection inputs equal",
+   "files": {
+    "https://data.sec.gov/api/xbrl/companyfacts/CIK0001018724.json": "0001018724/companyfacts.json.gz",
+    "https://data.sec.gov/submissions/CIK0001018724-submissions-001.json": "0001018724/submissions/CIK0001018724-submissions-001.json.gz",
+    "https://data.sec.gov/submissions/CIK0001018724-submissions-002.json": "0001018724/submissions/CIK0001018724-submissions-002.json.gz",
+    "https://data.sec.gov/submissions/CIK0001018724.json": "0001018724/submissions/CIK0001018724.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/1018724/000101872426000004/FilingSummary.xml": "0001018724/000101872426000004/FilingSummary.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/1018724/000101872426000004/amzn-20251231_pre.xml": "0001018724/000101872426000004/amzn-20251231_pre.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/1018724/000101872426000004/index.json": "0001018724/000101872426000004/index.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/1018724/000101872426000026/FilingSummary.xml": "0001018724/000101872426000026/FilingSummary.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/1018724/000101872426000026/amzn-20260630_pre.xml": "0001018724/000101872426000026/amzn-20260630_pre.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/1018724/000101872426000026/index.json": "0001018724/000101872426000026/index.json.gz"
+   },
+   "fsds": "0001018724/fsds.jsonl.gz",
+   "name": "AMAZON.COM, INC.",
+   "recorded_at": "2026-11-25T21:01:55+00:00",
+   "submissions": "filings of the companyfacts accessions and the recorded ones; selection inputs equal"
+  },
+  "0001326801": {
+   "accessions": [
+    {
+     "accn": "0001628280-26-050705",
+     "filed": "2026-07-30",
+     "form": "10-Q",
+     "report_date": "2026-06-30"
+    },
+    {
+     "accn": "0001628280-26-003942",
+     "filed": "2026-01-29",
+     "form": "10-K",
+     "report_date": "2025-12-31"
+    }
+   ],
+   "companyfacts": "dictionary tags only; selection inputs equal",
+   "files": {
+    "https://data.sec.gov/api/xbrl/companyfacts/CIK0001326801.json": "0001326801/companyfacts.json.gz",
+    "https://data.sec.gov/submissions/CIK0001326801-submissions-001.json": "0001326801/submissions/CIK0001326801-submissions-001.json.gz",
+    "https://data.sec.gov/submissions/CIK0001326801-submissions-002.json": "0001326801/submissions/CIK0001326801-submissions-002.json.gz",
+    "https://data.sec.gov/submissions/CIK0001326801.json": "0001326801/submissions/CIK0001326801.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/1326801/000162828026003942/FilingSummary.xml": "0001326801/000162828026003942/FilingSummary.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/1326801/000162828026003942/index.json": "0001326801/000162828026003942/index.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/1326801/000162828026003942/meta-20251231_pre.xml": "0001326801/000162828026003942/meta-20251231_pre.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/1326801/000162828026050705/FilingSummary.xml": "0001326801/000162828026050705/FilingSummary.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/1326801/000162828026050705/index.json": "0001326801/000162828026050705/index.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/1326801/000162828026050705/meta-20260630_pre.xml": "0001326801/000162828026050705/meta-20260630_pre.xml.gz"
+   },
+   "fsds": "0001326801/fsds.jsonl.gz",
+   "name": "Meta Platforms, Inc.",
+   "recorded_at": "2026-11-25T21:01:55+00:00",
+   "submissions": "filings of the companyfacts accessions and the recorded ones; selection inputs equal"
+  },
+  "0001341439": {
+   "accessions": [
+    {
+     "accn": "0001193125-26-389274",
+     "filed": "2026-09-11",
+     "form": "10-Q",
+     "report_date": "2026-08-31"
+    },
+    {
+     "accn": "0001193125-26-101045",
+     "filed": "2026-03-11",
+     "form": "10-Q",
+     "report_date": "2026-02-28"
+    }
+   ],
+   "companyfacts": "dictionary tags only; selection inputs equal",
+   "files": {
+    "https://data.sec.gov/api/xbrl/companyfacts/CIK0001341439.json": "0001341439/companyfacts.json.gz",
+    "https://data.sec.gov/submissions/CIK0001341439-submissions-001.json": "0001341439/submissions/CIK0001341439-submissions-001.json.gz",
+    "https://data.sec.gov/submissions/CIK0001341439.json": "0001341439/submissions/CIK0001341439.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/1341439/000119312526101045/FilingSummary.xml": "0001341439/000119312526101045/FilingSummary.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/1341439/000119312526101045/index.json": "0001341439/000119312526101045/index.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/1341439/000119312526101045/orcl-20260228.xsd": "0001341439/000119312526101045/orcl-20260228.xsd.gz",
+    "https://www.sec.gov/Archives/edgar/data/1341439/000119312526389274/FilingSummary.xml": "0001341439/000119312526389274/FilingSummary.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/1341439/000119312526389274/index.json": "0001341439/000119312526389274/index.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/1341439/000119312526389274/orcl-20260831.xsd": "0001341439/000119312526389274/orcl-20260831.xsd.gz"
+   },
+   "fsds": "0001341439/fsds.jsonl.gz",
+   "name": "ORACLE CORP",
+   "recorded_at": "2026-11-25T21:01:55+00:00",
+   "submissions": "filings of the companyfacts accessions and the recorded ones; selection inputs equal"
+  },
+  "0001652044": {
+   "accessions": [
+    {
+     "accn": "0001652044-26-000071",
+     "filed": "2026-07-23",
+     "form": "10-Q",
+     "report_date": "2026-06-30"
+    },
+    {
+     "accn": "0001652044-26-000018",
+     "filed": "2026-02-05",
+     "form": "10-K",
+     "report_date": "2025-12-31"
+    }
+   ],
+   "companyfacts": "dictionary tags only; selection inputs equal",
+   "files": {
+    "https://data.sec.gov/api/xbrl/companyfacts/CIK0001652044.json": "0001652044/companyfacts.json.gz",
+    "https://data.sec.gov/submissions/CIK0001652044-submissions-001.json": "0001652044/submissions/CIK0001652044-submissions-001.json.gz",
+    "https://data.sec.gov/submissions/CIK0001652044.json": "0001652044/submissions/CIK0001652044.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/1652044/000165204426000018/FilingSummary.xml": "0001652044/000165204426000018/FilingSummary.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/1652044/000165204426000018/goog-20251231_pre.xml": "0001652044/000165204426000018/goog-20251231_pre.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/1652044/000165204426000018/index.json": "0001652044/000165204426000018/index.json.gz",
+    "https://www.sec.gov/Archives/edgar/data/1652044/000165204426000071/FilingSummary.xml": "0001652044/000165204426000071/FilingSummary.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/1652044/000165204426000071/goog-20260630_pre.xml": "0001652044/000165204426000071/goog-20260630_pre.xml.gz",
+    "https://www.sec.gov/Archives/edgar/data/1652044/000165204426000071/index.json": "0001652044/000165204426000071/index.json.gz"
+   },
+   "fsds": "0001652044/fsds.jsonl.gz",
+   "name": "Alphabet Inc.",
+   "recorded_at": "2026-11-25T21:01:55+00:00",
+   "submissions": "filings of the companyfacts accessions and the recorded ones; selection inputs equal"
+  }
+ },
+ "quarters": [
+  "2026q1",
+  "2026q3"
+ ],
+ "recorded_at": "2026-11-25T21:01:55+00:00",
+ "since": "2022-01-01"
+}
