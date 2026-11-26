@@ -9,7 +9,7 @@
 # minimum here.
 -r requirements.txt
 pytest
-pytest-socket>=0.8
+pytest-socket>=0.8.1
 # The `documents` contract of the vault (chantier 4): tests check every manifest row and the
 # generated vocabulary.json against it. Dev/test only: the runtime never imports it. Pinned to
 # the PyPI release.
