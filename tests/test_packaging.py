@@ -551,3 +551,38 @@ def test_gate_fails_closed_when_the_api_call_fails(tmp_path):
     result = _run_gate(tmp_path, "gh: Not Found (HTTP 404)", 1)
     assert result.returncode == 1
     assert "HTTP 404" in result.stdout + result.stderr
+
+
+# ---- live mode (no store) ---------------------------------------------------
+
+
+def test_store_job_runs_the_live_tests_too():
+    """tests/live importorskips open-data-store (issuer tables): only the store job installs it."""
+    runs = [s.get("run", "") for s in _workflow(TESTS)["jobs"]["store"]["steps"]]
+    assert "pytest -q tests/opendata tests/live" in runs
+
+
+def test_package_job_smoke_installs_the_live_extra():
+    runs = "\n".join(s.get("run", "") for s in _workflow(TESTS)["jobs"]["package"]["steps"])
+    assert 'dist/*.whl)[live]"' in runs
+    assert "import company_corpus.live.documents" in runs
+    assert "import company_corpus.live.issuer" in runs
+    assert "_html_converter()" in runs  # MarkItDown really installed by the extra
+    assert 'contracts_api(needed_by="smoke", extra="live")' in runs
+
+
+def test_dev_requirements_carry_markitdown_in_the_live_range():
+    live = [Requirement(d) for d in _pyproject()["project"]["optional-dependencies"]["live"]]
+    (markitdown,) = [r for r in live if r.name == "markitdown"]
+    dev = [Requirement(line.split("#")[0].strip())
+           for line in (REPO / "requirements-dev.txt").read_text(encoding="utf-8").splitlines()
+           if line.split("#")[0].strip().startswith("markitdown")]
+    assert [r.specifier for r in dev] == [markitdown.specifier]
+
+
+def test_live_install_hints_name_the_published_distribution():
+    from company_corpus.live import documents, issuer
+
+    hint = f"pip install '{DIST}[live]'"
+    assert hint in Path(documents.__file__).read_text(encoding="utf-8")
+    assert 'extra="live"' in Path(issuer.__file__).read_text(encoding="utf-8")

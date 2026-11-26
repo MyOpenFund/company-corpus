@@ -22,7 +22,9 @@ then cleaned and reduced before MarkItDown, which bounds its cost on table-dense
   every attribute other than ``href``, ``colspan``, ``rowspan``, ``src``, ``alt`` and an
   integer ``start`` is dropped.
 
-MarkItDown's HTML converter then renders tables as pipe tables.
+MarkItDown's HTML converter then renders tables as pipe tables. MarkItDown comes with the
+``[live]`` extra and is imported on the first conversion: without it, converting raises
+:class:`MarkItDownUnavailable` with the install hint.
 
 **Sections** are found on the Markdown output, so ``Section.start``/``Section.end`` are offsets
 into ``FilingDocument.markdown``. Principle: a wrong section is worse than no section (the whole
@@ -82,7 +84,6 @@ from dataclasses import dataclass
 import lxml.etree
 import lxml.html
 from bs4 import BeautifulSoup
-from markitdown.converters import HtmlConverter
 
 from .filings import FilingRef
 from .sec import SecGet
@@ -105,6 +106,20 @@ class UnsupportedDocument(ValueError):
 
 class DocumentTooLarge(ValueError):
     """The primary document exceeds ``max_html_bytes``; it is not converted."""
+
+
+class MarkItDownUnavailable(RuntimeError):
+    """MarkItDown (the ``[live]`` extra) is not installed."""
+
+
+def _html_converter():
+    """MarkItDown's HTML converter, imported on first use so the module loads without it."""
+    try:
+        from markitdown.converters import HtmlConverter
+    except ImportError as exc:
+        raise MarkItDownUnavailable(
+            "filing documents need MarkItDown: pip install 'myopenfund-company-corpus[live]'") from exc
+    return HtmlConverter()
 
 
 @dataclass(frozen=True)
@@ -624,7 +639,7 @@ def _convert(html: bytes, max_html_bytes: int) -> tuple[str, dict[str, int]]:
         reduced, marker, ids = _reduced_html(text)
     except lxml.etree.ParserError:  # nothing parseable (e.g. only a comment)
         return "", {}
-    return _unmark(HtmlConverter().convert_string(reduced).markdown, marker, ids)
+    return _unmark(_html_converter().convert_string(reduced).markdown, marker, ids)
 
 
 def html_to_markdown(html: bytes, *, max_html_bytes: int = MAX_HTML_BYTES) -> str:
@@ -665,10 +680,13 @@ def primary_document_name(index_html: bytes, form: str) -> str:
 def filing_document(ref: FilingRef, sec: SecGet, *,
                     max_html_bytes: int = MAX_HTML_BYTES) -> FilingDocument:
     """The primary document of ``ref`` as Markdown, with its Item sections. Filing documents
-    are immutable: every fetch is made with ``max_age_s=None``. A non-HTML primary document
-    raises :class:`UnsupportedDocument` without being fetched; one over ``max_html_bytes``
+    are immutable: every fetch is made with ``max_age_s=None``. A non-HTML primary document,
+    or a ``primary_document`` holding ``/`` or ``..``, raises :class:`UnsupportedDocument`
+    without being fetched; one over ``max_html_bytes``
     raises :class:`DocumentTooLarge` before conversion."""
     name = ref.primary_document
+    if name and ("/" in name or ".." in name):
+        raise UnsupportedDocument(f"primary document {name!r} is not a plain file name")
     if name and not name.lower().endswith(_HTML_SUFFIXES):
         raise UnsupportedDocument(f"primary document {name!r} is not HTML")
     if not name:

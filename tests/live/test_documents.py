@@ -681,3 +681,20 @@ def test_anchor_on_an_empty_paragraph_is_the_next_text_line():
                   f'<p>Preamble.</p><p><a name="x"></a></p><p><b>WHAT MANAGEMENT THINKS</b></p>{_P}')
     (s7,) = doc.sections
     assert doc.markdown[s7.start:].startswith("**WHAT MANAGEMENT THINKS**") and "\n\n\n" not in doc.markdown
+
+
+def test_missing_markitdown_raises_a_clear_error_with_the_install_hint(monkeypatch):
+    for name in [m for m in sys.modules if m == "markitdown" or m.startswith("markitdown.")]:
+        monkeypatch.delitem(sys.modules, name)
+    monkeypatch.setitem(sys.modules, "markitdown", None)  # import markitdown -> ImportError
+    with pytest.raises(documents.MarkItDownUnavailable) as ei:
+        html_to_markdown(b"<p>x</p>")
+    assert "pip install 'myopenfund-company-corpus[live]'" in str(ei.value)
+
+
+@pytest.mark.parametrize("name", ["../other.htm", "sub/exco-10k.htm", "..htm"])
+def test_primary_document_with_a_path_component_is_refused_unfetched(name):
+    sec = FakeSec({})
+    with pytest.raises(UnsupportedDocument):
+        filing_document(replace(REF, primary_document=name), sec)
+    assert sec.calls == []
