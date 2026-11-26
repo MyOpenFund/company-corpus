@@ -44,7 +44,9 @@ configurable up to 10 (`Config` refuses more). Transient failures (connection er
 HTTP 429 and 5xx) are retried `retries` times with a jittered exponential backoff. A server
 `Retry-After` is honoured up to `retry_after_max_s` (30 s by default; `None` removes the cap);
 above it the request fails at once with `SecUnavailable` instead of holding the caller for
-minutes. A non-finite or negative `Retry-After` is ignored (the backoff applies).
+minutes. The cap applies to each wait, not to the request: a server answering `Retry-After: 30`
+on every attempt still holds a request up to `retries` × 30 s (2 minutes by default). A
+non-finite or negative `Retry-After` is ignored (the backoff applies).
 
 ## Errors
 

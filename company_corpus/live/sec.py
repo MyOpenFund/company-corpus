@@ -20,6 +20,7 @@ _UNDECLARED_MARKER = "undeclared automated tool"
 #: Default ``retry_after_max_s``: the longest server ``Retry-After`` (seconds) a request waits
 #: for. A longer one raises :class:`SecUnavailable` at once rather than holding a live caller
 #: for minutes (EDGAR can answer 429 with ``Retry-After: 600``). ``None`` removes the cap.
+#: The cap is per wait: ``retries`` waits at the cap hold one request up to ``retries`` × the cap.
 RETRY_AFTER_MAX_S = 30.0
 
 
