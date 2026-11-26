@@ -67,7 +67,7 @@ Failure mode: a file that is missing (404 or absent from ``index.json``), malfor
 DOCTYPE gives no positions (``[]``) and one ``positions:<reason>`` count in ``counters``
 (``no_index``, ``no_filing_summary``, ``no_statement_reports``, ``no_presentation``, ``malformed``,
 ``no_rows`` when no statement role is in the linkbase); it never raises. Network errors other than
-404 (``SecUnavailable``, ``SecRefused``) propagate. XML is parsed by expat (the parser
+404 (``SecUnavailable``, ``SecRefused``, ``SecHttpError``) propagate. XML is parsed by expat (the parser
 ``xml.etree.ElementTree`` uses) into an ``ElementTree``, with handlers that refuse a DOCTYPE or an
 entity declaration as soon as expat reports it, whatever the document's encoding: no entity is ever
 declared, so none is expanded and nothing external is loaded.

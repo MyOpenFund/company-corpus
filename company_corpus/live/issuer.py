@@ -8,8 +8,8 @@ exists here, so ``manifest_doc_ids`` is empty and every row counts ``filing_not_
 
 Statement positions are rebuilt per filing (``filing_positions``) for the report forms of
 ``POSITIONS_FORMS`` whose ``report_date`` falls in the window, and ordered like the FSDS file
-``statements`` writes. A filing whose files stay unreachable (``SecUnavailable``) or vanish
-(``SecNotFound``) counts ``positions:fetch_failed`` and has no positions of its own: the selection
+``statements`` writes. A filing whose files stay unreachable (``SecUnavailable``), vanish
+(``SecNotFound``) or get another HTTP error (``SecHttpError``) counts ``positions:fetch_failed`` and has no positions of its own: the selection
 borrows those of an earlier filing. ``SecRefused`` and ``SecContactMissing`` concern every
 request and propagate.
 """
@@ -28,7 +28,7 @@ from ..opendata.batches import contract_table, contracts_api, issuer_rows
 from ..sources.edgar_xbrl import COMPANYFACTS_URL
 from .filings import FilingRef, fetch_submissions, list_filings
 from .positions import filing_positions
-from .sec import SecGet, SecNotFound, SecUnavailable
+from .sec import SecGet, SecHttpError, SecNotFound, SecUnavailable
 
 #: Forms whose statement positions are rebuilt (their ``/A`` amendments included).
 POSITIONS_FORMS: tuple[str, ...] = ("10-K", "10-Q", "20-F", "40-F")
@@ -51,7 +51,7 @@ def _positions(archive, sec: SecGet, *, forms: Collection[str], period_from: dat
     for ref in list_filings(archive, forms=forms, period_from=period_from, period_to=period_to):
         try:
             rows.extend(filing_positions(ref, sec, counters=counters))
-        except (SecUnavailable, SecNotFound):
+        except (SecUnavailable, SecNotFound, SecHttpError):
             counters["positions:fetch_failed"] += 1
     rows.sort(key=lambda r: (r["accn"], r["statement"], r["tag"]))  # the order ``_extract`` writes
     return rows

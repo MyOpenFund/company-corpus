@@ -17,20 +17,44 @@ from ..http import Fetcher
 _UNDECLARED_MARKER = "undeclared automated tool"
 
 
-class SecContactMissing(ValueError):
+class SecError(Exception):
+    """Base of every error :class:`SecClient` raises for an SEC answer or its absence.
+
+    Taxonomy (each also keeps a built-in base, so existing ``except`` clauses still match):
+
+    * :class:`SecContactMissing` (``ValueError``): no usable contact; raised at construction;
+    * :class:`SecRefused` (``RuntimeError``): HTTP 403 "undeclared automated tool" page: every
+      request would be refused, so callers propagate it;
+    * :class:`SecUnavailable` (``RuntimeError``): connection errors, timeouts, HTTP 429 and 5xx
+      after every retry, or a ``Retry-After`` above ``retry_after_max_s``;
+    * :class:`SecNotFound` (``LookupError``): HTTP 404 for this URL;
+    * :class:`SecHttpError` (``RuntimeError``): any other non-2xx answer (400, 401, a 403
+      without the undeclared-tool page, 410...), after a single request: it concerns this URL.
+    """
+
+
+class SecContactMissing(SecError, ValueError):
     """No SEC contact was supplied (blank or whitespace-only)."""
 
 
-class SecRefused(RuntimeError):
+class SecRefused(SecError, RuntimeError):
     """The SEC refused the request as an undeclared automated tool."""
 
 
-class SecUnavailable(RuntimeError):
+class SecUnavailable(SecError, RuntimeError):
     """The SEC stayed unreachable or throttled after every retry."""
 
 
-class SecNotFound(LookupError):
+class SecNotFound(SecError, LookupError):
     """The SEC answered 404 for the requested URL."""
+
+
+class SecHttpError(SecError, RuntimeError):
+    """The SEC answered another non-2xx status for the requested URL (``status``)."""
+
+    def __init__(self, status: int | None, message: str):
+        super().__init__(message)
+        self.status = status
 
 
 class SecGet(Protocol):
@@ -77,7 +101,7 @@ class SecClient:
                     "check the declared contact") from exc
             if status == 429 or (status is not None and 500 <= status <= 599):
                 raise SecUnavailable(f"SEC unavailable (HTTP {status}) after retries") from exc
-            raise
+            raise SecHttpError(status, f"SEC answered HTTP {status} for {url}") from exc
         except (requests.ConnectionError, requests.Timeout,
                 requests.exceptions.ChunkedEncodingError,
                 requests.exceptions.ContentDecodingError) as exc:

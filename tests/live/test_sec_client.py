@@ -9,7 +9,7 @@ import requests
 
 from company_corpus import http as http_mod
 from company_corpus.live.sec import (
-    SecClient, SecContactMissing, SecNotFound, SecRefused, SecUnavailable,
+    SecClient, SecContactMissing, SecError, SecHttpError, SecNotFound, SecRefused, SecUnavailable,
 )
 from tests.test_http import FakeResponse, FakeSession
 
@@ -61,11 +61,21 @@ def test_403_undeclared_page_raises_refused():
         SecClient(CONTACT, session=session).get_bytes(URL, max_age_s=None)
 
 
-def test_403_other_raises_http_error():
-    session = FakeSession([_Resp(403, body=b"forbidden")])
-    with pytest.raises(requests.HTTPError) as ei:
+@pytest.mark.parametrize("status", [400, 401, 403, 405, 410, 451])
+def test_other_http_statuses_raise_sec_http_error_after_one_request(status):
+    session = FakeSession([_Resp(status, body=b"forbidden")])
+    with pytest.raises(SecHttpError) as ei:
         SecClient(CONTACT, session=session).get_bytes(URL, max_age_s=None)
-    assert not isinstance(ei.value, SecRefused)
+    assert not isinstance(ei.value, (SecRefused, requests.HTTPError))
+    assert ei.value.status == status and len(session.calls) == 1
+    assert CONTACT not in str(ei.value)
+
+
+def test_every_sec_error_shares_one_base_and_keeps_its_builtin_base():
+    for cls, builtin in ((SecContactMissing, ValueError), (SecRefused, RuntimeError),
+                         (SecUnavailable, RuntimeError), (SecNotFound, LookupError),
+                         (SecHttpError, RuntimeError)):
+        assert issubclass(cls, SecError) and issubclass(cls, builtin), cls
 
 
 def test_404_raises_not_found():

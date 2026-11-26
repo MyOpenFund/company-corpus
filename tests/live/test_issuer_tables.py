@@ -9,7 +9,7 @@ pytest.importorskip("open_data_store")
 from company_corpus.concepts.selection import run_selection  # noqa: E402
 from company_corpus.live import issuer as live_issuer  # noqa: E402
 from company_corpus.live.issuer import IssuerTables, issuer_tables  # noqa: E402
-from company_corpus.live.sec import SecNotFound, SecRefused, SecUnavailable  # noqa: E402
+from company_corpus.live.sec import SecHttpError, SecNotFound, SecRefused, SecUnavailable  # noqa: E402
 from company_corpus.opendata import batches  # noqa: E402
 from company_corpus.opendata.batches import store_batches  # noqa: E402
 from company_corpus.opendata.statements import statements_path  # noqa: E402
@@ -188,6 +188,20 @@ def test_a_filing_whose_positions_fail_is_counted_and_skipped(config, monkeypatc
     assert t.counters["positions:fetch_failed"] == 2
     assert t.counters["positions:seen"] == 1
     assert set(t.filing_statements.column("filing_ref").to_pylist()) == {K24}
+
+
+def test_a_filing_answered_with_another_http_error_is_counted_and_skipped(config, monkeypatch):
+    def positions(ref, sec, *, counters=None):
+        if ref.accession == Q24:
+            raise SecHttpError(410, "gone for good")
+        counters["positions:seen"] += 1
+        return [dict(r) for r in POSITIONS.get(ref.accession, [])]
+
+    monkeypatch.setattr(live_issuer, "filing_positions", positions)
+    t = _live(config, FakeSec(_corpus(config)))
+    assert t.counters["positions:fetch_failed"] == 1
+    assert t.counters["positions:seen"] == 2
+    assert set(t.filing_statements.column("filing_ref").to_pylist()) == {K24, K23}
 
 
 def test_refused_propagates(config, monkeypatch):
