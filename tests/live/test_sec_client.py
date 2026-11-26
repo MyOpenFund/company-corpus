@@ -91,6 +91,24 @@ def test_429_then_200_returns_body():
     assert len(session.calls) == 2
 
 
+def test_retry_after_above_the_default_cap_raises_unavailable_at_once():
+    session = FakeSession([_Resp(429, headers={"Retry-After": "600"}), _Resp(200, body=b"ok")])
+    with pytest.raises(SecUnavailable):
+        SecClient(CONTACT, session=session).get_bytes(URL, max_age_s=None)
+    assert len(session.calls) == 1
+
+
+def test_retry_after_cap_is_configurable():
+    session = FakeSession([_Resp(503, headers={"Retry-After": "600"}), _Resp(200, body=b"ok")])
+    assert SecClient(CONTACT, retry_after_max_s=900.0, session=session).get_bytes(URL) == b"ok"
+
+
+@pytest.mark.parametrize("bad", [-1.0, float("nan")])
+def test_retry_after_cap_must_be_a_non_negative_number(bad):
+    with pytest.raises(ValueError):
+        SecClient(CONTACT, retry_after_max_s=bad)
+
+
 def test_exhausted_retries_raise_unavailable():
     session = FakeSession([_Resp(503)])
     with pytest.raises(SecUnavailable):

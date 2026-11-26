@@ -7,6 +7,7 @@ never logged.
 
 from __future__ import annotations
 
+import math
 from typing import Protocol
 
 import requests
@@ -15,6 +16,11 @@ from ..config import Config
 from ..http import Fetcher
 
 _UNDECLARED_MARKER = "undeclared automated tool"
+
+#: Default ``retry_after_max_s``: the longest server ``Retry-After`` (seconds) a request waits
+#: for. A longer one raises :class:`SecUnavailable` at once rather than holding a live caller
+#: for minutes (EDGAR can answer 429 with ``Retry-After: 600``). ``None`` removes the cap.
+RETRY_AFTER_MAX_S = 30.0
 
 
 class SecError(Exception):
@@ -70,7 +76,8 @@ class SecClient:
     """Throttled, retrying, thread-safe SEC client implementing :class:`SecGet`."""
 
     def __init__(self, contact: str, *, max_rps: float = 5.0, timeout_s: float = 30.0,
-                 retries: int = 4, session: requests.Session | None = None):
+                 retries: int = 4, retry_after_max_s: float | None = RETRY_AFTER_MAX_S,
+                 session: requests.Session | None = None):
         if not isinstance(contact, str) or not contact.strip():
             raise SecContactMissing("an SEC contact (e.g. an email address) is required")
         if "\r" in contact or "\n" in contact:
@@ -81,11 +88,15 @@ class SecClient:
             raise ValueError("retries must be >= 0")
         if not timeout_s > 0:
             raise ValueError("timeout_s must be > 0")
+        if retry_after_max_s is not None and not (math.isfinite(retry_after_max_s)
+                                                  and retry_after_max_s >= 0):
+            raise ValueError("retry_after_max_s must be a finite number >= 0, or None")
         # ``Config.min_delay_seconds`` is derived as 1 / requests_per_second.
         config = Config(contact=contact.strip(), requests_per_second=max_rps,
                         max_retries=retries, timeout=timeout_s)
         self._fetcher = Fetcher(config, session, thread_safe=True,
-                                 throttle_key=lambda url: "sec")  # one cap across SEC hosts
+                                 throttle_key=lambda url: "sec",  # one cap across SEC hosts
+                                 retry_after_max_s=retry_after_max_s)
 
     def get_bytes(self, url: str, *, max_age_s: float | None = None) -> bytes:
         try:

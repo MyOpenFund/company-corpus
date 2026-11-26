@@ -525,3 +525,48 @@ def test_get_text_without_content_type_non_utf8_body_falls_back_to_utf8(cfg):
     f = Fetcher(cfg, session=sess)
     f.get_text("https://x/y")
     assert resp.encoding == "utf-8"
+
+
+@pytest.mark.parametrize("value", ["inf", "-inf", "nan", "-5", "Wed, 21 Oct 2026 07:28:00 GMT", ""])
+def test_invalid_retry_after_falls_back_on_the_backoff(monkeypatch, value):
+    cfg = Config(contact="test@example.com", requests_per_second=0)  # no throttle sleep
+    sleeps = []
+    monkeypatch.setattr("company_corpus.http.time.sleep", lambda s: sleeps.append(s))
+    sess = FakeSession([FakeResponse(503, headers={"Retry-After": value}), FakeResponse(text="ok")])
+    assert Fetcher(cfg, session=sess).get_text("https://www.sec.gov/a") == "ok"
+    assert len(sleeps) == 1 and 0.5 <= sleeps[0] <= 1.0  # attempt 0 of the backoff curve
+
+
+def test_retry_after_above_the_cap_raises_at_once(monkeypatch):
+    cfg = Config(contact="test@example.com", requests_per_second=0)
+    sleeps = []
+    monkeypatch.setattr("company_corpus.http.time.sleep", lambda s: sleeps.append(s))
+    sess = FakeSession([FakeResponse(429, headers={"Retry-After": "600"}), FakeResponse(text="ok")])
+    with pytest.raises(requests.HTTPError) as ei:
+        Fetcher(cfg, session=sess, retry_after_max_s=30.0).get_text("https://www.sec.gov/a")
+    assert ei.value.response.status_code == 429
+    assert sleeps == [] and len(sess.calls) == 1
+
+
+def test_retry_after_at_the_cap_is_honoured(monkeypatch):
+    cfg = Config(contact="test@example.com", requests_per_second=0)
+    sleeps = []
+    monkeypatch.setattr("company_corpus.http.time.sleep", lambda s: sleeps.append(s))
+    sess = FakeSession([FakeResponse(503, headers={"Retry-After": "30"}), FakeResponse(text="ok")])
+    assert Fetcher(cfg, session=sess, retry_after_max_s=30.0).get_text("https://www.sec.gov/a") == "ok"
+    assert sleeps == [30.0]
+
+
+def test_retry_after_is_uncapped_by_default(monkeypatch):
+    cfg = Config(contact="test@example.com", requests_per_second=0)
+    sleeps = []
+    monkeypatch.setattr("company_corpus.http.time.sleep", lambda s: sleeps.append(s))
+    sess = FakeSession([FakeResponse(503, headers={"Retry-After": "600"}), FakeResponse(text="ok")])
+    assert Fetcher(cfg, session=sess).get_text("https://www.sec.gov/a") == "ok"
+    assert sleeps == [600.0]
+
+
+@pytest.mark.parametrize("bad", [-1.0, float("nan"), float("inf")])
+def test_retry_after_cap_is_validated(bad):
+    with pytest.raises(ValueError):
+        Fetcher(Config(contact="test@example.com"), session=FakeSession([]), retry_after_max_s=bad)

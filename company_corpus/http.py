@@ -16,6 +16,7 @@ Parallels ``cb_corpus.http``. Provides a small :class:`Fetcher` that:
 
 from __future__ import annotations
 
+import math
 import random
 import threading
 import time
@@ -38,7 +39,15 @@ class Fetcher:
 
     def __init__(self, config: Config | None = None, session: requests.Session | None = None,
                  *, thread_safe: bool = False,
-                 throttle_key: Callable[[str], str] | None = None):
+                 throttle_key: Callable[[str], str] | None = None,
+                 retry_after_max_s: float | None = None):
+        # ``retry_after_max_s``: the longest server ``Retry-After`` honoured. Above it the
+        # failure is raised at once instead of sleeping (``None``, the default: no cap, as the
+        # batch pipeline has always done; the live ``SecClient`` caps it at 30 s).
+        if retry_after_max_s is not None and not (math.isfinite(retry_after_max_s)
+                                                  and retry_after_max_s >= 0):
+            raise ValueError("retry_after_max_s must be a finite number >= 0, or None")
+        self.retry_after_max_s = retry_after_max_s
         self.config = config or Config()
         self._throttle_lock = threading.Lock() if thread_safe else None
         # Maps a URL to its spacing bucket; default is per host (netloc).
@@ -125,6 +134,10 @@ class Fetcher:
                 return resp
             except requests.RequestException as exc:
                 if attempt < self.config.max_retries and self._is_transient(exc):
+                    retry_after = self._retry_after(exc)
+                    if (retry_after is not None and self.retry_after_max_s is not None
+                            and retry_after > self.retry_after_max_s):
+                        raise  # the server asks for a longer wait than the caller accepts
                     time.sleep(self._backoff_seconds(attempt, exc))
                     continue
                 raise
@@ -151,22 +164,33 @@ class Fetcher:
 
     _BACKOFF_CAP_SECONDS = 30.0
 
+    @staticmethod
+    def _retry_after(exc: Exception) -> float | None:
+        """The server's ``Retry-After`` in seconds (delta-seconds form), or None when absent or
+        invalid: the HTTP-date form is not parsed, and a negative or non-finite value (``inf``,
+        ``nan``) is treated as invalid, so the default backoff applies."""
+        resp = getattr(exc, "response", None)
+        headers = getattr(resp, "headers", None)
+        raw = headers.get("Retry-After") if hasattr(headers, "get") else None
+        if not raw:
+            return None
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return None
+        return value if math.isfinite(value) and value >= 0 else None
+
     def _backoff_seconds(self, attempt: int, exc: Exception) -> float:
         """How long to wait before the next retry.
 
-        Honors a server ``Retry-After`` (delta-seconds form) when present --
+        Honors a valid server ``Retry-After`` (see :meth:`_retry_after`) when present --
         EDGAR sends it on 429/503 -- otherwise exponential backoff (2**attempt),
         capped and jittered (50-100%) so concurrent clients hitting the same
         throttle don't retry in lockstep (thundering herd).
         """
-        resp = getattr(exc, "response", None)
-        headers = getattr(resp, "headers", None)
-        retry_after = headers.get("Retry-After") if hasattr(headers, "get") else None
-        if retry_after:
-            try:
-                return max(0.0, float(retry_after))
-            except (TypeError, ValueError):
-                pass  # HTTP-date form is not parsed; fall through to backoff
+        retry_after = self._retry_after(exc)
+        if retry_after is not None:
+            return retry_after
         base = min(2.0 ** attempt, self._BACKOFF_CAP_SECONDS)
         return base * (0.5 + random.random() * 0.5)
 
