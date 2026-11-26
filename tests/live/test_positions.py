@@ -9,7 +9,9 @@ import pytest
 
 from company_corpus.config import Config
 from company_corpus.live.filings import FilingRef
-from company_corpus.live.positions import _tag_version, _walk, classify_report, filing_positions
+from company_corpus.live.positions import (
+    MAX_SCHEMAS, _tag_version, _walk, classify_report, filing_positions,
+)
 from company_corpus.live.sec import SecNotFound
 from company_corpus.opendata.statements import KEPT_STATEMENTS, statement_rows
 
@@ -464,3 +466,78 @@ def test_several_schemas_without_input_files_prefer_the_one_with_presentation_li
     counters = Counter()
     assert filing_positions(REF, sec, counters=counters) == filing_positions(REF, FakeSec(_routes()))
     assert sec.calls[-2:] == [f"{FOLDER}/aaa-20240630.xsd", f"{FOLDER}/{SCHEMA}"] and not counters
+
+
+def test_a_non_ascii_digit_report_position_counts_malformed():
+    summary = (FILING_DIR / "FilingSummary.xml").read_text().replace(
+        "<HtmlFileName>R4.htm</HtmlFileName>", "<HtmlFileName>page.htm</HtmlFileName>").replace(
+        "<Position>4</Position>", "<Position>²</Position>")
+    counters = Counter()
+    assert filing_positions(REF, FakeSec(_routes(**{"FilingSummary.xml": summary.encode()})),
+                            counters=counters) == []
+    assert counters == Counter({"positions:malformed": 1})
+
+
+def test_an_unparseable_locator_url_counts_malformed():
+    pre = (FILING_DIR / PRE).read_text().replace("https://xbrl.fasb.org/", "http://[bad/")
+    counters = Counter()
+    assert filing_positions(REF, FakeSec(_routes(**{PRE: pre.encode()})), counters=counters) == []
+    assert counters == Counter({"positions:malformed": 1})
+
+
+def test_a_malformed_schema_does_not_hide_a_later_valid_one():
+    sec = FakeSec(_routes(**{"index.json": _index_with("aaa-20240630.xsd", drop_pre=True), PRE: None,
+                             "FilingSummary.xml": _summary_without(PRE, SCHEMA),
+                             "aaa-20240630.xsd": b"<xsd:schema><unclosed>",
+                             SCHEMA: _schema_embedding((FILING_DIR / PRE).read_text())}))
+    counters = Counter()
+    assert filing_positions(REF, sec, counters=counters) == filing_positions(REF, FakeSec(_routes()))
+    assert sec.calls[-2:] == [f"{FOLDER}/aaa-20240630.xsd", f"{FOLDER}/{SCHEMA}"] and not counters
+
+
+def test_only_malformed_presentation_documents_count_malformed_once():
+    sec = FakeSec(_routes(**{PRE: b"<link:linkbase><unclosed>", SCHEMA: b"<xsd:schema><unclosed>"}))
+    counters = Counter()
+    assert filing_positions(REF, sec, counters=counters) == []
+    assert counters == Counter({"positions:malformed": 1})
+
+
+def test_schema_fallback_tries_at_most_max_schemas():
+    no_links = _schema_embedding('<link:linkbase xmlns:link="http://www.xbrl.org/2003/linkbase"/>')
+    extra = ("a1.xsd", "a2.xsd", "a3.xsd")
+    routes = _routes(**{"index.json": _index_with(*extra, drop_pre=True), PRE: None,
+                        "FilingSummary.xml": _summary_without(PRE, SCHEMA),
+                        **{n: no_links for n in extra},
+                        SCHEMA: _schema_embedding((FILING_DIR / PRE).read_text())})
+    sec, counters = FakeSec(routes), Counter()
+    assert filing_positions(REF, sec, counters=counters, max_schemas=2) == []
+    assert sec.calls[2:] == [f"{FOLDER}/a1.xsd", f"{FOLDER}/a2.xsd"]
+    assert counters == Counter({"positions:no_presentation": 1})
+    assert filing_positions(REF, FakeSec(routes)) == filing_positions(REF, FakeSec(_routes()))
+    assert MAX_SCHEMAS == 4
+
+
+def test_input_files_match_names_case_insensitively():
+    original = (FILING_DIR / "FilingSummary.xml").read_text()
+    # only the linkbase listed (upper-cased): the schema-stem rule cannot pick it instead
+    summary = original.replace(f"<File>{PRE}</File>", f"<File>{PRE.upper()}</File>").replace(
+        f"<File>{SCHEMA}</File>", "")
+    sec = FakeSec(_routes(**{"index.json": _index_with("aaa-20240630_pre.xml"),
+                             "FilingSummary.xml": summary.encode()}))
+    assert filing_positions(REF, sec) and sec.calls[2:] == [f"{FOLDER}/{PRE}"]
+    summary = original.replace(f"<File>{PRE}</File>", "").replace(
+        f"<File>{SCHEMA}</File>", f"<File>{SCHEMA.upper()}</File>")
+    # the listed schema (upper-cased in InputFiles) is tried before an unlisted one by name
+    sec = FakeSec(_routes(**{"index.json": _index_with("aaa-20240630.xsd", drop_pre=True), PRE: None,
+                             "FilingSummary.xml": summary.encode(),
+                             SCHEMA: _schema_embedding((FILING_DIR / PRE).read_text())}))
+    assert filing_positions(REF, sec) and sec.calls[2:] == [f"{FOLDER}/{SCHEMA}"]
+
+
+def test_index_names_with_a_path_component_are_never_requested():
+    unsafe = ("..aaa_pre.xml", "sub/aaa_pre.xml", "../aaa.xsd", "a/b.xsd")
+    sec = FakeSec(_routes(**{"index.json": _index_with(*unsafe, drop_pre=True), PRE: None,
+                             "FilingSummary.xml": _summary_without(PRE, SCHEMA),
+                             SCHEMA: _schema_embedding((FILING_DIR / PRE).read_text())}))
+    assert filing_positions(REF, sec) == filing_positions(REF, FakeSec(_routes()))
+    assert sec.calls[2:] == [f"{FOLDER}/{SCHEMA}"]

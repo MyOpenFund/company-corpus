@@ -53,14 +53,19 @@ values on 100 % of the rows the positions decide:
   any other schema, absolute or relative, is treated as an extension (the accession);
 * prohibited arcs (``use="prohibited"``) are ignored rather than applied; a filing's own
   presentation linkbase seldom carries any;
-* with several ``*_pre.xml``, the one FilingSummary lists in ``InputFiles`` is used (else the one
-  sharing the stem of a listed ``.xsd``, else the first by name);
+* with several ``*_pre.xml``, the one FilingSummary lists in ``InputFiles`` is used (names matched
+  in any case; else the one sharing the stem of a listed ``.xsd``, else the first by name);
 * a filing without ``*_pre.xml`` (filer agents such as DFIN embed every linkbase in the schema:
   Microsoft and Oracle since 2025), or whose ``*_pre.xml`` is missing (404) or holds no
   presentation link, is read from its ``.xsd`` files (suffixes in any case; the ones
   ``InputFiles`` lists first, then the others by name), the first one embedding a
-  ``presentationLink`` being walked alike. Each extra file tried is one more request. A filing
-  where no file carries a presentation link counts ``positions:no_presentation``;
+  ``presentationLink`` being walked alike. Each extra file tried is one more request; at most
+  ``max_schemas`` schemas are tried (default ``MAX_SCHEMAS`` = 4). A malformed file in that
+  sequence does not stop it: the next one is read. A filing where no file carries a presentation
+  link counts ``positions:malformed`` when one of them was malformed, else
+  ``positions:no_presentation``;
+* ``index.json`` names holding ``/`` or ``..`` are dropped: only files of the filing folder
+  itself are ever requested;
 * a period ending exactly between two month ends rounds to the later one.
 
 Failure mode: a file that is missing (404 or absent from ``index.json``), malformed, or carries a
@@ -90,6 +95,9 @@ INDEX_FILE = "index.json"
 SUMMARY_FILE = "FilingSummary.xml"
 PRESENTATION_SUFFIX = "_pre.xml"
 SCHEMA_SUFFIX = ".xsd"
+#: Default ``max_schemas``: the most ``.xsd`` files read for an embedded presentation linkbase
+#: after the ``*_pre.xml`` (each one is a request; a filing has one schema, seldom two or three).
+MAX_SCHEMAS = 4
 
 #: Ordered ``(statement, pattern)`` rules over a lower-cased report name; first match wins. A
 #: combined "income/operations/earnings ... and comprehensive income" statement is IS, an equity
@@ -115,8 +123,9 @@ SUB_REPORT_SEPARATOR = " - "
 #: The last segment decides only when it reads as a statement title itself ("statement(s) of ...",
 #: or a name ending in "statement", "balance sheet(s)", "financial position/condition", before any
 #: parenthesised remark). A line or topic after an unambiguous title ("Consolidated Statements of
-#: Cash Flows - Capital expenditures", "Balance Sheets - X Income Fund", "Statements of Income -
-#: Balance Sheet Data") leaves the classification to the whole name, i.e. to its head.
+#: Cash Flows - Capital expenditures", "Balance Sheets - X Income Fund") leaves the classification
+#: to the whole name, where the order of ``STATEMENT_RULES`` decides, not the head: "Statements of
+#: Income - Balance Sheet Data" is BS, the BS rule coming before the IS ones.
 STATEMENT_TITLE = (r"\bstatements?\s+of\b"
                    r"|\b(?:statements?|balance\s*sheets?|financial\s*(?:position|condition))"
                    r"\s*(?:\([^)]*\)\s*)*$")
@@ -212,10 +221,16 @@ def _child_text(el: ET.Element, name: str) -> str:
     return ""
 
 
+def _plain_name(name: str) -> bool:
+    """A file name of the filing folder itself: no ``/``, no ``..`` (as ``primary_document_name``)."""
+    return bool(name) and "/" not in name and ".." not in name
+
+
 def _index_names(body: bytes) -> list[str]:
+    """The folder's file names; a name holding ``/`` or ``..`` is dropped, never requested."""
     try:
         items = json.loads(body)["directory"]["item"]
-        return [i["name"] for i in items if isinstance(i.get("name"), str)]
+        return [i["name"] for i in items if isinstance(i.get("name"), str) and _plain_name(i["name"])]
     except (ValueError, KeyError, TypeError, AttributeError) as exc:
         raise _Malformed(f"index.json: {exc}") from exc
 
@@ -250,7 +265,12 @@ def _report_number(report: ET.Element) -> int | None:
     if m:
         return int(m.group(1))
     position = _child_text(report, "Position")
-    return int(position) if position.isdigit() else None
+    if not position.isdigit():
+        return None
+    try:
+        return int(position)
+    except ValueError as exc:  # a digit int() refuses, such as "²"
+        raise _Malformed(f"FilingSummary.xml: report position {position!r}") from exc
 
 
 def _tag_version(href: str, accession: str) -> tuple[str, str] | None:
@@ -259,7 +279,10 @@ def _tag_version(href: str, accession: str) -> tuple[str, str] | None:
     if not fragment:
         return None
     tag = fragment.split("_", 1)[1] if "_" in fragment else fragment
-    parts = urlsplit(schema)
+    try:
+        parts = urlsplit(schema)
+    except ValueError as exc:  # e.g. an unbalanced IPv6 bracket
+        raise _Malformed(f"locator href {href!r}: {exc}") from exc
     if parts.scheme in ("http", "https"):
         host = (parts.hostname or "").lower()
         for hosts, pattern, template in KNOWN_TAXONOMIES:
@@ -357,9 +380,10 @@ def _presentation_name(names: list[str], inputs: list[str]) -> str | None:
     sharing the stem of a rendered schema, else the first by name."""
     candidates = sorted(n for n in names if _has_suffix(n, PRESENTATION_SUFFIX))
     by_stem = {_stem(n, PRESENTATION_SUFFIX).lower(): n for n in candidates}
+    by_name = {n.lower(): n for n in reversed(candidates)}  # first by name on a case clash
     for n in inputs:
-        if n in candidates:
-            return n
+        if n.lower() in by_name:
+            return by_name[n.lower()]
     for n in inputs:
         if _has_suffix(n, SCHEMA_SUFFIX) and _stem(n, SCHEMA_SUFFIX).lower() in by_stem:
             return by_stem[_stem(n, SCHEMA_SUFFIX).lower()]
@@ -368,17 +392,20 @@ def _presentation_name(names: list[str], inputs: list[str]) -> str | None:
 
 def _schema_names(names: list[str], inputs: list[str]) -> list[str]:
     """The filing's schemas (suffix in any case), in the order they are tried for embedded
-    presentation links: the ones FilingSummary rendered from, then the others by name."""
+    presentation links: the ones FilingSummary rendered from (names matched in any case), then
+    the others by name."""
     candidates = sorted(n for n in names if _has_suffix(n, SCHEMA_SUFFIX))
-    listed = [n for n in candidates if n in inputs]
+    rendered = {n.lower() for n in inputs}
+    listed = [n for n in candidates if n.lower() in rendered]
     return listed + [n for n in candidates if n not in listed]
 
 
-def _presentation_documents(names: list[str], inputs: list[str]) -> list[str]:
+def _presentation_documents(names: list[str], inputs: list[str], max_schemas: int) -> list[str]:
     """Files to read for the presentation, in order, until one carries a presentation link: the
-    ``*_pre.xml`` (see ``_presentation_name``), then the schemas (``_schema_names``)."""
+    ``*_pre.xml`` (see ``_presentation_name``), then at most ``max_schemas`` schemas
+    (``_schema_names``)."""
     pre = _presentation_name(names, inputs)
-    return ([pre] if pre else []) + _schema_names(names, inputs)
+    return ([pre] if pre else []) + _schema_names(names, inputs)[:max_schemas]
 
 
 def _fetch(sec: SecGet, url: str) -> bytes | None:
@@ -388,9 +415,13 @@ def _fetch(sec: SecGet, url: str) -> bytes | None:
         return None
 
 
-def filing_positions(ref: FilingRef, sec: SecGet, *, counters: Counter | None = None) -> list[dict]:
+def filing_positions(ref: FilingRef, sec: SecGet, *, counters: Counter | None = None,
+                     max_schemas: int = MAX_SCHEMAS) -> list[dict]:
     """FSDS-shaped statement rows of one filing (see the module docstring); ``[]`` with one
-    ``positions:<reason>`` count when its files are missing or unreadable."""
+    ``positions:<reason>`` count when its files are missing or unreadable. ``max_schemas`` bounds
+    the ``.xsd`` files read for an embedded presentation linkbase (default :data:`MAX_SCHEMAS`)."""
+    if max_schemas < 0:
+        raise ValueError("max_schemas must be >= 0")
     counters = counters if counters is not None else Counter()
     base = ref.url.rstrip("/")
     try:
@@ -408,19 +439,32 @@ def filing_positions(ref: FilingRef, sec: SecGet, *, counters: Counter | None = 
             counters["positions:no_statement_reports"] += 1
             return []
         roles = {role for role, _, _ in reports}
-        hrefs = None
-        for name in _presentation_documents(names, inputs):
+        hrefs, malformed = None, False
+        for name in _presentation_documents(names, inputs, max_schemas):
             body = _fetch(sec, f"{base}/{name}")
-            found, has_links = _presentation_hrefs(body, roles) if body is not None else ({}, False)
+            if body is None:
+                continue
+            try:
+                found, has_links = _presentation_hrefs(body, roles)
+            except _Malformed:  # a later document may still carry the presentation
+                malformed = True
+                continue
             if has_links:
                 hrefs = found
                 break
         if hrefs is None:
-            counters["positions:no_presentation"] += 1
+            counters["positions:malformed" if malformed else "positions:no_presentation"] += 1
             return []
+        return _rows(ref, reports, hrefs, counters)
     except _Malformed:
         counters["positions:malformed"] += 1
         return []
+
+
+def _rows(ref: FilingRef, reports: list[tuple[str, int, str]], hrefs: dict[str, list[str]],
+          counters: Counter) -> list[dict]:
+    """The rows of the statement reports from their presentation hrefs (raises ``_Malformed``
+    on a locator URL ``urlsplit`` refuses)."""
     submission = {"accn": ref.accession, "form": ref.form, "period": fsds_period(ref.report_date),
                   "filed": ref.filed.strftime("%Y%m%d") if ref.filed else "",
                   "accepted": ref.accepted.strftime("%Y-%m-%d %H:%M:00.0") if ref.accepted else ""}

@@ -13,10 +13,9 @@ Alphabet, Amazon, Meta, Oracle, Target (January year-end), JPMorgan (bank), Novo
 20-F) and Pitney Bowes (a 10-K/A with full statements, found with ``--find-amendments``).
 """
 from collections import Counter
+from datetime import date
 
 import pytest
-
-from datetime import date
 
 from tests.live import recorded
 from tests.live.recorded import compare, load_inputs, manifest, recorded_ciks
