@@ -15,7 +15,7 @@ from datetime import date
 
 from .config import Config, normalize_cik
 from .entity import EntityRegistry
-from .financials import normalized_rows, render_summary_html
+from .financials import DERIVED_NOTE, normalized_rows, render_summary_html
 from .http import Fetcher
 from .models import FilingRecord, IdentityCollisionError
 from .ownership import (
@@ -596,12 +596,21 @@ def _summary_text(ps) -> str:
              f"Period ending {ps.period_end} ({ps.frequency}); "
              f"published (filed) {ps.publication_date}; "
              f"source {ps.sec_form} accession {ps.accession}", ""]
+    if any(v.get("derived") is not None for v in ps.values.values()):
+        lines += [f"Note: {DERIVED_NOTE} (formula shown after the value).", ""]
     for v in ps.values.values():
-        lines.append(f"{v['label']}: {v['value']} {v['unit']}")
+        formula = v.get("derived")
+        suffix = f" (derived: {formula})" if formula is not None else ""
+        lines.append(f"{v['label']}: {v['value']} {v['unit']}{suffix}")
     derived = ps.derived
     if derived:
+        from .concepts.quarters import metrics_from_derived
+
+        marks = metrics_from_derived(ps)
         lines += ["", "Derived metrics:"]
-        lines += [f"{v['label']}: {v['value']} {v['unit']}" for v in derived.values()]
+        lines += [f"{v['label']}: {v['value']} {v['unit']}"
+                  f"{' (from derived values)' if k in marks else ''}"
+                  for k, v in derived.items()]
     return "\n".join(lines)
 
 

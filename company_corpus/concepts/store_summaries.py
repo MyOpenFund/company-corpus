@@ -54,7 +54,15 @@ from ..financials import (
 )
 from .dictionary import Dictionary, load_dictionary
 from .selection import DEFAULT_FILING_TZ
-from .summaries import _F1_LABEL, _flow_series, _value, group_periods
+from .summaries import (
+    _derived_inputs,
+    _F1_LABEL,
+    _flow_series,
+    _value,
+    group_periods,
+    ttm_rows,
+    with_quarters,
+)
 
 __all__ = ["DEFAULT_PUBLICATION_TZ", "concept_catalog", "group_periods", "metric_catalog",
            "summaries_from_rows"]
@@ -84,7 +92,7 @@ def summaries_from_rows(rows: Iterable[dict], *, company: str, company_current: 
     """
     d = dictionary or load_dictionary()
     zone = ZoneInfo(publication_tz)
-    rows = list(rows)
+    rows = with_quarters(rows, d)
 
     def utc(at: datetime) -> datetime:  # a naive known_at is UTC, as the store writes it
         return at if at.tzinfo else at.replace(tzinfo=timezone.utc)
@@ -107,13 +115,34 @@ def summaries_from_rows(rows: Iterable[dict], *, company: str, company_current: 
         if duration and not filed_at:
             raise ValueError("vintages hold no row of this issuer's selected tags: pass the "
                              "fundamentals rows the selection ran on")
+    def first_filing(r: dict, end: date) -> dict:
+        """A derived row's candidate: the later of its inputs' first filings among the vintages
+        (an input without vintages: its selected row)."""
+        candidates = []
+        for tag, input_end, input_freq, fallback in _derived_inputs(r, rows):
+            firsts = [v for v in filed_at.get((input_end, input_freq), ())
+                      if v["original_tag"] == tag and day(v["known_at"]) >= input_end]
+            candidates.append(min(firsts, key=lambda v: (utc(v["known_at"]), v["filing_ref"]))
+                              if firsts else fallback)
+        return max(candidates, key=lambda v: utc(v["known_at"]))  # the later input wins a tie
+
     out: list[PeriodSummary] = []
     for (end, freq), per_concept in duration.items():
         if freq not in allowed:
             continue
         merged = {**per_concept, **instant.get(end, {})}
-        candidates = ([*filed_at.get((end, freq), ()), *filed_at.get((end, "instant"), ())]
-                      if vintages is not None else merged.values())
+        # A derived quarter (chantier 12) is a candidate too, dated by the later of its inputs'
+        # first filings (their selected rows without vintages), so a derived Q4 is dated by the
+        # 10-K, or by a 9M first published after it (a new filer's comparative).
+        # A period whose duration values are all derived is dated by those candidates only.
+        derived = [first_filing(r, end) for r in per_concept.values() if r.get("derived")]
+        if len(derived) == len(per_concept):
+            candidates = derived
+        elif vintages is not None:
+            candidates = [*filed_at.get((end, freq), ()), *filed_at.get((end, "instant"), ()),
+                          *derived]
+        else:
+            candidates = list(merged.values())
         reported = [r for r in candidates if day(r["known_at"]) >= end]
         if not reported:
             continue
@@ -128,7 +157,7 @@ def summaries_from_rows(rows: Iterable[dict], *, company: str, company_current: 
                            if _CURRENCY_RE.match(v["unit"])), "USD"),
             sic=sic, sector_known=sector_known, debt_rule="concepts"))
     out.sort(key=lambda s: (s.period_end or date.min, s.frequency), reverse=True)
-    _attach_ttm(_flow_series(rows), out, ttm_keys=_TTM_FLOW_KEYS, q4_rule=q4_rule)
+    _attach_ttm(_flow_series(ttm_rows(rows)), out, ttm_keys=_TTM_FLOW_KEYS, q4_rule=q4_rule)
     return out
 
 
