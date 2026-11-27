@@ -54,7 +54,16 @@ from ..financials import (
 )
 from .dictionary import Dictionary, load_dictionary
 from .selection import DEFAULT_FILING_TZ
-from .summaries import _F1_LABEL, _flow_series, _value, group_periods, ttm_rows, with_quarters
+from .summaries import (
+    _DERIVED_TAG_PREFIX,
+    _F1_LABEL,
+    _flow_series,
+    _later_frequency,
+    _value,
+    group_periods,
+    ttm_rows,
+    with_quarters,
+)
 
 __all__ = ["DEFAULT_PUBLICATION_TZ", "concept_catalog", "group_periods", "metric_catalog",
            "summaries_from_rows"]
@@ -107,16 +116,29 @@ def summaries_from_rows(rows: Iterable[dict], *, company: str, company_current: 
         if duration and not filed_at:
             raise ValueError("vintages hold no row of this issuer's selected tags: pass the "
                              "fundamentals rows the selection ran on")
+    def first_filing(r: dict, end: date) -> dict:
+        """A derived row's candidate: the first filing of its later input among the vintages."""
+        tag = r["original_tag"].removeprefix(_DERIVED_TAG_PREFIX)
+        later = [v for v in filed_at.get((end, _later_frequency(r["derived"]) or ""), ())
+                 if v["original_tag"] == tag and day(v["known_at"]) >= end]
+        return min(later, key=lambda v: (utc(v["known_at"]), v["filing_ref"])) if later else r
+
     out: list[PeriodSummary] = []
     for (end, freq), per_concept in duration.items():
         if freq not in allowed:
             continue
         merged = {**per_concept, **instant.get(end, {})}
-        # A derived quarter (chantier 12) is a candidate too: its later input's filing (merged
-        # already holds it without vintages), so a derived Q4 is dated by the 10-K.
-        candidates = ([*filed_at.get((end, freq), ()), *filed_at.get((end, "instant"), ()),
-                       *(r for r in per_concept.values() if r.get("derived") is not None)]
-                      if vintages is not None else merged.values())
+        # A derived quarter (chantier 12) is a candidate too, dated by the first filing of its
+        # later input (its own known_at without vintages), so a derived Q4 is dated by the 10-K.
+        # A period whose duration values are all derived is dated by those candidates only.
+        derived = [first_filing(r, end) for r in per_concept.values() if r.get("derived")]
+        if len(derived) == len(per_concept):
+            candidates = derived
+        elif vintages is not None:
+            candidates = [*filed_at.get((end, freq), ()), *filed_at.get((end, "instant"), ()),
+                          *derived]
+        else:
+            candidates = list(merged.values())
         reported = [r for r in candidates if day(r["known_at"]) >= end]
         if not reported:
             continue

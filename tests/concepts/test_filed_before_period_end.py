@@ -224,7 +224,8 @@ def test_a_period_with_only_early_rows_has_no_summary_in_f1():
     assert by[(date(2014, 6, 30), "semi-annual")].publication_date == S_DAY
     # Keeping the early fact, the issuer has quarters: no half-year summary, and Q1 none either
     # (only seen before it ended). Chantier 12: Q2 = 6M - Q1 is derived from the kept Q1 and
-    # dated by the 10-Q holding the 6 months.
+    # dated by the 10-Q holding the 6 months. That Q1 was seen before its period ended, yet the
+    # derived Q2 is legitimate: it becomes known only at the 6M filing, after both inputs.
     kept = build_summaries(_companyfacts(), company="x", company_current="x",
                            dictionary=_all_keep_dictionary())
     assert [(s.period_end, s.frequency) for s in kept] == [
@@ -244,7 +245,9 @@ def test_a_period_with_only_early_rows_has_no_summary_in_the_store():
     kept = _select(facts, positions, dictionary=_all_keep_dictionary())
     out = summaries_from_rows(kept, company="x", vintages=facts)
     assert [(s.period_end, s.frequency) for s in out] == [
-        (date(2014, 6, 30), "quarterly"), (date(2013, 12, 31), "annual")]  # Q2 = 6M - Q1
+        (date(2014, 6, 30), "quarterly"), (date(2013, 12, 31), "annual")]
+    # Q2 = 6M - Q1 rests on a Q1 seen before its period ended; legitimate, since the derived Q2
+    # becomes known only at the 6M filing (spec rule 4).
     assert (out[0].values["revenue"]["derived"], out[0].values["revenue"]["value"],
             out[0].publication_date) == ("6M - Q1", 1100, S_DAY)
 

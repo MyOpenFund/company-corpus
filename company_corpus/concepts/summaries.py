@@ -125,7 +125,7 @@ def _value(row: dict, d: Dictionary, namespaces: Sequence[str]) -> dict:
     return {"value": _plain(row["value"]), "unit": row["unit"],
             "label": d.concepts[row["concept"]].label, "tag": tag, "location": row["location"],
             "conflict": row["conflict"], "on_statement": row["on_statement"],
-            "derived": row.get("derived")}
+            "derived": derived_formula(row)}
 
 
 def group_periods(rows: Iterable[dict]) -> tuple[dict[tuple[date, str], dict[str, dict]],
@@ -148,22 +148,73 @@ def group_periods(rows: Iterable[dict]) -> tuple[dict[tuple[date, str], dict[str
     return duration, instant, allowed
 
 
+#: The ``derived`` marker of a derived row whose formula is unknown: its ``derived`` key was
+#: dropped (a projection) and its later input is not among the rows. Never a filed value.
+DERIVED_UNKNOWN = "derived"
+_DERIVED_TAG_PREFIX = "derived:"
+
+
+def derived_formula(row: dict) -> str | None:
+    """The row's ``derived`` formula; :data:`DERIVED_UNKNOWN` for a derived quarter that lost its
+    ``derived`` key (``original_tag`` ``derived:...``, the guard of ``with_derived_quarters``);
+    None for a filed row."""
+    formula = row.get("derived")
+    if formula is not None:
+        return formula
+    return DERIVED_UNKNOWN if str(row.get("original_tag") or "").startswith(_DERIVED_TAG_PREFIX) \
+        else None
+
+
+def _later_frequency(formula: str | None) -> str | None:
+    """The frequency of a derived quarter's later input (``semiannual``, ``ytd9``, ``annual``)."""
+    from .quarters import PAIRS
+
+    return next((later for _, later, f in PAIRS if f == formula), None)
+
+
+def _restore_formulas(rows: list[dict]) -> list[dict]:
+    """Derived quarters without a ``derived`` key get their formula back from their later input
+    (same concept, entity, basis, source, unit and end; ``original_tag`` the derived one without
+    its prefix), else :data:`DERIVED_UNKNOWN`. Other rows are returned as they are."""
+    from .quarters import PAIRS
+
+    by_freq = {later: f for _, later, f in PAIRS}
+
+    def same(a: dict, b: dict) -> bool:
+        return all(a.get(k) == b.get(k) for k in ("concept", "entity_scheme", "entity_value",
+                                                  "basis", "source_code", "unit", "valid_date"))
+
+    out = []
+    for r in rows:
+        if r.get("derived") is None and derived_formula(r) is not None:
+            tag = r["original_tag"].removeprefix(_DERIVED_TAG_PREFIX)
+            later = next((x for x in rows if x["frequency"] in by_freq
+                          and x.get("original_tag") == tag and same(x, r)), None)
+            r = {**r, "derived": by_freq[later["frequency"]] if later else DERIVED_UNKNOWN}
+        out.append(r)
+    return out
+
+
 def with_quarters(rows: Iterable[dict], dictionary: Dictionary | None = None) -> list[dict]:
     """Selection rows plus their derived quarters (chantier 12), as both summary paths group
     them: :func:`build_summaries` here and the store readers'
-    :func:`~company_corpus.concepts.store_summaries.summaries_from_rows`."""
+    :func:`~company_corpus.concepts.store_summaries.summaries_from_rows`. Every derived row
+    carries its ``derived`` formula (restored when a projection dropped the key)."""
     from .quarters import with_derived_quarters  # quarters imports this module's bands
 
-    return with_derived_quarters(rows, dictionary)
+    return _restore_formulas(with_derived_quarters(rows, dictionary))
 
 
 def ttm_rows(rows: Iterable[dict]) -> list[dict]:
     """The rows TTM reads: every row but the derived Q4s (spec rule 7). The Q4 rule (``ytd9`` or
     ``sum_of_quarters``) keeps deciding the fiscal year-end quarter; derived Q2/Q3 are ordinary
-    quarters to it."""
+    quarters to it. A derived row is recognised by its ``derived`` key or, when that was
+    dropped, by its ``derived:`` tag; one whose formula cannot be restored is left out too
+    (it could be a Q4)."""
     from .quarters import FORMULA_Q4
 
-    return [r for r in rows if r.get("derived") != FORMULA_Q4]
+    return [r for r in _restore_formulas(list(rows))
+            if r.get("derived") not in (FORMULA_Q4, DERIVED_UNKNOWN)]
 
 
 def _flow_series(rows: Iterable[dict]) -> FlowSeries:
@@ -183,21 +234,34 @@ def build_summaries(facts: dict, *, company: str, company_current: str, name_for
     semi-annual when the issuer has no quarters. The publication date is the earliest filing of
     any of the period's facts made once the period had ended: a filing can already hold a fact about
     a later period, such as a declared dividend. A period only seen before it ended has no summary.
-    The values are the selection's, plus the derived quarters (chantier 12): a derived row is
-    a publication-date candidate of its period too (its later input's filing), so a derived Q4
-    gets a quarterly summary dated and accessioned by the 10-K."""
+    The values are the selection's, plus the derived quarters (chantier 12): a derived value is
+    a publication-date candidate of its period too, dated by the first filing of its later input
+    (the 6M, 9M or FY point), so a derived Q4 gets a quarterly summary dated and accessioned by
+    the 10-K. When every duration value of a period is derived, only those candidates date it:
+    an earlier filing holding the period's instants must not date values not yet public."""
     d = dictionary or load_dictionary()
     selected = select_for_f1(facts, statements, d)
     specs = d.tag_specs()
     namespaces = sorted({s.ns for s in specs.values()})
     chain_tags = {full for t in d.tables for e in t.entries.values() for full in e.all_tags}
     duration, instant, allowed = group_periods(with_quarters(selected.rows, d))
-    points_at: dict[tuple[date, str], list[tuple[date, str, str | None]]] = {}
-    forms: dict[str, str | None] = {}
+    points_at: dict[tuple[date, str], list[Point]] = {}
     for p in selected.points:
-        forms.setdefault(p.accn, p.form)
         if f"{p.ns}:{p.tag}" in chain_tags:
-            points_at.setdefault((p.end, p.frequency), []).append((p.filed, p.accn, p.form))
+            points_at.setdefault((p.end, p.frequency), []).append(p)
+
+    def first_filing(r: dict, end: date) -> tuple[date, str, str | None]:
+        """A derived value's candidate: the first filing of its later input."""
+        tag = r["original_tag"].removeprefix(_DERIVED_TAG_PREFIX)
+        later = [p for p in points_at.get((end, _later_frequency(r["derived"]) or ""), ())
+                 if f"{p.ns}:{p.tag}" == tag and p.filed >= end]
+        if later:
+            p = min(later, key=lambda p: p.filed)
+            return p.filed, p.accn, p.form
+        form = next((p.form for ps in points_at.values() for p in ps
+                     if p.accn == r["filing_ref"]), None)
+        return r["known_at"].date(), r["filing_ref"], form
+
     summaries: list[PeriodSummary] = []
     for (end, freq), per_concept in duration.items():
         if freq not in allowed:
@@ -209,10 +273,11 @@ def build_summaries(facts: dict, *, company: str, company_current: str, name_for
         merged = {**per_concept, **instant.get(end, {})}
         values = {key: _value(merged[key], d, namespaces) for key in d.concepts if key in merged}
         # Filed points first: on a tie the earliest filed point wins, as before chantier 12.
-        derived = [(r["known_at"].date(), r["filing_ref"], forms.get(r["filing_ref"]))
-                   for r in per_concept.values() if r.get("derived") is not None]
-        reported = [c for c in (*points_at.get((end, freq), ()), *points_at.get((end, "instant"), ()),
-                                *derived) if c[0] >= end]
+        derived = [first_filing(r, end) for r in per_concept.values() if r.get("derived")]
+        others = [] if len(derived) == len(per_concept) else [
+            (p.filed, p.accn, p.form)
+            for p in (*points_at.get((end, freq), ()), *points_at.get((end, "instant"), ()))]
+        reported = [c for c in (*others, *derived) if c[0] >= end]
         if not reported:
             continue
         filed, accn, form = min(reported, key=lambda c: c[0])

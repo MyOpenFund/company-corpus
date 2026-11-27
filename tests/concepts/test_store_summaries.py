@@ -306,6 +306,15 @@ def test_derived_q4_alone_dates_its_summary():
             (date(2024, 12, 31), "quarterly")]
         assert (q4.publication_date, q4.accession) == (date(2025, 2, 1), "2025-02-01")
 
+    f1 = by_period(build_summaries(_facts_of(rows), company="x", company_current="x"))
+    q4 = f1[(date(2024, 12, 31), "quarterly")]
+    assert (q4.publication_date, q4.accession, q4.sec_form) == (
+        date(2025, 2, 1), "2025-02-01", "10-K")
+    assert q4.values["revenue"]["derived"] == "FY - 9M"
+
+
+def _facts_of(rows: list[dict]) -> dict:
+    """Companyfacts holding ``rows`` as points (accession = filing day)."""
     facts: dict = {"facts": {"us-gaap": {}}}
     for r in rows:
         facts["facts"]["us-gaap"].setdefault(r["original_tag"].split(":")[1], {"units": {"USD": []}})[
@@ -314,11 +323,59 @@ def test_derived_q4_alone_dates_its_summary():
                 "val": int(r["value"]), "accn": r["filing_ref"],
                 "form": "10-K" if r["frequency"] == "annual" else "10-Q",
                 "filed": r["filing_ref"]})
-    f1 = by_period(build_summaries(facts, company="x", company_current="x"))
+    return facts
+
+
+JBS_Q4, JBS_20F = date(2024, 12, 31), (date(2026, 3, 25), "0001213900-26-034213")
+
+
+def test_all_derived_period_is_dated_by_its_derived_values_only():
+    """No look-ahead (spec rules 4, 8). jbs: its FY2024 is first filed in the 2026-03-25 20-F,
+    but a 2025-11-13 6-K already holds the 2024-12-31 balances (instants). Every flow of the Q4
+    is FY - 9M, so the Q4 summary is dated by the 20-F, never by the 6-K, on every path."""
+    paths = {"f1": _f1("jbs"), "store": store_summaries("jbs"),
+             "store without vintages": summaries_from_rows(store_rows("jbs"), company="x")}
+    for path, summaries in paths.items():
+        q4 = by_period(summaries)[(JBS_Q4, "quarterly")]
+        assert (q4.publication_date, q4.accession) == JBS_20F, path
+        flows = [v for v in q4.values.values() if v["derived"] is not None]
+        assert flows and all(v["derived"] == "FY - 9M" for v in flows), path
+
+
+def test_derived_value_dated_by_the_first_filing_of_its_later_input():
+    """A restated fiscal year (re-filed 2026-02-01) is the selected annual value, but the Q4 it
+    gives is public since the first FY filing (2025-02-01): that filing dates the Q4."""
+    rows = _standalone_rows()
+    restated = [{**r, "value": r["value"] + 5, "filing_ref": "2026-02-01",
+                 "known_at": datetime(2026, 2, 1, 21, tzinfo=timezone.utc)}
+                for r in rows if r["frequency"] == "annual" and r["valid_date"].year == 2024]
+    selected = [r for r in rows if not (r["frequency"] == "annual"
+                                        and r["valid_date"].year == 2024)] + restated
+    q4 = by_period(summaries_from_rows(selected, company="x", vintages=rows + restated))[
+        (date(2024, 12, 31), "quarterly")]
+    assert (q4.publication_date, q4.accession) == (date(2025, 2, 1), "2025-02-01")
+    assert q4.values["revenue"]["value"] == 810 + 5 - 604  # the restated FY - 9M
+    f1 = by_period(build_summaries(_facts_of(rows + restated), company="x", company_current="x"))
     q4 = f1[(date(2024, 12, 31), "quarterly")]
-    assert (q4.publication_date, q4.accession, q4.sec_form) == (
-        date(2025, 2, 1), "2025-02-01", "10-K")
-    assert q4.values["revenue"]["derived"] == "FY - 9M"
+    assert (q4.publication_date, q4.accession, q4.values["revenue"]["value"]) == (
+        date(2025, 2, 1), "2025-02-01", 810 + 5 - 604)
+
+
+def test_a_derived_row_that_lost_its_derived_key_is_still_derived():
+    """A projection may drop the ``derived`` key: the ``derived:`` tag still marks the row, in
+    summary values and for TTM (a derived Q4 never reaches the flow series)."""
+    from company_corpus.concepts.dictionary import load_dictionary
+    from company_corpus.concepts.summaries import _value, ttm_rows, with_quarters
+
+    ext = with_quarters(_standalone_rows())
+    stripped = [{k: v for k, v in r.items() if k != "derived"} for r in ext]
+    assert ttm_rows(stripped) == ttm_rows(ext) == [r for r in ext if r.get("derived") != "FY - 9M"]
+    assert len(ttm_rows(ext)) < len(ext)
+    q4 = next(r for r in stripped if r["original_tag"].startswith("derived:"))
+    assert _value(q4, load_dictionary(), ["us-gaap"])["derived"] == "derived"  # formula unknown
+    assert with_quarters(stripped) == ext  # formula restored from the later input
+    orphan = {**q4, "original_tag": "derived:us-gaap:Other"}  # later input absent
+    assert ttm_rows([orphan]) == []
 
 
 @pytest.mark.parametrize("q4_rule", ["ytd9", "sum_of_quarters"])
