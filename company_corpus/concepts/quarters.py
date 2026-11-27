@@ -114,10 +114,16 @@ def with_derived_quarters(rows: Iterable[dict], dictionary: Dictionary | None = 
 
 
 def hidden_semiannual(rows: Iterable[dict]) -> set[date]:
-    """The ``valid_date`` values of ``semiannual`` rows at which a ``quarterly`` row (filed or derived,
-    any concept) of the same issuer ends: those 6-month rows are derivation inputs and leave the
-    default output (spec rule 6). Decided per period, so a semiannual reporter, or an older
-    semiannual year of an issuer that later filed quarters, keeps its 6-month rows (rule 10)."""
+    """The ``valid_date`` values of ``semiannual`` rows at which a ``quarterly`` row ends: those
+    6-month rows are derivation inputs and leave the default output (spec rule 6).
+
+    Expects ONE issuer's rows (the result carries dates only); rows of another
+    ``(entity_scheme, entity_value)`` never hide. Any quarterly row matches: filed or derived,
+    any concept, basis or source. Decided per period, so a semiannual reporter, or an older
+    semiannual year of an issuer that later filed quarters, keeps its 6-month rows (rule 10).
+    A genuine H2 6-month row ending at a fiscal year-end that has a (derived) Q4 is hidden too:
+    the issuer files quarters that year (rule 6).
+    """
     rows = list(rows)
     quarter_ends = {(r["entity_scheme"], r["entity_value"], r["valid_date"])
                     for r in rows if r["frequency"] == "quarterly"}
@@ -128,7 +134,11 @@ def hidden_semiannual(rows: Iterable[dict]) -> set[date]:
 def metrics_from_derived(summary: PeriodSummary) -> frozenset[str]:
     """Keys of ``summary.derived`` that rest on a derived quarter (spec rule 8): the metric's
     value differs, or the metric disappears, when :func:`compute_derived` runs on the summary's
-    values without the entries whose ``derived`` is not None. Empty when no value is derived."""
+    values without the entries whose ``derived`` is not None (a value with no ``derived`` key
+    counts as filed). By this definition a metric that reads a derived input but whose value
+    does not move without it (e.g. a derived component worth 0, or a derived total equal to its
+    filed fallback) is not marked. Empty when no value is derived.
+    """
     filed = {k: v for k, v in summary.values.items() if v.get("derived") is None}
     if len(filed) == len(summary.values):
         return frozenset()

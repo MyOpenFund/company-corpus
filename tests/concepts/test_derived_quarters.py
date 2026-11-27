@@ -5,12 +5,17 @@ from collections import Counter
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
+from company_corpus.concepts.dictionary import load_dictionary
 from company_corpus.concepts.quarters import (
     FORMULA_Q2,
     FORMULA_Q3,
     FORMULA_Q4,
+    hidden_semiannual,
+    metrics_from_derived,
     with_derived_quarters,
 )
+from company_corpus.concepts.summaries import _value
+from company_corpus.financials import PeriodSummary
 
 
 def at(day: str) -> datetime:
@@ -229,9 +234,6 @@ def test_filed_quarter_checked_before_the_band():
 # --- Task A2: derived markers (spec rules 6, 8, 10) ---------------------------------------------
 
 def test_value_carries_derived_formula():
-    from company_corpus.concepts.dictionary import load_dictionary
-    from company_corpus.concepts.summaries import _value
-
     d = load_dictionary()
     out = with_derived_quarters(ytd_year())
     q2 = by_end(out)["2024-06-30"]
@@ -239,12 +241,31 @@ def test_value_carries_derived_formula():
     assert _value(out[0], d, ("us-gaap",))["derived"] is None
 
 
-def test_hidden_semiannual_only_where_a_quarter_ends():
-    from company_corpus.concepts.quarters import hidden_semiannual
+def test_value_tag_of_a_derived_row_is_the_filed_tag():
+    d = load_dictionary()
+    out = with_derived_quarters(ytd_year("net_income", original_tag="us-gaap:ProfitLoss"))
+    assert {_value(r, d, ("us-gaap",))["tag"] for r in out} == {"ProfitLoss"}
 
+
+def test_derived_net_income_keeps_the_mixed_equity_base_gate():
+    d = load_dictionary()
+    out = with_derived_quarters(ytd_year("net_income", original_tag="us-gaap:ProfitLoss"))
+    filed_ni, derived_ni = (_value(r, d, ("us-gaap",)) for r in (out[0], by_end(out)["2024-06-30"]))
+    base = {"equity": _tv(1000, "StockholdersEquity"),
+            "noncontrolling_interest": _tv(300, "MinorityInterest"),
+            "shares_outstanding": _tv(10, "CommonStockSharesOutstanding")}
+    ungated = _summary({**base, "net_income": _tv(100, "NetIncomeLoss")}).derived
+    assert "book_value_per_share" in ungated  # the fixture does reach the gate
+    for ni in (filed_ni, derived_ni):
+        got = _summary({**base, "net_income": ni}).derived
+        assert "book_value_per_share" not in got
+        assert "tangible_book_value_per_share" not in got
+
+
+def test_hidden_semiannual_only_where_a_quarter_ends():
     out = with_derived_quarters(ytd_year())
     assert hidden_semiannual(out) == {date(2024, 6, 30)}
-    # the 6-month row is hidden even before derivation: Q1 filed, Q2 derived later
+    # a quarter of another concept hides the 6-month row too
     other_concept_q = [row("revenue", "quarterly", "2024-04-01", "2024-06-30", 5, "2024-07-24",
                            "Q2")]
     assert hidden_semiannual(ytd_year()[1:2] + other_concept_q) == {date(2024, 6, 30)}
@@ -258,9 +279,14 @@ def test_hidden_semiannual_only_where_a_quarter_ends():
     assert hidden_semiannual(ytd_year()[1:2] + foreign) == set()
 
 
-def _summary(values):
-    from company_corpus.financials import PeriodSummary
+def test_hidden_semiannual_switcher_keeps_its_semiannual_years():
+    rows = [row("capex", "semiannual", "2022-01-01", "2022-06-30", 10, "2022-08-01", "H1"),
+            row("capex", "annual", "2022-01-01", "2022-12-31", 30, "2023-03-01", "FY22")]
+    rows += ytd_year()
+    assert hidden_semiannual(with_derived_quarters(rows)) == {date(2024, 6, 30)}
 
+
+def _summary(values):
     return PeriodSummary(period_end=date(2024, 6, 30), frequency="quarterly",
                          publication_date=date(2024, 7, 24), sec_form="10-Q", accession="Q2",
                          company="X", company_current="X", values=values)
@@ -271,16 +297,26 @@ def _v(value, derived=None):
             "conflict": False, "on_statement": True, "derived": derived}
 
 
-def test_metrics_from_derived():
-    from company_corpus.concepts.quarters import metrics_from_derived
+def _tv(value, tag, derived=None):
+    return {**_v(value, derived), "tag": tag}
 
-    mixed = _summary({"cfo": _v(50000), "capex": _v(13186, FORMULA_Q2)})
-    assert "free_cash_flow" in mixed.derived
-    got = metrics_from_derived(mixed)
-    assert isinstance(got, frozenset)
-    assert "free_cash_flow" in got
+
+def test_metrics_from_derived():
+    mixed = _summary({"cfo": _v(50000), "capex": _v(13186, FORMULA_Q2),
+                      "revenue": _v(200000), "net_income": _v(30000)})
+    assert "net_margin" in mixed.derived
+    assert metrics_from_derived(mixed) == frozenset(
+        {"free_cash_flow", "fcf_margin", "capex_intensity", "cash_conversion", "total_payout"})
     filed = _summary({"cfo": _v(50000), "capex": _v(13186)})
     assert metrics_from_derived(filed) == frozenset()
     # values without a "derived" key (older producers) count as filed
     bare = _summary({"cfo": {"value": 50000, "unit": "USD"}, "capex": {"value": 1, "unit": "USD"}})
     assert metrics_from_derived(bare) == frozenset()
+
+
+def test_metrics_from_derived_marks_a_metric_present_both_ways_but_different():
+    s = _summary({"cfo": _v(100), "capex": _v(40), "dividends_paid": _v(10),
+                  "buybacks": _v(20, FORMULA_Q2)})
+    without = _summary({"cfo": _v(100), "capex": _v(40), "dividends_paid": _v(10)}).derived
+    assert "total_payout" in without and without["total_payout"] != s.derived["total_payout"]
+    assert metrics_from_derived(s) == frozenset({"total_payout"})

@@ -116,7 +116,10 @@ def _plain(value: Decimal) -> int | float:
 
 
 def _value(row: dict, d: Dictionary, namespaces: Sequence[str]) -> dict:
-    tag = row["original_tag"]
+    """One summary value. A derived quarter (chantier 12) reports its later input's filed tag,
+    without the ``derived:`` prefix (the formula is in ``derived``): the engine compares tags by
+    equality (e.g. the mixed equity base gate of ``compute_derived``)."""
+    tag = row["original_tag"].removeprefix("derived:")
     for ns in namespaces:
         tag = tag.replace(f"{ns}:", "")
     return {"value": _plain(row["value"]), "unit": row["unit"],
