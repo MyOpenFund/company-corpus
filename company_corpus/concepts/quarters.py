@@ -6,15 +6,16 @@ ordinary ``quarterly`` rows marked derived: Q2 = 6M - Q1, Q3 = 9M - 6M, Q4 = FY 
 
 Rules (spec §3): a filed quarter always wins; both inputs or nothing, never chained from a derived
 row; only money flow concepts (``kind == "money"``, not instant: a per-share figure does not
-subtract); a derived row is known when its later input is (its ``known_at``, ``filing_ref`` and
-``source_doc_id``); a negative difference is kept. A derived span outside F1's quarterly band
+subtract); a derived row is known when both inputs are, at the later of the two (that input's
+``known_at``, ``filing_ref`` and ``source_doc_id``; controller ruling A3-1: a 9M first seen after
+the FY, as a new filer's comparative, dates the Q4); a negative difference is kept. A derived span outside F1's quarterly band
 is no quarter and is not produced (``quarters:not_a_quarter``). The store is never touched.
 """
 from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Iterable
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from company_corpus.concepts.dictionary import Dictionary, load_dictionary
 from company_corpus.concepts.summaries import F1_DURATION_BANDS
@@ -37,7 +38,14 @@ PAIRS: tuple[tuple[str, str, str], ...] = (
 QUARTER_BAND: tuple[int, int] = next((lo, hi) for f, lo, hi in F1_DURATION_BANDS
                                      if f == "quarterly")
 _LOCATION = "derived"
+#: The provenance a derived row takes from the input known last.
+_KNOWN = ("known_at", "filing_ref", "source_doc_id", "review_status")
 _TAG_PREFIX = "derived:"
+
+
+def _utc(at: datetime) -> datetime:
+    """A naive ``known_at`` is UTC, as the store writes it (so naive and aware rows compare)."""
+    return at if at.tzinfo else at.replace(tzinfo=timezone.utc)
 
 
 def _eligible(d: Dictionary) -> set[str]:
@@ -65,8 +73,9 @@ def with_derived_quarters(rows: Iterable[dict], dictionary: Dictionary | None = 
     same-period derived *total* of the selection (``location`` derived, ``original_tag``
     ``computed:<tag>``) is a filed-period value and IS a valid input.
 
-    A derived row copies its later input (so ``known_at``, ``filing_ref``, ``source_doc_id``,
-    ``review_status`` are the later filing's), then sets ``frequency`` (quarterly),
+    A derived row copies its later input, takes ``known_at``, ``filing_ref``, ``source_doc_id``
+    and ``review_status`` from whichever input is known last (the later input on a tie: usually
+    the later filing; the earlier input when it was first seen after the later one), then sets ``frequency`` (quarterly),
     ``period_start``, ``value``, ``location`` (derived), ``original_tag`` (``derived:`` + the
     later input's) and ``derived`` (the formula). ``conflict`` is the OR of the inputs' and
     ``on_statement`` the AND: more truthful than the blanket FALSE/TRUE of the derived totals
@@ -100,6 +109,8 @@ def with_derived_quarters(rows: Iterable[dict], dictionary: Dictionary | None = 
                         counters["quarters:not_a_quarter"] += 1
                         continue
                     q = dict(later)
+                    if _utc(earlier["known_at"]) > _utc(later["known_at"]):
+                        q.update({k: earlier.get(k) for k in _KNOWN if k in earlier or k in q})
                     q.update(frequency="quarterly", period_start=start,
                              value=later["value"] - earlier["value"], location=_LOCATION,
                              original_tag=_TAG_PREFIX + later["original_tag"], derived=formula,

@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 
 import pyarrow as pa
@@ -165,11 +165,39 @@ def derived_formula(row: dict) -> str | None:
         else None
 
 
-def _later_frequency(formula: str | None) -> str | None:
-    """The frequency of a derived quarter's later input (``semiannual``, ``ytd9``, ``annual``)."""
+_INPUT_KEYS = ("concept", "entity_scheme", "entity_value", "basis", "source_code", "unit")
+
+
+def _derived_inputs(row: dict, rows: Sequence[dict]) -> list[tuple[str, date, str, dict]]:
+    """A derived quarter's inputs among ``rows`` (its selection), later input first, each as
+    ``(original_tag, valid_date, frequency, row)``: what both summary paths look up to find the
+    inputs' FIRST filings (controller ruling A3-1: a derived value is known at the later of
+    them). The later input is the row the derived one copied (same tag, ``valid_date``); the
+    earlier one ends the day before the quarter starts and shares the later one's fiscal-year
+    start. A missing later input gives the derived row itself in its place; a missing earlier
+    input is left out."""
     from .quarters import PAIRS
 
-    return next((later for _, later, f in PAIRS if f == formula), None)
+    pair = next(((e, lt) for e, lt, f in PAIRS if f == row.get("derived")), None)
+    tag = str(row.get("original_tag") or "").removeprefix(_DERIVED_TAG_PREFIX)
+    if pair is None:
+        return [(tag, row["valid_date"], "", row)]
+    earlier_f, later_f = pair
+
+    def same(x: dict) -> bool:
+        return derived_formula(x) is None and all(x.get(k) == row.get(k) for k in _INPUT_KEYS)
+
+    later = next((x for x in rows if x["frequency"] == later_f and x["valid_date"] == row[
+        "valid_date"] and x.get("original_tag") == tag and same(x)), None)
+    out = [(tag, row["valid_date"], later_f, later or row)]
+    if later is not None and row.get("period_start") is not None:
+        end = row["period_start"] - timedelta(days=1)
+        earlier = next((x for x in rows if x["frequency"] == earlier_f and x["valid_date"] == end
+                        and x.get("period_start") == later.get("period_start") and same(x)),
+                       None)
+        if earlier is not None:
+            out.append((earlier["original_tag"], end, earlier_f, earlier))
+    return out
 
 
 def _restore_formulas(rows: list[dict]) -> list[dict]:
@@ -235,32 +263,37 @@ def build_summaries(facts: dict, *, company: str, company_current: str, name_for
     any of the period's facts made once the period had ended: a filing can already hold a fact about
     a later period, such as a declared dividend. A period only seen before it ended has no summary.
     The values are the selection's, plus the derived quarters (chantier 12): a derived value is
-    a publication-date candidate of its period too, dated by the first filing of its later input
-    (the 6M, 9M or FY point), so a derived Q4 gets a quarterly summary dated and accessioned by
-    the 10-K. When every duration value of a period is derived, only those candidates date it:
+    a publication-date candidate of its period too, dated by the later of its two inputs' first
+    filings (usually the 6M, 9M or FY point), so a derived Q4 gets a quarterly summary dated and
+    accessioned by the 10-K. When every duration value of a period is derived, only those candidates date it:
     an earlier filing holding the period's instants must not date values not yet public."""
     d = dictionary or load_dictionary()
     selected = select_for_f1(facts, statements, d)
     specs = d.tag_specs()
     namespaces = sorted({s.ns for s in specs.values()})
     chain_tags = {full for t in d.tables for e in t.entries.values() for full in e.all_tags}
-    duration, instant, allowed = group_periods(with_quarters(selected.rows, d))
+    rows = with_quarters(selected.rows, d)
+    duration, instant, allowed = group_periods(rows)
     points_at: dict[tuple[date, str], list[Point]] = {}
     for p in selected.points:
         if f"{p.ns}:{p.tag}" in chain_tags:
             points_at.setdefault((p.end, p.frequency), []).append(p)
 
     def first_filing(r: dict, end: date) -> tuple[date, str, str | None]:
-        """A derived value's candidate: the first filing of its later input."""
-        tag = r["original_tag"].removeprefix(_DERIVED_TAG_PREFIX)
-        later = [p for p in points_at.get((end, _later_frequency(r["derived"]) or ""), ())
-                 if f"{p.ns}:{p.tag}" == tag and p.filed >= end]
-        if later:
-            p = min(later, key=lambda p: p.filed)
-            return p.filed, p.accn, p.form
-        form = next((p.form for ps in points_at.values() for p in ps
-                     if p.accn == r["filing_ref"]), None)
-        return r["known_at"].date(), r["filing_ref"], form
+        """A derived value's candidate: the later of its inputs' first filings (an input not
+        among the points: its selected row's filing)."""
+        candidates = []
+        for tag, input_end, input_freq, fallback in _derived_inputs(r, rows):
+            firsts = [p for p in points_at.get((input_end, input_freq), ())
+                      if f"{p.ns}:{p.tag}" == tag and p.filed >= input_end]
+            if firsts:
+                p = min(firsts, key=lambda p: p.filed)
+                candidates.append((p.filed, p.accn, p.form))
+            else:
+                form = next((p.form for ps in points_at.values() for p in ps
+                             if p.accn == fallback["filing_ref"]), None)
+                candidates.append((fallback["known_at"].date(), fallback["filing_ref"], form))
+        return max(candidates, key=lambda c: c[0])  # the later input first: it wins a tie
 
     summaries: list[PeriodSummary] = []
     for (end, freq), per_concept in duration.items():

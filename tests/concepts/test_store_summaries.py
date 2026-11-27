@@ -361,6 +361,76 @@ def test_derived_value_dated_by_the_first_filing_of_its_later_input():
         date(2025, 2, 1), "2025-02-01", 810 + 5 - 604)
 
 
+def _late_nine_month_rows() -> list[dict]:
+    """A new filer: FY2024 first filed 2025-03-01; its 9M 2024 first appears as a comparative of
+    the 2025-11-01 10-Q (with the 9M 2025 and Q3 2025)."""
+    out = []
+
+    def add(freq, start, end, value, filed):
+        out.append({"concept": "revenue", "entity_scheme": "cik", "entity_value": "1",
+                    "basis": "consolidated", "source_code": "sec", "frequency": freq,
+                    "period_start": date.fromisoformat(start), "valid_date": date.fromisoformat(end),
+                    "value": Decimal(value), "unit": "USD", "original_tag": _TAGS["revenue"],
+                    "location": "IS", "conflict": False, "on_statement": True,
+                    "filing_ref": filed, "source_doc_id": None,
+                    "known_at": datetime.fromisoformat(filed).replace(hour=21, tzinfo=timezone.utc)})
+
+    add("annual", "2024-01-01", "2024-12-31", 400, "2025-03-01")
+    add("ytd9", "2024-01-01", "2024-09-30", 290, "2025-11-01")
+    add("ytd9", "2025-01-01", "2025-09-30", 330, "2025-11-01")
+    add("quarterly", "2025-07-01", "2025-09-30", 120, "2025-11-01")
+    return out
+
+
+def test_derived_value_known_at_the_later_of_its_inputs_first_filings():
+    """Ruling A3-1: the derived Q4 2024 rests on a 9M first filed 2025-11-01, after the FY
+    (2025-03-01): it is dated 2025-11-01 on F1 and on the store path, with and without vintages."""
+    rows = _late_nine_month_rows()
+    end = date(2024, 12, 31)
+    paths = {"store": summaries_from_rows(rows, company="x", vintages=rows),
+             "store without vintages": summaries_from_rows(rows, company="x"),
+             "f1": build_summaries(_facts_of(rows), company="x", company_current="x")}
+    for path, summaries in paths.items():
+        q4 = by_period(summaries)[(end, "quarterly")]
+        assert (q4.publication_date, q4.accession) == (date(2025, 11, 1), "2025-11-01"), path
+        assert q4.values["revenue"]["value"] == 110, path
+        assert q4.values["revenue"]["derived"] == "FY - 9M", path
+
+
+def test_derived_value_earlier_input_restated_still_dated_by_its_first_filing():
+    """The earlier input's FIRST filing counts, not its selected (restated) vintage: a 9M
+    re-filed in 2026 does not move a Q4 public since 2025-11-01."""
+    rows = _late_nine_month_rows()
+    restated = {**rows[1], "value": Decimal(291), "filing_ref": "2026-11-01",
+                "known_at": datetime(2026, 11, 1, 21, tzinfo=timezone.utc)}
+    selected = [r for r in rows if r is not rows[1]] + [restated]
+    q4 = by_period(summaries_from_rows(selected, company="x", vintages=rows + [restated]))[
+        (date(2024, 12, 31), "quarterly")]
+    assert (q4.publication_date, q4.accession) == (date(2025, 11, 1), "2025-11-01")
+    assert q4.values["revenue"]["value"] == 400 - 291
+    f1 = by_period(build_summaries(_facts_of(rows + [restated]), company="x", company_current="x"))
+    q4 = f1[(date(2024, 12, 31), "quarterly")]
+    assert (q4.publication_date, q4.accession, q4.values["revenue"]["value"]) == (
+        date(2025, 11, 1), "2025-11-01", 400 - 291)
+
+
+def test_derived_value_absent_before_its_later_input_is_public():
+    """Point in time: as of 2025-06-01 the selection holds the FY but no 9M 2024, so there is no
+    derived Q4 2024 (derived rows are built from the selection at as_of)."""
+    from company_corpus.concepts.summaries import FACT_SCHEMA, with_quarters
+
+    rows = _late_nine_month_rows()
+    as_of = datetime(2025, 6, 1, tzinfo=timezone.utc)
+    facts = [{k: r[k] for k in FACT_SCHEMA.names} for r in rows if r["known_at"] <= as_of]
+    selection = run_selection(pa.Table.from_pylist(facts, schema=FACT_SCHEMA),
+                              pa.Table.from_pylist([], schema=POSITION_SCHEMA))
+    assert {(r["frequency"], r["valid_date"]) for r in selection} == {
+        ("annual", date(2024, 12, 31))}
+    assert not [r for r in with_quarters(selection) if r.get("derived")]
+    assert (date(2024, 12, 31), "quarterly") not in by_period(
+        summaries_from_rows(selection, company="x"))
+
+
 def test_a_derived_row_that_lost_its_derived_key_is_still_derived():
     """A projection may drop the ``derived`` key: the ``derived:`` tag still marks the row, in
     summary values and for TTM (a derived Q4 never reaches the flow series)."""

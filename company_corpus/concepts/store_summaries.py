@@ -55,10 +55,9 @@ from ..financials import (
 from .dictionary import Dictionary, load_dictionary
 from .selection import DEFAULT_FILING_TZ
 from .summaries import (
-    _DERIVED_TAG_PREFIX,
+    _derived_inputs,
     _F1_LABEL,
     _flow_series,
-    _later_frequency,
     _value,
     group_periods,
     ttm_rows,
@@ -117,19 +116,24 @@ def summaries_from_rows(rows: Iterable[dict], *, company: str, company_current: 
             raise ValueError("vintages hold no row of this issuer's selected tags: pass the "
                              "fundamentals rows the selection ran on")
     def first_filing(r: dict, end: date) -> dict:
-        """A derived row's candidate: the first filing of its later input among the vintages."""
-        tag = r["original_tag"].removeprefix(_DERIVED_TAG_PREFIX)
-        later = [v for v in filed_at.get((end, _later_frequency(r["derived"]) or ""), ())
-                 if v["original_tag"] == tag and day(v["known_at"]) >= end]
-        return min(later, key=lambda v: (utc(v["known_at"]), v["filing_ref"])) if later else r
+        """A derived row's candidate: the later of its inputs' first filings among the vintages
+        (an input without vintages: its selected row)."""
+        candidates = []
+        for tag, input_end, input_freq, fallback in _derived_inputs(r, rows):
+            firsts = [v for v in filed_at.get((input_end, input_freq), ())
+                      if v["original_tag"] == tag and day(v["known_at"]) >= input_end]
+            candidates.append(min(firsts, key=lambda v: (utc(v["known_at"]), v["filing_ref"]))
+                              if firsts else fallback)
+        return max(candidates, key=lambda v: utc(v["known_at"]))  # the later input wins a tie
 
     out: list[PeriodSummary] = []
     for (end, freq), per_concept in duration.items():
         if freq not in allowed:
             continue
         merged = {**per_concept, **instant.get(end, {})}
-        # A derived quarter (chantier 12) is a candidate too, dated by the first filing of its
-        # later input (its own known_at without vintages), so a derived Q4 is dated by the 10-K.
+        # A derived quarter (chantier 12) is a candidate too, dated by the later of its inputs'
+        # first filings (their selected rows without vintages), so a derived Q4 is dated by the
+        # 10-K, or by a 9M first seen after it (ruling A3-1).
         # A period whose duration values are all derived is dated by those candidates only.
         derived = [first_filing(r, end) for r in per_concept.values() if r.get("derived")]
         if len(derived) == len(per_concept):

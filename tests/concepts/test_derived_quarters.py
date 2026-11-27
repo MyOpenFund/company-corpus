@@ -135,6 +135,17 @@ def test_off_calendar_fiscal_year():
     assert q2["value"] == Decimal(2500)
 
 
+def test_known_at_is_the_later_of_both_inputs():
+    """Ruling A3-1: a 9M first seen after the FY (a new filer's comparatives) makes the derived
+    Q4 known with the 9M, not with the FY."""
+    fy = row("capex", "annual", "2024-01-01", "2024-12-31", 400, "2025-03-01", "FY")
+    nine = row("capex", "ytd9", "2024-01-01", "2024-09-30", 290, "2025-11-01", "Q3-25")
+    (q4,) = derived(with_derived_quarters([fy, nine]))
+    assert (q4["known_at"], q4["filing_ref"], q4["source_doc_id"]) == (
+        nine["known_at"], "Q3-25", nine["source_doc_id"])
+    assert q4["original_tag"] == "derived:" + fy["original_tag"] and q4["value"] == 110
+
+
 def test_restated_six_month_used():
     restated = row("capex", "semiannual", "2024-01-01", "2024-06-30", 26000, "2025-07-23", "Q2-25")
     rows = [ytd_year()[0], restated]
