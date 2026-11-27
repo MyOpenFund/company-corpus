@@ -6,10 +6,13 @@ ordinary ``quarterly`` rows marked derived: Q2 = 6M - Q1, Q3 = 9M - 6M, Q4 = FY 
 
 Rules (spec §3): a filed quarter always wins; both inputs or nothing, never chained from a derived
 row; only money flow concepts (``kind == "money"``, not instant: a per-share figure does not
-subtract); a derived row is known when both inputs are, at the later of the two (that input's
-``known_at``, ``filing_ref`` and ``source_doc_id``; controller ruling A3-1: a 9M first seen after
-the FY, as a new filer's comparative, dates the Q4); a negative difference is kept. A derived span outside F1's quarterly band
-is no quarter and is not produced (``quarters:not_a_quarter``). The store is never touched.
+subtract); a negative difference is kept. A derived row is known when both of its inputs are:
+it takes ``known_at``, ``filing_ref`` and ``source_doc_id`` from whichever selected input
+vintage is known last. Selection rows carry their latest vintage, so that is usually a re-filing
+(next year's comparative) rather than the first publication; summaries date a derived value by
+the later of its inputs' FIRST filings instead (``concepts.summaries``). A derived span outside
+F1's quarterly band is no quarter and is not produced (``quarters:not_a_quarter``). The store is
+never touched.
 """
 from __future__ import annotations
 
@@ -73,14 +76,15 @@ def with_derived_quarters(rows: Iterable[dict], dictionary: Dictionary | None = 
     same-period derived *total* of the selection (``location`` derived, ``original_tag``
     ``computed:<tag>``) is a filed-period value and IS a valid input.
 
-    A derived row copies its later input, takes ``known_at``, ``filing_ref``, ``source_doc_id``
-    and ``review_status`` from whichever input is known last (the later input on a tie: usually
-    the later filing; the earlier input when it was first seen after the later one), then sets ``frequency`` (quarterly),
-    ``period_start``, ``value``, ``location`` (derived), ``original_tag`` (``derived:`` + the
-    later input's) and ``derived`` (the formula). ``conflict`` is the OR of the inputs' and
-    ``on_statement`` the AND: more truthful than the blanket FALSE/TRUE of the derived totals
-    (spec §4 reuses their convention for ``location`` and ``original_tag`` only). Filed rows
-    carry no ``derived`` key.
+    A derived row copies its later input and takes ``known_at``, ``filing_ref``,
+    ``source_doc_id`` and ``review_status`` from whichever of the two selected input rows is known
+    last (the later input on a tie). Those are the selected vintages, usually a re-filing such as
+    next year's comparative, not the inputs' first filings. It then sets ``frequency``
+    (quarterly), ``period_start``, ``value``, ``location`` (derived), ``original_tag``
+    (``derived:`` + the later input's) and ``derived`` (the formula). ``conflict`` is the OR of
+    the inputs' and ``on_statement`` the AND: more truthful than the blanket FALSE/TRUE of the
+    derived totals (spec §4 reuses their convention for ``location`` and ``original_tag`` only).
+    Filed rows carry no ``derived`` key.
     """
     d = dictionary if dictionary is not None else load_dictionary()
     counters = counters if counters is not None else Counter()

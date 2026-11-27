@@ -24,6 +24,7 @@ Oracle     2025-05-31   9,080 M     FY 21,215 - 9M 12,135               00009501
 """
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -34,8 +35,9 @@ from company_corpus.concepts import store_summaries
 from company_corpus.concepts.quarters import FORMULA_Q2, FORMULA_Q3, FORMULA_Q4, PAIRS
 from company_corpus.concepts.selection import run_selection
 from company_corpus.concepts.store_summaries import summaries_from_rows
-from company_corpus.concepts.summaries import with_quarters
-from tests.live.recorded import STATEMENTS_SCHEMA, load_inputs
+from company_corpus.concepts.summaries import build_summaries, with_quarters
+from company_corpus.sources.edgar_xbrl import COMPANYFACTS_URL
+from tests.live.recorded import STATEMENTS_SCHEMA, RecordedSec, load_inputs
 
 GOOGL, META, ORCL, MSFT, AMZN = (
     "0001652044", "0001326801", "0001341439", "0000789019", "0001018724")
@@ -44,6 +46,9 @@ FY2022 = {GOOGL: date(2022, 1, 1), META: date(2022, 1, 1), ORCL: date(2021, 6, 1
           MSFT: date(2021, 7, 1), AMZN: date(2022, 1, 1)}
 _CAPEX_TAG = "us-gaap:PaymentsToAcquirePropertyPlantAndEquipment"
 _M = Decimal(1_000_000)
+#: Without vintages only the selected (latest) vintages date a period: Alphabet's Q4 2024 is then
+#: dated by the FY2025 10-K, which re-reports its FY and 9M figures and balances.
+NO_VINTAGES_ACCESSION = {(GOOGL, date(2024, 12, 31)): "0001652044-26-000018"}
 
 #: issuer -> [(quarter end, formula, capex in USD millions, first filing of the later input,
 #: its publication date)].
@@ -100,18 +105,29 @@ def test_ytd_filers_hand_subtraction(cik):
 
     # Capex Q2, Q3 and Q4 are derived in every fiscal year from FY2022 (Q1 is filed).
     capex = {r["valid_date"]: r["derived"] for r in since if r["concept"] == "capex"}
-    years = range(FY2022[cik].year, FY2022[cik].year + 4)
     for formula in (FORMULA_Q2, FORMULA_Q3, FORMULA_Q4):
-        assert len([d for d, f in capex.items() if f == formula]) >= len(years), formula
+        assert len([d for d, f in capex.items() if f == formula]) >= 4, formula
 
-    summaries = {(s.period_end, s.frequency): s
-                 for s in summaries_from_rows(rows, company="x", vintages=vintages)}
+    def by_period(summaries):
+        return {(s.period_end, s.frequency): s for s in summaries}
+
+    facts = json.loads(RecordedSec(cik).get_bytes(COMPANYFACTS_URL.format(cik=cik)))
+    paths = {"store": by_period(summaries_from_rows(rows, company="x", vintages=vintages)),
+             "store without vintages": by_period(summaries_from_rows(rows, company="x")),
+             "f1": by_period(build_summaries(facts, company="x", company_current="x"))}
     for end, formula, millions, accession, published in PINNED[cik]:
-        s = summaries[(end, "quarterly")]
-        capex_value = s.values["capex"]
-        assert (capex_value["value"], capex_value["derived"]) == (millions * _M, formula)
-        assert capex_value["tag"] == _CAPEX_TAG.split(":")[1]
-        assert (s.accession, s.publication_date) == (accession, published)
+        for path, summaries in paths.items():
+            s = summaries[(end, "quarterly")]
+            capex_value = s.values["capex"]
+            assert (capex_value["value"], capex_value["derived"]) == (millions * _M, formula), path
+            assert capex_value["tag"] == _CAPEX_TAG.split(":")[1], path
+            expected = NO_VINTAGES_ACCESSION.get((cik, end), accession) \
+                if path == "store without vintages" else accession
+            assert s.accession == expected, (path, end)
+        # F1 dates by EDGAR's filingDate, the next business day for a filing accepted after
+        # 17:30 New York; the store reads the acceptance instant.
+        assert paths["store"][(end, "quarterly")].publication_date == published
+        assert paths["f1"][(end, "quarterly")].publication_date - published <= timedelta(days=3)
 
 
 def _without_derivation(rows, dictionary=None):
@@ -158,16 +174,19 @@ def test_standalone_filers_filed_rows_identical(cik, monkeypatch):
 
 #: Alphabet's Q3 2024 10-Q, accepted 2024-10-29 23:33:10 UTC (19:33 New York).
 Q3_10Q = "0001652044-24-000118"
+Q3_ACCEPTED = datetime(2024, 10, 29, 23, 33, 10, tzinfo=timezone.utc)
 Q3_END = date(2024, 9, 30)
 
 
 @pytest.mark.parametrize("as_of, present", [
-    (datetime(2024, 10, 28, 23, 59, 59, tzinfo=timezone.utc), False),
-    (datetime(2024, 10, 30, 23, 59, 59, tzinfo=timezone.utc), True),
+    (Q3_ACCEPTED - timedelta(seconds=1), False),
+    (Q3_ACCEPTED, True),
+    (Q3_ACCEPTED + timedelta(seconds=1), True),
 ])
 def test_as_of_before_and_after_10q(as_of, present):
-    """Spec rule 4: as of the day before the 10-Q's acceptance Alphabet's Q3 2024 does not exist
-    (neither its 9M input nor the derived quarter, nor a summary); the day after it does."""
+    """Spec rule 4: one second before the 10-Q's acceptance Alphabet's Q3 2024 does not exist
+    (neither its 9M input nor the derived quarter, nor a summary); from the acceptance on it
+    does."""
     rows, vintages = _select(GOOGL, as_of)
     ext = with_quarters(rows)
     q3 = [r for r in ext if r["concept"] == "capex" and r["valid_date"] == Q3_END

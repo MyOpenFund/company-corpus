@@ -133,7 +133,7 @@ def summaries_from_rows(rows: Iterable[dict], *, company: str, company_current: 
         merged = {**per_concept, **instant.get(end, {})}
         # A derived quarter (chantier 12) is a candidate too, dated by the later of its inputs'
         # first filings (their selected rows without vintages), so a derived Q4 is dated by the
-        # 10-K, or by a 9M first seen after it (ruling A3-1).
+        # 10-K, or by a 9M first published after it (a new filer's comparative).
         # A period whose duration values are all derived is dated by those candidates only.
         derived = [first_filing(r, end) for r in per_concept.values() if r.get("derived")]
         if len(derived) == len(per_concept):

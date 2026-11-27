@@ -383,8 +383,9 @@ def _late_nine_month_rows() -> list[dict]:
 
 
 def test_derived_value_known_at_the_later_of_its_inputs_first_filings():
-    """Ruling A3-1: the derived Q4 2024 rests on a 9M first filed 2025-11-01, after the FY
-    (2025-03-01): it is dated 2025-11-01 on F1 and on the store path, with and without vintages."""
+    """A derived value is known at the later of its inputs' first filings: the derived Q4 2024
+    rests on a 9M first filed 2025-11-01, after the FY (2025-03-01), so it is dated 2025-11-01
+    on F1 and on the store path, with and without vintages."""
     rows = _late_nine_month_rows()
     end = date(2024, 12, 31)
     paths = {"store": summaries_from_rows(rows, company="x", vintages=rows),

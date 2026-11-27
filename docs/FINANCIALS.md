@@ -291,10 +291,11 @@ every value has `derived` (the formula, or null for a filed value) and its `tag`
 input's filed tag; `metrics_from_derived(summary)` names the point-in-time metrics that rest on a
 derived value (free cash flow, FCF margin, capex intensity...).
 
-**Point in time.** A derived quarter exists only once both inputs are public. The row is known at
-the later of its two inputs: `known_at`, `filing_ref` and `source_doc_id` are that input's
-selected vintage (as for a filed row, a later re-filing such as next year's comparative can be
-that vintage). A summary's publication date and accession take a derived value at the later of
+**Point in time.** A derived quarter exists only once both inputs are public. The row compares
+the two inputs' selected vintages: its `known_at`, `filing_ref` and `source_doc_id` are those of
+the vintage known last. The selection keeps the latest vintage of each value, so that is usually a
+re-filing (next year's comparative, possibly a 10-Q for a Q4) rather than the first publication,
+as for a filed row. A summary's publication date and accession take a derived value at the later of
 its two inputs' **first** filings (the `fundamentals` vintages on the store path, the
 companyfacts points on F1), so a derived Q4 is dated by the 10-K, and a period whose duration
 values are all derived is dated by them alone (an earlier filing that only holds the period's
@@ -305,14 +306,39 @@ Alphabet's Q3 2024).
 
 **6-month rows.** For a period where a quarter ends, the issuer's 6-month YTD (`semiannual`) rows
 are derivation inputs, like `ytd9`: `hidden_semiannual(rows)` returns those period ends, and a
-store reader such as the MCP leaves those rows out of its default output (`companies_facts` still shows them). Decided per
-fiscal year: an issuer that files no quarters (a semi-annual reporter) keeps its 6-month rows and
+store reader such as the MCP leaves those rows out of its default output (`companies_facts`
+still shows them). Decided per fiscal year: an issuer that files no quarters (a semi-annual reporter) keeps its 6-month rows and
 summaries.
 
 **Paths.** `build_summaries` / `attach_ttm` (F1) and the store readers' `summaries_from_rows`
 share one computation (`concepts.summaries.with_quarters`). Validated on the recorded real
 issuers (Alphabet, Meta, Oracle from FY2022: every derived quarter equals the hand subtraction of
-the filed values; Microsoft and Amazon: filed values unchanged, the additions are derived Q4s).
+the filed values; Microsoft and Amazon: filed values unchanged and, from FY2022 on, the additions
+are derived Q4s; Amazon earlier also gains a few derived Q2/Q3, from cash-flow lines it filed year
+to date in 2012 and 2015).
+
+Checked against the filing text on 2026-11-27: each year-to-date capex input of three pinned
+years was found in the cash-flow statement of the filing that first reported it (primary document
+converted with `company_corpus.live.documents`; USD millions).
+
+| Issuer | Period (input) | Filed | Document | Found | Line |
+|---|---|---|---|---|---|
+| Alphabet | 2024-03-31 (3M) | 12,012 | 10-Q 0001652044-24-000053 | yes | Purchases of property and equipment (12,012) |
+| Alphabet | 2024-06-30 (6M) | 25,198 | 10-Q 0001652044-24-000079 | yes | Purchases of property and equipment (25,198) |
+| Alphabet | 2024-09-30 (9M) | 38,259 | 10-Q 0001652044-24-000118 | yes | Purchases of property and equipment (38,259) |
+| Alphabet | 2024-12-31 (FY) | 52,535 | 10-K 0001652044-25-000014 | yes | Purchases of property and equipment (52,535) |
+| Meta | 2024-03-31 (3M) | 6,400 | 10-Q 0001326801-24-000049 | yes | Purchases of property and equipment, net (6,400) |
+| Meta | 2024-06-30 (6M) | 14,573 | 10-Q 0001326801-24-000069 | yes | Purchases of property and equipment, net (14,573) |
+| Meta | 2024-09-30 (9M) | 22,831 | 10-Q 0001326801-24-000081 | yes | Purchases of property and equipment, net (22,831) |
+| Meta | 2024-12-31 (FY) | 37,256 | 10-K 0001326801-25-000017 | yes | Purchases of property and equipment (37,256) |
+| Oracle | 2024-08-31 (3M) | 2,303 | 10-Q 0000950170-24-104905 | yes | Capital expenditures (2,303) |
+| Oracle | 2024-11-30 (6M) | 6,273 | 10-Q 0000950170-24-134973 | yes | Capital expenditures (6,273) |
+| Oracle | 2025-02-28 (9M) | 12,135 | 10-Q 0000950170-25-037143 | yes | Capital expenditures (12,135) |
+| Oracle | 2025-05-31 (FY) | 21,215 | 10-K 0000950170-25-087926 | yes | Capital expenditures (21,215) |
+
+Hence the derived capex quarters: Alphabet 2024 Q2 13,186, Q3 13,061, Q4 14,276; Meta 2024 Q2
+8,173, Q3 8,258, Q4 14,425; Oracle FY2025 Q2 3,970, Q3 5,862, Q4 9,080 (pinned in
+`tests/live/test_derived_quarters_real.py`).
 
 **Migration (0.3.0).** Outputs gain derived rows; filed rows unchanged. F1 and store summaries
 gain derived values (marked `derived`), a quarterly summary at each fiscal year-end, the metrics

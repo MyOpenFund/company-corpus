@@ -136,8 +136,8 @@ def test_off_calendar_fiscal_year():
 
 
 def test_known_at_is_the_later_of_both_inputs():
-    """Ruling A3-1: a 9M first seen after the FY (a new filer's comparatives) makes the derived
-    Q4 known with the 9M, not with the FY."""
+    """A derived row is known when both inputs are: a 9M first seen after the FY (a new
+    filer's comparatives) makes the derived Q4 known with the 9M, not with the FY."""
     fy = row("capex", "annual", "2024-01-01", "2024-12-31", 400, "2025-03-01", "FY")
     nine = row("capex", "ytd9", "2024-01-01", "2024-09-30", 290, "2025-11-01", "Q3-25")
     (q4,) = derived(with_derived_quarters([fy, nine]))

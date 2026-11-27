@@ -171,11 +171,11 @@ _INPUT_KEYS = ("concept", "entity_scheme", "entity_value", "basis", "source_code
 def _derived_inputs(row: dict, rows: Sequence[dict]) -> list[tuple[str, date, str, dict]]:
     """A derived quarter's inputs among ``rows`` (its selection), later input first, each as
     ``(original_tag, valid_date, frequency, row)``: what both summary paths look up to find the
-    inputs' FIRST filings (controller ruling A3-1: a derived value is known at the later of
-    them). The later input is the row the derived one copied (same tag, ``valid_date``); the
-    earlier one ends the day before the quarter starts and shares the later one's fiscal-year
-    start. A missing later input gives the derived row itself in its place; a missing earlier
-    input is left out."""
+    inputs' FIRST filings (a derived value is public once both inputs are: at the later of
+    those first filings). The later input is the row the derived one copied (same tag,
+    ``valid_date``); the earlier one ends the day before the quarter starts and shares the later
+    one's fiscal-year start. A missing later input gives the derived row itself in its place; a
+    missing earlier input is left out."""
     from .quarters import PAIRS
 
     pair = next(((e, lt) for e, lt, f in PAIRS if f == row.get("derived")), None)
@@ -265,8 +265,9 @@ def build_summaries(facts: dict, *, company: str, company_current: str, name_for
     The values are the selection's, plus the derived quarters (chantier 12): a derived value is
     a publication-date candidate of its period too, dated by the later of its two inputs' first
     filings (usually the 6M, 9M or FY point), so a derived Q4 gets a quarterly summary dated and
-    accessioned by the 10-K. When every duration value of a period is derived, only those candidates date it:
-    an earlier filing holding the period's instants must not date values not yet public."""
+    accessioned by the 10-K. When every duration value of a period is derived, only those
+    candidates date it: an earlier filing holding the period's instants must not date values not
+    yet public."""
     d = dictionary or load_dictionary()
     selected = select_for_f1(facts, statements, d)
     specs = d.tag_specs()
