@@ -360,6 +360,10 @@ def test_h2_six_month_and_q3_do_not_pair():
             row("capex", "annual", "2024-01-01", "2024-12-31", 52535, "2025-02-05", "FY")]
     assert derived(with_derived_quarters(rows, counters=counters)) == []
     assert counters["quarters:not_year_to_date"] == 1
+    # no H1 but a 9M: the H2 starts inside it; the Q4 is FY - 9M, never "6M - Q1"
+    nine = row("capex", "ytd9", "2024-01-01", "2024-09-30", 38259, "2024-10-30", "Q3")
+    (q4,) = derived(with_derived_quarters(rows[1:] + [nine]))
+    assert (q4["derived"], q4["value"]) == (FORMULA_Q4, Decimal(52535 - 38259))
     # the same Q1 and 6M of a year-to-date filer still pair, with or without the FY
     assert [r["derived"] for r in derived(with_derived_quarters(ytd_year()[:2]))] == [FORMULA_Q2]
 
