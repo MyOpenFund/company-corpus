@@ -43,8 +43,13 @@ cash flows year to date (3, 6, 9 months, then the year) get standalone quarters 
 them: Q2 = 6M − Q1, Q3 = 9M − 6M, Q4 = FY − 9M (Q4 for every issuer). They are ordinary quarterly
 values marked `derived` with their formula, money flow concepts only, a filed quarter always wins,
 and a derived quarter exists only once both inputs are public (point in time). The 6-month YTD
-rows of a quarterly filer become derivation inputs (`hidden_semiannual`). **Migration: outputs
-gain derived rows; filed rows unchanged.** Details: [`docs/FINANCIALS.md` — Derived
+rows of a quarterly filer become derivation inputs (`hidden_semiannual`). Documents and rows
+never show a derived value as reported: the formula sits next to it (`(derived: FY - 9M)`), and
+a metric resting on one is marked `derived = "derived input"`. A derived value subtracts the
+latest vintages of its inputs (a restated FY minus an unrestated 9M is possible), and a summary's
+publication date is the period's first publication: only `as_of` on the selection is point in
+time. **Migration: outputs gain derived rows; filed rows unchanged; read `derived` with
+`.get`.** Details: [`docs/FINANCIALS.md` — Derived
 quarters](https://github.com/MyOpenFund/company-corpus/blob/main/docs/FINANCIALS.md#derived-quarters).
 
 The register pillar targets issuers that never file ESEF — bond obligors, private
