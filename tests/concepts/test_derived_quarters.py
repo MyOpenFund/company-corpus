@@ -224,3 +224,63 @@ def test_filed_quarter_checked_before_the_band():
             row("capex", "quarterly", "2024-11-01", "2025-01-31", 21000, "2025-03-20", "FY")]
     assert with_derived_quarters(rows, counters=counters) == rows
     assert counters["quarters:not_a_quarter"] == 0
+
+
+# --- Task A2: derived markers (spec rules 6, 8, 10) ---------------------------------------------
+
+def test_value_carries_derived_formula():
+    from company_corpus.concepts.dictionary import load_dictionary
+    from company_corpus.concepts.summaries import _value
+
+    d = load_dictionary()
+    out = with_derived_quarters(ytd_year())
+    q2 = by_end(out)["2024-06-30"]
+    assert _value(q2, d, ("us-gaap",))["derived"] == "6M - Q1"
+    assert _value(out[0], d, ("us-gaap",))["derived"] is None
+
+
+def test_hidden_semiannual_only_where_a_quarter_ends():
+    from company_corpus.concepts.quarters import hidden_semiannual
+
+    out = with_derived_quarters(ytd_year())
+    assert hidden_semiannual(out) == {date(2024, 6, 30)}
+    # the 6-month row is hidden even before derivation: Q1 filed, Q2 derived later
+    other_concept_q = [row("revenue", "quarterly", "2024-04-01", "2024-06-30", 5, "2024-07-24",
+                           "Q2")]
+    assert hidden_semiannual(ytd_year()[1:2] + other_concept_q) == {date(2024, 6, 30)}
+    # semiannual-only issuer: keeps its 6-month rows
+    semi = [row("capex", "semiannual", "2023-01-01", "2023-06-30", 10, "2023-08-01", "H1"),
+            row("capex", "annual", "2023-01-01", "2023-12-31", 30, "2024-03-01", "FY")]
+    assert hidden_semiannual(with_derived_quarters(semi)) == set()
+    # another issuer's quarter does not hide this issuer's 6-month row
+    foreign = [row("capex", "quarterly", "2024-04-01", "2024-06-30", 5, "2024-07-24", "X",
+                   entity_value="0000000001")]
+    assert hidden_semiannual(ytd_year()[1:2] + foreign) == set()
+
+
+def _summary(values):
+    from company_corpus.financials import PeriodSummary
+
+    return PeriodSummary(period_end=date(2024, 6, 30), frequency="quarterly",
+                         publication_date=date(2024, 7, 24), sec_form="10-Q", accession="Q2",
+                         company="X", company_current="X", values=values)
+
+
+def _v(value, derived=None):
+    return {"value": value, "unit": "USD", "label": "", "tag": "", "location": "CF",
+            "conflict": False, "on_statement": True, "derived": derived}
+
+
+def test_metrics_from_derived():
+    from company_corpus.concepts.quarters import metrics_from_derived
+
+    mixed = _summary({"cfo": _v(50000), "capex": _v(13186, FORMULA_Q2)})
+    assert "free_cash_flow" in mixed.derived
+    got = metrics_from_derived(mixed)
+    assert isinstance(got, frozenset)
+    assert "free_cash_flow" in got
+    filed = _summary({"cfo": _v(50000), "capex": _v(13186)})
+    assert metrics_from_derived(filed) == frozenset()
+    # values without a "derived" key (older producers) count as filed
+    bare = _summary({"cfo": {"value": 50000, "unit": "USD"}, "capex": {"value": 1, "unit": "USD"}})
+    assert metrics_from_derived(bare) == frozenset()

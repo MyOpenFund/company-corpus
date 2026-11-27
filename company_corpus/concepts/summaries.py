@@ -121,7 +121,8 @@ def _value(row: dict, d: Dictionary, namespaces: Sequence[str]) -> dict:
         tag = tag.replace(f"{ns}:", "")
     return {"value": _plain(row["value"]), "unit": row["unit"],
             "label": d.concepts[row["concept"]].label, "tag": tag, "location": row["location"],
-            "conflict": row["conflict"], "on_statement": row["on_statement"]}
+            "conflict": row["conflict"], "on_statement": row["on_statement"],
+            "derived": row.get("derived")}
 
 
 def group_periods(rows: Iterable[dict]) -> tuple[dict[tuple[date, str], dict[str, dict]],

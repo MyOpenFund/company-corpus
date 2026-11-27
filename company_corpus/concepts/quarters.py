@@ -14,13 +14,14 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Iterable
-from datetime import timedelta
+from datetime import date, timedelta
 
 from company_corpus.concepts.dictionary import Dictionary, load_dictionary
 from company_corpus.concepts.summaries import F1_DURATION_BANDS
+from company_corpus.financials import PeriodSummary, compute_derived
 
 __all__ = ["FORMULA_Q2", "FORMULA_Q3", "FORMULA_Q4", "PAIRS", "QUARTER_BAND",
-           "with_derived_quarters"]
+           "hidden_semiannual", "metrics_from_derived", "with_derived_quarters"]
 
 FORMULA_Q2 = "6M - Q1"
 FORMULA_Q3 = "9M - 6M"
@@ -110,3 +111,29 @@ def with_derived_quarters(rows: Iterable[dict], dictionary: Dictionary | None = 
     out.sort(key=lambda r: (r["concept"], r["valid_date"], r["entity_scheme"], r["entity_value"],
                             r["basis"], r["source_code"], r["unit"]))
     return rows + out
+
+
+def hidden_semiannual(rows: Iterable[dict]) -> set[date]:
+    """The ``valid_date`` values of ``semiannual`` rows at which a ``quarterly`` row (filed or derived,
+    any concept) of the same issuer ends: those 6-month rows are derivation inputs and leave the
+    default output (spec rule 6). Decided per period, so a semiannual reporter, or an older
+    semiannual year of an issuer that later filed quarters, keeps its 6-month rows (rule 10)."""
+    rows = list(rows)
+    quarter_ends = {(r["entity_scheme"], r["entity_value"], r["valid_date"])
+                    for r in rows if r["frequency"] == "quarterly"}
+    return {r["valid_date"] for r in rows if r["frequency"] == "semiannual"
+            and (r["entity_scheme"], r["entity_value"], r["valid_date"]) in quarter_ends}
+
+
+def metrics_from_derived(summary: PeriodSummary) -> frozenset[str]:
+    """Keys of ``summary.derived`` that rest on a derived quarter (spec rule 8): the metric's
+    value differs, or the metric disappears, when :func:`compute_derived` runs on the summary's
+    values without the entries whose ``derived`` is not None. Empty when no value is derived."""
+    filed = {k: v for k, v in summary.values.items() if v.get("derived") is None}
+    if len(filed) == len(summary.values):
+        return frozenset()
+    full = summary.derived
+    without = compute_derived(filed, summary.frequency, summary.currency, summary.is_financial,
+                              summary.debt_rule)
+    return frozenset(k for k, m in full.items()
+                     if k not in without or without[k].get("value") != m.get("value"))
