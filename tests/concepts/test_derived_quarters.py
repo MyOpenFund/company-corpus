@@ -320,3 +320,20 @@ def test_metrics_from_derived_marks_a_metric_present_both_ways_but_different():
     without = _summary({"cfo": _v(100), "capex": _v(40), "dividends_paid": _v(10)}).derived
     assert "total_payout" in without and without["total_payout"] != s.derived["total_payout"]
     assert metrics_from_derived(s) == frozenset({"total_payout"})
+
+
+def test_rows_from_base_carries_the_derived_formula():
+    """Spec rule 8, §4: a derived reported row never looks filed on the corpus rows path."""
+    from company_corpus.financials import rows_from_base
+
+    s = PeriodSummary(period_end=date(2024, 6, 30), frequency="quarterly",
+                      publication_date=date(2024, 7, 24), sec_form="10-Q", accession="Q2",
+                      company="x", company_current="x",
+                      values={"capex": {"value": 13186, "unit": "USD", "label": "Capex",
+                                        "tag": "CapexTag", "derived": FORMULA_Q2},
+                              "revenue": {"value": 1, "unit": "USD", "label": "Revenue",
+                                          "tag": "Revenues", "derived": None},
+                              "cfo": {"value": 2, "unit": "USD", "label": "CFO", "tag": "C"}})
+    rows = {r["concept"]: r for r in rows_from_base({}, s) if r["kind"] == "reported"}
+    assert rows["capex"]["derived"] == "6M - Q1"
+    assert rows["revenue"]["derived"] is None and rows["cfo"]["derived"] is None

@@ -148,6 +148,24 @@ def group_periods(rows: Iterable[dict]) -> tuple[dict[tuple[date, str], dict[str
     return duration, instant, allowed
 
 
+def with_quarters(rows: Iterable[dict], dictionary: Dictionary | None = None) -> list[dict]:
+    """Selection rows plus their derived quarters (chantier 12), as both summary paths group
+    them: :func:`build_summaries` here and the store readers'
+    :func:`~company_corpus.concepts.store_summaries.summaries_from_rows`."""
+    from .quarters import with_derived_quarters  # quarters imports this module's bands
+
+    return with_derived_quarters(rows, dictionary)
+
+
+def ttm_rows(rows: Iterable[dict]) -> list[dict]:
+    """The rows TTM reads: every row but the derived Q4s (spec rule 7). The Q4 rule (``ytd9`` or
+    ``sum_of_quarters``) keeps deciding the fiscal year-end quarter; derived Q2/Q3 are ordinary
+    quarters to it."""
+    from .quarters import FORMULA_Q4
+
+    return [r for r in rows if r.get("derived") != FORMULA_Q4]
+
+
 def _flow_series(rows: Iterable[dict]) -> FlowSeries:
     """The TTM flow concepts of selection rows, by band (quarterly, annual, ytd9) and period end."""
     buckets: dict[str, dict[str, dict[date, float]]] = {"quarterly": {}, "annual": {}, "ytd9": {}}
@@ -165,17 +183,21 @@ def build_summaries(facts: dict, *, company: str, company_current: str, name_for
     semi-annual when the issuer has no quarters. The publication date is the earliest filing of
     any of the period's facts made once the period had ended: a filing can already hold a fact about
     a later period, such as a declared dividend. A period only seen before it ended has no summary.
-    The values are the selection's."""
+    The values are the selection's, plus the derived quarters (chantier 12): a derived row is
+    a publication-date candidate of its period too (its later input's filing), so a derived Q4
+    gets a quarterly summary dated and accessioned by the 10-K."""
     d = dictionary or load_dictionary()
     selected = select_for_f1(facts, statements, d)
     specs = d.tag_specs()
     namespaces = sorted({s.ns for s in specs.values()})
     chain_tags = {full for t in d.tables for e in t.entries.values() for full in e.all_tags}
-    duration, instant, allowed = group_periods(selected.rows)
-    points_at: dict[tuple[date, str], list[Point]] = {}
+    duration, instant, allowed = group_periods(with_quarters(selected.rows, d))
+    points_at: dict[tuple[date, str], list[tuple[date, str, str | None]]] = {}
+    forms: dict[str, str | None] = {}
     for p in selected.points:
+        forms.setdefault(p.accn, p.form)
         if f"{p.ns}:{p.tag}" in chain_tags:
-            points_at.setdefault((p.end, p.frequency), []).append(p)
+            points_at.setdefault((p.end, p.frequency), []).append((p.filed, p.accn, p.form))
     summaries: list[PeriodSummary] = []
     for (end, freq), per_concept in duration.items():
         if freq not in allowed:
@@ -186,15 +208,18 @@ def build_summaries(facts: dict, *, company: str, company_current: str, name_for
             continue
         merged = {**per_concept, **instant.get(end, {})}
         values = {key: _value(merged[key], d, namespaces) for key in d.concepts if key in merged}
-        reported = [p for p in (*points_at.get((end, freq), ()), *points_at.get((end, "instant"), ()))
-                    if p.filed >= end]
+        # Filed points first: on a tie the earliest filed point wins, as before chantier 12.
+        derived = [(r["known_at"].date(), r["filing_ref"], forms.get(r["filing_ref"]))
+                   for r in per_concept.values() if r.get("derived") is not None]
+        reported = [c for c in (*points_at.get((end, freq), ()), *points_at.get((end, "instant"), ()),
+                                *derived) if c[0] >= end]
         if not reported:
             continue
-        first = min(reported, key=lambda p: p.filed)
-        pit = name_for_date(first.filed) if name_for_date else company
+        filed, accn, form = min(reported, key=lambda c: c[0])
+        pit = name_for_date(filed) if name_for_date else company
         summaries.append(PeriodSummary(
-            period_end=end, frequency=_F1_LABEL.get(freq, freq), publication_date=first.filed,
-            sec_form=first.form or "XBRL", accession=first.accn, company=pit or company,
+            period_end=end, frequency=_F1_LABEL.get(freq, freq), publication_date=filed,
+            sec_form=form or "XBRL", accession=accn, company=pit or company,
             company_current=company_current, values=values, currency=_currency(facts, d), sic=sic,
             debt_rule="concepts"))
     summaries.sort(key=lambda s: (s.period_end or date.min, s.frequency), reverse=True)
@@ -207,8 +232,10 @@ def _currency(facts: dict, d: Dictionary) -> str:
 
 def attach_ttm(facts: dict, summaries: list[PeriodSummary], *, statements: Sequence[dict] = (),
                dictionary: Dictionary | None = None, q4_rule: Q4Rule = "ytd9") -> None:
-    rows = select_for_f1(facts, statements, dictionary).rows
-    _attach_ttm(_flow_series(rows), summaries, ttm_keys=_TTM_FLOW_KEYS, q4_rule=q4_rule)
+    """TTM metrics on F1 ``summaries``, from the selection plus its derived Q2/Q3 (spec rule 7:
+    a quarterly TTM at Q2/Q3 of a year-to-date filer becomes computable)."""
+    rows = with_quarters(select_for_f1(facts, statements, dictionary).rows, dictionary)
+    _attach_ttm(_flow_series(ttm_rows(rows)), summaries, ttm_keys=_TTM_FLOW_KEYS, q4_rule=q4_rule)
 
 
 def f1_coverage(facts: dict, statements: Sequence[dict] = (),

@@ -279,6 +279,17 @@ change across taxonomy vintages (e.g. `SalesRevenueNet` → `Revenues`) does not
 suppress TTM; the EU and register paths union a concept's points across all its
 fallback tags for the same reason.
 
+**Derived quarters (SEC path and store readers).** An issuer that files its cash flows year to
+date (3, 6, 9 months, then the year) gets standalone quarters derived from them: Q2 = 6M − Q1,
+Q3 = 9M − 6M, Q4 = FY − 9M (`concepts.quarters.with_derived_quarters`, money flow concepts only,
+both inputs or nothing, a filed quarter always wins). Q4 is derived for every issuer, so each
+fiscal year-end also gets a quarterly summary, dated and accessioned by the 10-K. Its derived
+values carry `derived` (the formula) and the summary's metrics are computed on them. TTM reads the
+derived Q2/Q3 as ordinary quarters, so a quarterly TTM at Q2/Q3 of a year-to-date filer is
+computable; the fiscal year-end quarter stays decided by the Q4 rule (`ytd9` or
+`sum_of_quarters`), never by the derived Q4 row. `build_summaries` / `attach_ttm` (F1) and the
+store readers' `summaries_from_rows` share this computation.
+
 **Validation.** This reproduces Apple's published quarterly Return on Assets to
 four decimal places: **32.5629** at 2025-12-27 and **34.9060** at 2026-03-28
 (`tests/test_ttm.py`).
@@ -320,7 +331,9 @@ the 15-key unified identity/provenance base shared across all three pillars:
 `entity_id` (CIK value), `id_scheme` (`"cik"`), `lei` (null), `country` (`"US"`),
 `currency`, `period_end`, `fy`, `frequency`, `publication_date`, `source` (`"sec"`),
 `form`, `accession`, `sic`, `is_financial`, `basis` (null); plus body keys `kind`,
-`concept`, `label`, `value`, `unit`, `tag`; derived/TTM rows also carry
+`concept`, `label`, `value`, `unit`, `tag`; reported rows also carry `derived` (the formula
+`6M - Q1`, `9M - 6M` or `FY - 9M` of a derived quarter, null for a filed value: every pillar's
+reported rows have it, null outside the SEC path); derived/TTM rows also carry
 `sector_relevant`. All three pillars (SEC, EU/ESEF, register) share this
 identity/provenance schema; reported-row `label` values are canonical per concept
 across all pillars. `render_summary_html` renders the reported, derived, and TTM

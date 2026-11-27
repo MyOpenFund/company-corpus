@@ -1165,7 +1165,8 @@ def rows_from_base(base: dict, summary: PeriodSummary) -> list[dict]:
     and pass through unchanged."""
     rows = [{**base, "kind": "reported", "concept": key,
              "label": CONCEPT_LABELS.get(key) or v.get("label") or key,
-             "value": v["value"], "unit": v["unit"], "tag": v.get("tag")}
+             "value": v["value"], "unit": v["unit"], "tag": v.get("tag"),
+             "derived": v.get("derived")}
             for key, v in summary.values.items()]
     rows += [{**base, "kind": "derived", "concept": key, "label": v["label"],
               "value": v["value"], "unit": v["unit"],

@@ -54,7 +54,7 @@ from ..financials import (
 )
 from .dictionary import Dictionary, load_dictionary
 from .selection import DEFAULT_FILING_TZ
-from .summaries import _F1_LABEL, _flow_series, _value, group_periods
+from .summaries import _F1_LABEL, _flow_series, _value, group_periods, ttm_rows, with_quarters
 
 __all__ = ["DEFAULT_PUBLICATION_TZ", "concept_catalog", "group_periods", "metric_catalog",
            "summaries_from_rows"]
@@ -84,7 +84,7 @@ def summaries_from_rows(rows: Iterable[dict], *, company: str, company_current: 
     """
     d = dictionary or load_dictionary()
     zone = ZoneInfo(publication_tz)
-    rows = list(rows)
+    rows = with_quarters(rows, d)
 
     def utc(at: datetime) -> datetime:  # a naive known_at is UTC, as the store writes it
         return at if at.tzinfo else at.replace(tzinfo=timezone.utc)
@@ -112,7 +112,10 @@ def summaries_from_rows(rows: Iterable[dict], *, company: str, company_current: 
         if freq not in allowed:
             continue
         merged = {**per_concept, **instant.get(end, {})}
-        candidates = ([*filed_at.get((end, freq), ()), *filed_at.get((end, "instant"), ())]
+        # A derived quarter (chantier 12) is a candidate too: its later input's filing (merged
+        # already holds it without vintages), so a derived Q4 is dated by the 10-K.
+        candidates = ([*filed_at.get((end, freq), ()), *filed_at.get((end, "instant"), ()),
+                       *(r for r in per_concept.values() if r.get("derived") is not None)]
                       if vintages is not None else merged.values())
         reported = [r for r in candidates if day(r["known_at"]) >= end]
         if not reported:
@@ -128,7 +131,7 @@ def summaries_from_rows(rows: Iterable[dict], *, company: str, company_current: 
                            if _CURRENCY_RE.match(v["unit"])), "USD"),
             sic=sic, sector_known=sector_known, debt_rule="concepts"))
     out.sort(key=lambda s: (s.period_end or date.min, s.frequency), reverse=True)
-    _attach_ttm(_flow_series(rows), out, ttm_keys=_TTM_FLOW_KEYS, q4_rule=q4_rule)
+    _attach_ttm(_flow_series(ttm_rows(rows)), out, ttm_keys=_TTM_FLOW_KEYS, q4_rule=q4_rule)
     return out
 
 
