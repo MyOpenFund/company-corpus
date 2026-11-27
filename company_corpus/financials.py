@@ -1100,10 +1100,18 @@ def _fmt(value, unit: str) -> str:
     return f"{value:,.0f}"  # monetary (whole units of the reporting currency)
 
 
+#: The ``derived`` marker of a metric row (``rows_from_base``) whose value rests on a derived
+#: quarter (see ``concepts.quarters.metrics_from_derived``).
+DERIVED_INPUT = "derived input"
+#: What a reader is told wherever a derived value is shown next to filed ones.
+DERIVED_NOTE = "derived values are computed from filed year-to-date values"
+
+
 def _metric_table(items, caption: str) -> str:
     rows = "\n".join(
         f"<tr><td>{html.escape(v['label'])}</td>"
-        f"<td style='text-align:right'>{_fmt(v['value'], v['unit'])}</td>"
+        f"<td style='text-align:right'>{_fmt(v['value'], v['unit'])}"
+        f"{html.escape(_derived_suffix(v))}</td>"
         f"<td>{html.escape(v['unit'])}</td></tr>"
         for v in items
     )
@@ -1115,20 +1123,43 @@ def _metric_table(items, caption: str) -> str:
     )
 
 
+def _derived_suffix(v: dict) -> str:
+    """`` (derived: <formula>)`` after a derived value, `` (from derived values)`` after a metric
+    resting on one, nothing after a filed value."""
+    formula = v.get("derived")
+    if formula is None:
+        return ""
+    return " (from derived values)" if formula == DERIVED_INPUT else f" (derived: {formula})"
+
+
+def _metric_marks(summary: PeriodSummary) -> frozenset[str]:
+    from .concepts.quarters import metrics_from_derived  # concepts imports this module
+
+    return metrics_from_derived(summary)
+
+
 def render_summary_html(summary: PeriodSummary) -> str:
     """Render a period summary as a small standalone HTML document.
 
     Two tables: the *reported* line items and the *derived* metrics (total debt,
-    EBITDA, leverage and other ratios computed from them).
+    EBITDA, leverage and other ratios computed from them). A derived quarter's value
+    (chantier 12) shows its formula, e.g. ``14,276,000,000 (derived: FY - 9M)``, a metric
+    resting on one ``(from derived values)``, and the caption then says that derived values are
+    computed from filed year-to-date values: never presented as reported.
     """
     pub = summary.publication_date.isoformat() if summary.publication_date else "n/a"
     end = summary.period_end.isoformat() if summary.period_end else "n/a"
     title = f"{summary.company} — {summary.period_label} financial summary"
-    reported = _metric_table(summary.values.values(), "Reported figures")
+    any_derived = any(v.get("derived") is not None for v in summary.values.values())
+    reported = _metric_table(
+        summary.values.values(),
+        f"Reported figures ({DERIVED_NOTE})" if any_derived else "Reported figures")
     derived = summary.derived
+    marks = _metric_marks(summary)
     derived_tbl = (
         _metric_table(
-            (derived[k] for k in DERIVED_BY_KEY if k in derived),
+            ({**derived[k], "derived": DERIVED_INPUT if k in marks else None}
+             for k in DERIVED_BY_KEY if k in derived),
             "Derived metrics (computed)",
         )
         if derived else ""
@@ -1162,15 +1193,22 @@ def rows_from_base(base: dict, summary: PeriodSummary) -> list[dict]:
     registry (keyed by concept key), so every pillar agrees on one human label per
     concept regardless of what its mapper stored — a register row for ``revenue``
     gets ``"Revenue"``, not the machine key. Derived / TTM labels are engine-supplied
-    and pass through unchanged."""
+    and pass through unchanged.
+
+    Reported rows carry ``derived`` (a derived quarter's formula, else None); derived-metric rows
+    carry ``derived`` = :data:`DERIVED_INPUT` when the metric rests on a derived quarter (spec
+    rule 8, ``metrics_from_derived``), else None. TTM rows carry no marker, even when their
+    window holds derived Q2/Q3."""
     rows = [{**base, "kind": "reported", "concept": key,
              "label": CONCEPT_LABELS.get(key) or v.get("label") or key,
              "value": v["value"], "unit": v["unit"], "tag": v.get("tag"),
              "derived": v.get("derived")}
             for key, v in summary.values.items()]
+    marks = _metric_marks(summary)
     rows += [{**base, "kind": "derived", "concept": key, "label": v["label"],
               "value": v["value"], "unit": v["unit"],
-              "sector_relevant": v.get("sector_relevant", True)}
+              "sector_relevant": v.get("sector_relevant", True),
+              "derived": DERIVED_INPUT if key in marks else None}
              for key, v in summary.derived.items()]
     rows += [{**base, "kind": "derived_ttm", "concept": key, "label": v["label"],
               "value": v["value"], "unit": v["unit"],

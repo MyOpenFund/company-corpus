@@ -6,13 +6,14 @@ ordinary ``quarterly`` rows marked derived: Q2 = 6M - Q1, Q3 = 9M - 6M, Q4 = FY 
 
 Rules (spec §3): a filed quarter always wins; both inputs or nothing, never chained from a derived
 row; only money flow concepts (``kind == "money"``, not instant: a per-share figure does not
-subtract); a negative difference is kept. A derived row is known when both of its inputs are:
-it takes ``known_at``, ``filing_ref`` and ``source_doc_id`` from whichever selected input
-vintage is known last. Selection rows carry their latest vintage, so that is usually a re-filing
-(next year's comparative) rather than the first publication; summaries date a derived value by
-the later of its inputs' FIRST filings instead (``concepts.summaries``). A derived span outside
-F1's quarterly band is no quarter and is not produced (``quarters:not_a_quarter``). The store is
-never touched.
+subtract); a negative difference is kept; only year-to-date chains pair (a fiscal year's
+second-half 6-month row never pairs with the Q3 sharing its start). A derived row is known when
+both of its inputs are: it takes ``known_at``, ``filing_ref`` and ``source_doc_id`` from
+whichever selected input vintage is known last. Selection rows carry their latest vintage, so
+that is usually a re-filing (next year's comparative) rather than the first publication;
+summaries date a derived value by the later of its inputs' FIRST filings instead
+(``concepts.summaries``). A derived span outside F1's quarterly band is no quarter and is not
+produced (``quarters:not_a_quarter``). The store is never touched.
 """
 from __future__ import annotations
 
@@ -71,6 +72,11 @@ def with_derived_quarters(rows: Iterable[dict], dictionary: Dictionary | None = 
     is idempotent. That check comes before the band: an out-of-band pair whose quarter is
     already there counts nothing in ``quarters:not_a_quarter``.
 
+    Only year-to-date chains pair, whose earlier input starts at the fiscal-year start. An H2
+    6-month row (a fiscal year's second half: an H1 of the entity ends the day before it starts
+    and an ``annual`` row spans both) and the Q3 sharing its start are no 6M and Q1: skipped
+    (``quarters:not_year_to_date``). An H2 without its fiscal year filed is not recognised.
+
     A derived quarter is never an input (never chained): a row with a ``derived`` value, or whose
     ``original_tag`` starts with ``derived:`` (should a projection drop the ``derived`` key). A
     same-period derived *total* of the selection (``location`` derived, ``original_tag``
@@ -101,12 +107,18 @@ def with_derived_quarters(rows: Iterable[dict], dictionary: Dictionary | None = 
                r["unit"], r["period_start"])
         groups.setdefault(key, {}).setdefault(r["frequency"], []).append(r)
     lo, hi = QUARTER_BAND
+    h2 = _second_halves(rows)
     out: list[dict] = []
     for by_freq in groups.values():
         for earlier_f, later_f, formula in PAIRS:
             for later in by_freq.get(later_f, ()):
                 for earlier in by_freq.get(earlier_f, ()):
                     if _quarter_key(later) in have:
+                        continue
+                    if later_f == "semiannual" and (
+                            later["entity_scheme"], later["entity_value"], later["period_start"],
+                            later["valid_date"]) in h2:
+                        counters["quarters:not_year_to_date"] += 1
                         continue
                     start = earlier["valid_date"] + timedelta(days=1)
                     if not lo <= (later["valid_date"] - start).days + 1 <= hi:
@@ -126,6 +138,36 @@ def with_derived_quarters(rows: Iterable[dict], dictionary: Dictionary | None = 
     out.sort(key=lambda r: (r["concept"], r["valid_date"], r["entity_scheme"], r["entity_value"],
                             r["basis"], r["source_code"], r["unit"]))
     return rows + out
+
+
+def _second_halves(rows: list[dict]) -> set[tuple]:
+    """``(entity_scheme, entity_value, period_start, valid_date)`` of the ``semiannual`` spans that
+    are a fiscal year's second half (H2): another 6-month row of the entity (any concept) ends the
+    day before, and a fiscal year runs from that row's start to this one's end. The annual band
+    alone does not mark fiscal years: some issuers also file trailing-twelve-month spans
+    (Amazon), so an annual span that overlaps another annual span of the entity is no fiscal
+    year here (its 6-month rows then pair as before)."""
+    halves: dict[tuple, set[tuple[date, date]]] = {}
+    annual: dict[tuple, set[tuple[date, date]]] = {}
+    for r in rows:
+        if r.get("period_start") is None:
+            continue
+        ent = (r["entity_scheme"], r["entity_value"])
+        if r["frequency"] == "semiannual":
+            halves.setdefault(ent, set()).add((r["period_start"], r["valid_date"]))
+        elif r["frequency"] == "annual":
+            annual.setdefault(ent, set()).add((r["period_start"], r["valid_date"]))
+    years = {(*ent, a, b) for ent, spans in annual.items() for a, b in spans
+             if not any((c, d) != (a, b) and c <= b and a <= d for c, d in spans)}
+    out = set()
+    for ent, spans in halves.items():
+        ends = {}
+        for start, end in spans:
+            ends.setdefault(end, set()).add(start)
+        for start, end in spans:
+            if any((*ent, h1, end) in years for h1 in ends.get(start - timedelta(days=1), ())):
+                out.add((*ent, start, end))
+    return out
 
 
 def hidden_semiannual(rows: Iterable[dict]) -> set[date]:

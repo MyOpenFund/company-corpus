@@ -132,7 +132,9 @@ def group_periods(rows: Iterable[dict]) -> tuple[dict[tuple[date, str], dict[str
                                                  dict[date, dict[str, dict]], set[str]]:
     """Selection rows grouped by period: duration rows by ``(valid_date, frequency)`` (ytd9
     excluded), instant rows by date, and the duration frequencies that get a summary (annual,
-    plus quarterly, or semiannual when the issuer has no quarters). Shared by
+    plus quarterly, or semiannual when the issuer has no quarters). Only filed rows decide
+    which: a derived quarter alone (a semi-annual reporter with one 9-month YTD) never replaces
+    the semiannual summaries. Shared by
     :func:`build_summaries` and the store readers'
     :func:`~company_corpus.concepts.store_summaries.summaries_from_rows`."""
     duration: dict[tuple[date, str], dict[str, dict]] = {}
@@ -142,7 +144,9 @@ def group_periods(rows: Iterable[dict]) -> tuple[dict[tuple[date, str], dict[str
             instant.setdefault(r["valid_date"], {})[r["concept"]] = r
         elif r["frequency"] != "ytd9":
             duration.setdefault((r["valid_date"], r["frequency"]), {})[r["concept"]] = r
-    seen = {freq for _, freq in duration}
+    # Filed rows only: a derived quarter never makes an issuer "file quarters" (rules 6, 10).
+    seen = {freq for (_, freq), per_concept in duration.items()
+            if any(derived_formula(r) is None for r in per_concept.values())}
     allowed = {"annual"} | ({"quarterly"} if "quarterly" in seen else
                             {"semiannual"} if "semiannual" in seen else set())
     return duration, instant, allowed

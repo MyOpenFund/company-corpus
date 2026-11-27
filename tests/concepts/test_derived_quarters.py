@@ -242,7 +242,7 @@ def test_filed_quarter_checked_before_the_band():
     assert counters["quarters:not_a_quarter"] == 0
 
 
-# --- Task A2: derived markers (spec rules 6, 8, 10) ---------------------------------------------
+# --- Derived markers (spec rules 6, 8, 10) -----------------------------------------------------
 
 def test_value_carries_derived_formula():
     d = load_dictionary()
@@ -348,3 +348,92 @@ def test_rows_from_base_carries_the_derived_formula():
     rows = {r["concept"]: r for r in rows_from_base({}, s) if r["kind"] == "reported"}
     assert rows["capex"]["derived"] == "6M - Q1"
     assert rows["revenue"]["derived"] is None and rows["cfo"]["derived"] is None
+
+
+def test_h2_six_month_and_q3_do_not_pair():
+    """Only year-to-date chains subtract: an H2 6-month row (starting mid-year) and a Q3 sharing
+    its start are no 6M and Q1, so no quarter labelled "6M - Q1" is derived from them."""
+    counters = Counter()
+    rows = [row("capex", "semiannual", "2024-01-01", "2024-06-30", 25198, "2024-07-24", "H1"),
+            row("capex", "semiannual", "2024-07-01", "2024-12-31", 27337, "2025-02-05", "FY"),
+            row("capex", "quarterly", "2024-07-01", "2024-09-30", 13061, "2024-10-30", "Q3"),
+            row("capex", "annual", "2024-01-01", "2024-12-31", 52535, "2025-02-05", "FY")]
+    assert derived(with_derived_quarters(rows, counters=counters)) == []
+    assert counters["quarters:not_year_to_date"] == 1
+    # the same Q1 and 6M of a year-to-date filer still pair, with or without the FY
+    assert [r["derived"] for r in derived(with_derived_quarters(ytd_year()[:2]))] == [FORMULA_Q2]
+
+
+def test_group_periods_keeps_semiannual_summaries_of_an_issuer_filing_no_quarters():
+    """Spec rules 6, 10: a semi-annual reporter with a single 9-month YTD gets derived quarters
+    for that year, which must not remove its semiannual summaries (only filed quarters count)."""
+    from company_corpus.concepts.summaries import group_periods, with_quarters
+
+    rows = []
+    for y in (2021, 2022, 2023):
+        rows += [row("capex", "semiannual", f"{y}-01-01", f"{y}-06-30", 10 * y, f"{y}-08-01",
+                     f"H{y}"),
+                 row("capex", "annual", f"{y}-01-01", f"{y}-12-31", 30 * y, f"{y + 1}-03-01",
+                     f"F{y}")]
+    rows.append(row("capex", "ytd9", "2022-01-01", "2022-09-30", 20 * 2022, "2022-11-01", "9M22"))
+    full = with_quarters(rows)
+    assert derived(full)  # the 9M does give derived quarters
+    duration, _, allowed = group_periods(full)
+    assert "semiannual" in allowed and "quarterly" not in allowed
+    assert sorted(end.year for end, f in duration if f == "semiannual") == [2021, 2022, 2023]
+
+
+def _derived_capex_summary():
+    return _summary({"cfo": _v(50000), "capex": _v(14276000000, FORMULA_Q4),
+                     "revenue": _v(200000), "net_income": _v(30000)})
+
+
+def test_render_summary_html_marks_derived_values():
+    """Anti-goal: a derived value presented as filed. The formula sits next to the value and the
+    caption says derived values are computed from filed year-to-date values."""
+    from company_corpus.financials import render_summary_html
+
+    html = render_summary_html(_derived_capex_summary())
+    assert "14,276,000,000 (derived: FY - 9M)" in html
+    assert "computed from filed year-to-date values" in html
+    assert "50,000 (derived" not in html
+    plain = render_summary_html(_summary({"cfo": _v(50000), "capex": _v(1)}))
+    assert "derived:" not in plain and "year-to-date" not in plain
+
+
+def test_summary_text_marks_derived_values():
+    from company_corpus.pipeline import _summary_text
+
+    text = _summary_text(_derived_capex_summary())
+    lines = text.splitlines()
+    assert any(line.endswith(": 14276000000 USD (derived: FY - 9M)") for line in lines)
+    assert any(line.endswith(": 50000 USD") for line in lines)
+    assert "computed from filed year-to-date values" in text
+    assert "year-to-date" not in _summary_text(_summary({"cfo": _v(50000), "capex": _v(1)}))
+
+
+def test_rows_from_base_marks_metrics_resting_on_a_derived_value():
+    """Spec rule 8 on the corpus rows path: a metric computed from a derived value is marked."""
+    from company_corpus.financials import DERIVED_INPUT, rows_from_base
+
+    s = _derived_capex_summary()
+    rows = {r["concept"]: r for r in rows_from_base({}, s) if r["kind"] == "derived"}
+    marked = {k for k, r in rows.items() if r["derived"] is not None}
+    assert marked == metrics_from_derived(s) and "free_cash_flow" in marked
+    assert rows["free_cash_flow"]["derived"] == DERIVED_INPUT
+    assert rows["net_margin"]["derived"] is None
+    filed = rows_from_base({}, _summary({"cfo": _v(50000), "capex": _v(1)}))
+    assert all(r["derived"] is None for r in filed if r["kind"] == "derived")
+
+
+def test_trailing_twelve_month_spans_do_not_block_year_to_date_chains():
+    """Some issuers (Amazon) file trailing-twelve-month flows in the annual band (Jul-Jun,
+    Oct-Sep...): they are no fiscal years, so the year-to-date chain still gives Q2, Q3 and Q4."""
+    ttm = [row("cfo", "annual", s, e, 1, "2024-10-30", "Q3")
+           for s, e in (("2023-04-01", "2024-03-31"), ("2023-07-01", "2024-06-30"),
+                        ("2023-10-01", "2024-09-30"))]
+    ttm += [row("cfo", "semiannual", "2023-07-01", "2023-12-31", 1, "2024-02-01", "FY23")]
+    counters = Counter()
+    got = by_end(with_derived_quarters(ytd_year() + ttm, counters=counters))
+    assert sorted(got) == ["2024-06-30", "2024-09-30", "2024-12-31"]
+    assert counters["quarters:not_year_to_date"] == 0
