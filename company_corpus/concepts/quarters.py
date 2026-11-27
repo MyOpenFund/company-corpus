@@ -56,19 +56,31 @@ def with_derived_quarters(rows: Iterable[dict], dictionary: Dictionary | None = 
     Inputs pair when they share ``(concept, entity, basis, source_code, unit, period_start)``:
     the fiscal year's start. A quarter already present for the concept, entity, basis, source and
     ``valid_date`` (filed or derived by an earlier pass) is never derived again, so the function
-    is idempotent. A derived row copies its later input, then sets ``frequency`` (quarterly),
+    is idempotent. That check comes before the band: an out-of-band pair whose quarter is
+    already there counts nothing in ``quarters:not_a_quarter``.
+
+    A derived quarter is never an input (never chained): a row with a ``derived`` value, or whose
+    ``original_tag`` starts with ``derived:`` (should a projection drop the ``derived`` key). A
+    same-period derived *total* of the selection (``location`` derived, ``original_tag``
+    ``computed:<tag>``) is a filed-period value and IS a valid input.
+
+    A derived row copies its later input (so ``known_at``, ``filing_ref``, ``source_doc_id``,
+    ``review_status`` are the later filing's), then sets ``frequency`` (quarterly),
     ``period_start``, ``value``, ``location`` (derived), ``original_tag`` (``derived:`` + the
-    later input's), ``derived`` (the formula), ``conflict`` (either input's) and ``on_statement``
-    (both inputs'). Filed rows carry no ``derived`` key.
+    later input's) and ``derived`` (the formula). ``conflict`` is the OR of the inputs' and
+    ``on_statement`` the AND: more truthful than the blanket FALSE/TRUE of the derived totals
+    (spec §4 reuses their convention for ``location`` and ``original_tag`` only). Filed rows
+    carry no ``derived`` key.
     """
-    d = dictionary or load_dictionary()
+    d = dictionary if dictionary is not None else load_dictionary()
     counters = counters if counters is not None else Counter()
     rows = list(rows)
     eligible = _eligible(d)
     have = {_quarter_key(r) for r in rows if r["frequency"] == "quarterly"}
     groups: dict[tuple, dict[str, list[dict]]] = {}
     for r in rows:
-        if (r.get("derived") is not None or r["concept"] not in eligible
+        if (r.get("derived") is not None or str(r.get("original_tag") or "").startswith(_TAG_PREFIX)
+                or r["concept"] not in eligible
                 or r.get("period_start") is None or r.get("value") is None):
             continue
         key = (r["concept"], r["entity_scheme"], r["entity_value"], r["basis"], r["source_code"],

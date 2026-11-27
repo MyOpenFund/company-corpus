@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import UTC, date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from company_corpus.concepts.quarters import (
@@ -14,7 +14,7 @@ from company_corpus.concepts.quarters import (
 
 
 def at(day: str) -> datetime:
-    return datetime.fromisoformat(day).replace(hour=21, tzinfo=UTC)
+    return datetime.fromisoformat(day).replace(hour=21, tzinfo=timezone.utc)
 
 
 def row(concept, freq, start, end, value, known_at, filing_ref, **kw):
@@ -158,3 +158,69 @@ def test_standalone_filer_unchanged():
     (q4,) = derived(out)
     assert (q4["valid_date"], q4["value"], q4["derived"]) == (date(2024, 12, 31), Decimal(140),
                                                              FORMULA_Q4)
+
+
+def _chain_rows(**derived_kw):
+    q2 = row("capex", "quarterly", "2024-04-01", "2024-06-30", 13186, "2024-07-24", "Q2",
+             location="derived", original_tag="derived:us-gaap:CapexTag", **derived_kw)
+    six = row("capex", "semiannual", "2024-04-01", "2024-09-30", 26247, "2024-10-30", "Q3")
+    return [q2, six]
+
+
+def test_never_chained_from_a_derived_row():
+    rows = _chain_rows(derived=FORMULA_Q2)
+    assert with_derived_quarters(rows) == rows
+
+
+def test_never_chained_when_the_derived_key_was_dropped():
+    rows = _chain_rows()  # a projection lost the `derived` key: the tag still says derived
+    assert "derived" not in rows[0]
+    assert with_derived_quarters(rows) == rows
+
+
+def test_derived_total_is_a_valid_input():
+    rows = [dict(r, location="derived", original_tag="computed:us-gaap:CapexTag")
+            for r in ytd_year()]
+    got = by_end(with_derived_quarters(rows))
+    assert got["2024-06-30"]["value"] == Decimal(13186)
+    assert got["2024-06-30"]["original_tag"] == "derived:computed:us-gaap:CapexTag"
+
+
+def test_unit_or_basis_mismatch_does_not_pair():
+    q1, six = ytd_year()[:2]
+    assert derived(with_derived_quarters([q1, dict(six, unit="EUR")])) == []
+    assert derived(with_derived_quarters([q1, dict(six, basis="restated")])) == []
+
+
+def test_two_bases_side_by_side():
+    rows = ytd_year() + ytd_year(basis="restated")
+    out = derived(with_derived_quarters(rows))
+    assert len(out) == 6
+    for basis in ("as_reported", "restated"):
+        assert [r["value"] for r in out if r["basis"] == basis] == [
+            Decimal(13186), Decimal(13061), Decimal(14276)]
+
+
+def test_conflict_is_either_input_on_statement_is_both():
+    q1, six = ytd_year()[:2]
+    (q2,) = derived(with_derived_quarters([dict(q1, conflict=True), six]))
+    assert q2["conflict"] is True and q2["on_statement"] is True
+    (q2,) = derived(with_derived_quarters([q1, dict(six, on_statement=False)]))
+    assert q2["conflict"] is False and q2["on_statement"] is False
+    (q2,) = derived(with_derived_quarters([dict(q1, on_statement=False), six]))
+    assert q2["on_statement"] is False
+
+
+def test_duplicate_six_month_gives_one_quarter():
+    q1, six = ytd_year()[:2]
+    (q2,) = derived(with_derived_quarters([q1, six, dict(six)]))
+    assert q2["value"] == Decimal(13186)
+
+
+def test_filed_quarter_checked_before_the_band():
+    counters = Counter()
+    rows = [row("capex", "ytd9", "2024-01-01", "2024-09-30", 38259, "2024-10-30", "Q3"),
+            row("capex", "annual", "2024-01-01", "2025-01-31", 60000, "2025-03-20", "FY"),
+            row("capex", "quarterly", "2024-11-01", "2025-01-31", 21000, "2025-03-20", "FY")]
+    assert with_derived_quarters(rows, counters=counters) == rows
+    assert counters["quarters:not_a_quarter"] == 0
