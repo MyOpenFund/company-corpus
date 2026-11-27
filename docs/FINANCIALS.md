@@ -248,6 +248,78 @@ and consistent (a metric's presence never depends on whether the SIC was fetched
 a consumer that wants to exclude bank EBITDA can filter `sector_relevant == False`.
 `sic` and `is_financial` are surfaced on every output row.
 
+## Derived quarters
+
+Since 0.3.0. Many issuers file their cash-flow statements **year to date**: 3, 6 and 9 months in
+the 10-Qs, then the fiscal year in the 10-K (Alphabet, Meta and Oracle among them). Only Q1 is then
+a filed quarter. `concepts.quarters.with_derived_quarters` adds the standalone quarters to a
+selection, as ordinary `quarterly` rows marked derived; the store is never touched (a producer
+publishes what was filed, anything computed is a reader's recipe).
+
+| Quarter | Formula (`derived`) | Inputs |
+|---|---|---|
+| Q2 | `6M - Q1` | 6-month YTD (`semiannual`) minus Q1 (`quarterly`) |
+| Q3 | `9M - 6M` | 9-month YTD (`ytd9`) minus 6-month YTD |
+| Q4 | `FY - 9M` | fiscal year (`annual`) minus 9-month YTD |
+
+Rules:
+
+- **Filed wins.** A quarter filed for the concept, entity, basis, source and period end is never
+  derived or replaced.
+- **Both inputs or nothing**, same concept, entity, basis, source, unit and fiscal-year start;
+  never chained from another derived quarter. The derived span must fall in the quarterly band
+  (81 to 101 days), else nothing (`quarters:not_a_quarter`).
+- **Odd results stay visible**: a negative difference is kept, marked derived.
+- **Eligible concepts**: money flows only (`kind == "money"` and not instant): `revenue`,
+  `cost_of_revenue`, `gross_profit`, `operating_income`, `pretax_income`, `pretax_domestic`,
+  `pretax_foreign`, `income_tax`, `net_income`, `net_income_consolidated`, `net_income_nci`,
+  `interest_expense`,
+  `interest_net`, `rnd_expense`, `sga_expense`, `dep_amort`, `stock_comp`, `cfo`, `cfi`, `cff`,
+  `capex`, `acquisitions_net`, `asset_sale_proceeds`, `buybacks`, `dividends_paid`,
+  `preferred_dividends`, `debt_proceeds`, `debt_repayments`, `finance_lease_principal`.
+  Per-share and share-count concepts (6M EPS minus Q1 EPS is not the quarter's EPS) and balances
+  are never derived.
+- **Q4 for every issuer.** Almost nobody files a standalone Q4 (Microsoft and Amazon file 9M and
+  FY too), so `FY - 9M` is derived for every issuer and every eligible concept: each fiscal
+  year-end gets a quarterly summary.
+
+**Marker.** A derived row copies its later input and sets `frequency = "quarterly"`,
+`period_start` (the day after the earlier input ends), `value`, `location = "derived"`,
+`original_tag = "derived:<later input's tag>"` and `derived` (the formula); `conflict` is either
+input's, `on_statement` both inputs'. Filed rows carry no `derived` key. In a `PeriodSummary`,
+every value has `derived` (the formula, or null for a filed value) and its `tag` is the later
+input's filed tag; `metrics_from_derived(summary)` names the point-in-time metrics that rest on a
+derived value (free cash flow, FCF margin, capex intensity...).
+
+**Point in time.** A derived quarter exists only once both inputs are public. The row is known at
+the later of its two inputs: `known_at`, `filing_ref` and `source_doc_id` are that input's
+selected vintage (as for a filed row, a later re-filing such as next year's comparative can be
+that vintage). A summary's publication date and accession take a derived value at the later of
+its two inputs' **first** filings (the `fundamentals` vintages on the store path, the
+companyfacts points on F1), so a derived Q4 is dated by the 10-K, and a period whose duration
+values are all derived is dated by them alone (an earlier filing that only holds the period's
+balances does not date it). With an `as_of`, run the selection on the vintages and positions
+known at that instant and derive from that selection: the day before a 10-Q is accepted its
+quarter does not exist, the day after it does (`tests/live/test_derived_quarters_real.py`, on
+Alphabet's Q3 2024).
+
+**6-month rows.** For a period where a quarter ends, the issuer's 6-month YTD (`semiannual`) rows
+are derivation inputs, like `ytd9`: `hidden_semiannual(rows)` returns those period ends, and a
+store reader such as the MCP leaves those rows out of its default output (`companies_facts` still shows them). Decided per
+fiscal year: an issuer that files no quarters (a semi-annual reporter) keeps its 6-month rows and
+summaries.
+
+**Paths.** `build_summaries` / `attach_ttm` (F1) and the store readers' `summaries_from_rows`
+share one computation (`concepts.summaries.with_quarters`). Validated on the recorded real
+issuers (Alphabet, Meta, Oracle from FY2022: every derived quarter equals the hand subtraction of
+the filed values; Microsoft and Amazon: filed values unchanged, the additions are derived Q4s).
+
+**Migration (0.3.0).** Outputs gain derived rows; filed rows unchanged. F1 and store summaries
+gain derived values (marked `derived`), a quarterly summary at each fiscal year-end, the metrics
+computed on them, and quarterly TTM at Q2/Q3 of year-to-date filers. A consumer that treated
+every `quarterly` value as filed must read `derived`; one that rebuilt Q4 as FY - 9M itself can
+read the derived row instead.
+
 ## Trailing-twelve-month (TTM) ratios — Bloomberg-aligned
 
 `compute_ttm_derived` + `attach_ttm_metrics` add a `ttm` block so quarterly ratios
@@ -279,16 +351,10 @@ change across taxonomy vintages (e.g. `SalesRevenueNet` → `Revenues`) does not
 suppress TTM; the EU and register paths union a concept's points across all its
 fallback tags for the same reason.
 
-**Derived quarters (SEC path and store readers).** An issuer that files its cash flows year to
-date (3, 6, 9 months, then the year) gets standalone quarters derived from them: Q2 = 6M − Q1,
-Q3 = 9M − 6M, Q4 = FY − 9M (`concepts.quarters.with_derived_quarters`, money flow concepts only,
-both inputs or nothing, a filed quarter always wins). Q4 is derived for every issuer, so each
-fiscal year-end also gets a quarterly summary, dated and accessioned by the 10-K. Its derived
-values carry `derived` (the formula) and the summary's metrics are computed on them. TTM reads the
-derived Q2/Q3 as ordinary quarters, so a quarterly TTM at Q2/Q3 of a year-to-date filer is
-computable; the fiscal year-end quarter stays decided by the Q4 rule (`ytd9` or
-`sum_of_quarters`), never by the derived Q4 row. `build_summaries` / `attach_ttm` (F1) and the
-store readers' `summaries_from_rows` share this computation.
+**Derived quarters.** TTM reads derived Q2/Q3 as ordinary quarters, so a quarterly TTM at
+Q2/Q3 of a year-to-date filer is computable; the fiscal year-end quarter stays decided by the Q4
+rule (`ytd9` or `sum_of_quarters`), never by the derived Q4 row. See
+[Derived quarters](#derived-quarters).
 
 **Validation.** This reproduces Apple's published quarterly Return on Assets to
 four decimal places: **32.5629** at 2025-12-27 and **34.9060** at 2026-03-28

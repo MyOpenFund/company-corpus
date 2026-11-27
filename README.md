@@ -38,6 +38,15 @@ a unified per-period row schema (see [`docs/FINANCIALS.md`](https://github.com/M
 | **EU ESEF / IFRS** (Pillar B) | EU listed issuers | `filings.xbrl.org` json_url + Arelle (Tier B) | ✅ done — [`EU_FINANCIALS.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/EU_FINANCIALS.md) |
 | **Register financials** | Private / credit universe (non-listed) | 8 national registers: 🇳🇴 NO · 🇬🇧 UK · 🇧🇪 BE · 🇱🇺 LU · 🇫🇮 FI · 🇩🇰 DK · 🇪🇪 EE · 🇸🇰 SK | ✅ all eight registers merged — [`REGISTER_FINANCIALS.md`](https://github.com/MyOpenFund/company-corpus/blob/main/docs/REGISTER_FINANCIALS.md) |
 
+**Derived quarters (0.3.0).** On the SEC path and for store readers, issuers that file their
+cash flows year to date (3, 6, 9 months, then the year) get standalone quarters computed from
+them: Q2 = 6M − Q1, Q3 = 9M − 6M, Q4 = FY − 9M (Q4 for every issuer). They are ordinary quarterly
+values marked `derived` with their formula, money flow concepts only, a filed quarter always wins,
+and a derived quarter exists only once both inputs are public (point in time). The 6-month YTD
+rows of a quarterly filer become derivation inputs (`hidden_semiannual`). **Migration: outputs
+gain derived rows; filed rows unchanged.** Details: [`docs/FINANCIALS.md` — Derived
+quarters](https://github.com/MyOpenFund/company-corpus/blob/main/docs/FINANCIALS.md#derived-quarters).
+
 The register pillar targets issuers that never file ESEF — bond obligors, private
 companies, bank counterparties. Output lands in `data/financials_register/` (never
 merged with `data/financials_eu/`), labelled by `basis` (legal-entity vs.
@@ -314,7 +323,10 @@ vintages=<the same fundamentals rows>)`. It returns the same `PeriodSummary` obj
 (`values`, point-in-time `derived` ratios, `ttm` ratios); `concept_catalog()` (entries carry `kind`, not a unit) and
 `metric_catalog()` list what exists. The store carries the 9-month YTD band (`ytd9`, fundamentals 3.1.0), so the fiscal-year-end
 quarter is rebuilt as annual minus 9-month YTD like F1 (`q4_rule="ytd9"`, the default;
-`"sum_of_quarters"` stays a parameter).
+`"sum_of_quarters"` stays a parameter). The summaries include the derived quarters (values with a
+non-null `derived`; see [Derived
+quarters](https://github.com/MyOpenFund/company-corpus/blob/main/docs/FINANCIALS.md#derived-quarters));
+for a point-in-time read, run the selection on the vintages and positions known at `as_of`.
 Publication dates are read in New York time (`publication_tz`); the module docstring lists
 where they can differ from F1's by a few days. Without an SIC, pass `sector_known=False`:
 `sector_relevant` is then null rather than false.
